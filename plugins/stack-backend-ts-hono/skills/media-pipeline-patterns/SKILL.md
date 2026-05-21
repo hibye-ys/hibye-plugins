@@ -58,12 +58,18 @@ Workers fetch handler 의 request body 는 **6MB hard limit**. 큰 입력 (e.g. 
 - 작은 입력 (텍스트 prompt, 작은 이미지 < 4MB) 은 직접 POST 허용
 - presigned URL 발급은 R2 API `createPresignedUrl()` 또는 S3-호환 SDK (R2 가 S3-호환 API 제공)
 
-## Job 라이프사이클 (6-state)
+## Job 라이프사이클 (6-state internal ↔ 5-state external)
 
-정본: `media-job-lifecycle` skill. 요약:
+**정본 type** (`MediaJobStatus`) 은 `media-job-lifecycle` invariant skill 이 소유. 본 workflow 는 그것을 **import** 만 한다 — 자체 union 재선언 ✕.
 
 ```typescript
-export type MediaJobStatus =
+// ✅ external API type 은 invariant 가 정본 — workflow 는 import 만, 재선언 ✕
+import type { MediaJobStatus } from '../media-job-lifecycle';
+// MediaJobStatus = 'pending' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'dlq'
+
+// 본 workflow 본문이 다루는 internal stage 명칭 (Python source 어휘 유지)
+// — DB column / worker queue 의 implementation detail. External API 응답은 toExternalStatus() 경유.
+export type InternalJobStage =
   | 'queued'
   | 'running'
   | 'completed'
@@ -71,15 +77,33 @@ export type MediaJobStatus =
   | 'canceled'
   | 'dlq';
 
-export const TERMINAL_JOB_STATUSES = ['completed', 'failed', 'canceled', 'dlq'] as const satisfies readonly MediaJobStatus[];
+// internal → external 매핑 (응답 직전 호출)
+export function toExternalStatus(stage: InternalJobStage): MediaJobStatus {
+  switch (stage) {
+    case 'queued':    return 'pending';
+    case 'running':   return 'processing';
+    case 'completed': return 'succeeded';
+    case 'failed':    return 'failed';
+    case 'canceled':  return 'canceled';
+    case 'dlq':       return 'dlq';
+  }
+}
 
-export function isTerminal(status: MediaJobStatus): boolean {
-  return (TERMINAL_JOB_STATUSES as readonly string[]).includes(status);
+// 내부 terminal set (queue worker 가 사용)
+export const TERMINAL_INTERNAL_STAGES = ['completed', 'failed', 'canceled', 'dlq'] as const satisfies readonly InternalJobStage[];
+
+export function isTerminalStage(stage: InternalJobStage): boolean {
+  return (TERMINAL_INTERNAL_STAGES as readonly string[]).includes(stage);
 }
 ```
 
-- `dlq` 는 terminal — retry 예산 소진 또는 permanent error 분류 시. `failed` 는 legacy (호환 보존, 신규 row 사용 ✕)
+- `MediaJobStatus` (invariant 정본) — **외부 API contract**. 본 workflow 는 절대 재선언 ✕
+- `InternalJobStage` (본 workflow 정의, 6 stage) — **내부 queue / worker / DB column** 의 implementation detail. Python source (`queued` / `running` / `completed`) 어휘 유지
+- 매 `GET /media/jobs/<id>` 응답 직전에 `toExternalStatus(internalStage)` 로 변환 후 `c.json({ status: external, ... })` 직렬화
+- `dlq` 는 양쪽에 공통 (invariant 의 `MediaJobStatus` 에 포함) — retry 예산 소진 또는 permanent error 분류 시
 - `running` 진입 시 worker 가 lease (`workerId`, `claimedAt`) 기록. **DB 모드에서는 transactional commit** — split-brain 방지
+
+> 매핑 표 정본 = invariant skill `media-job-lifecycle` §"6-state ↔ 본 invariant 4 의 매핑". 본 workflow 의 본문 (이하 절들) 은 `InternalJobStage` 어휘 (`queued` / `running` / `completed`) 로 작성 — DB / worker 가 다루는 stage.
 
 ## Storage — `MediaJobPort` (Neon primary, KV fallback for smoke test)
 
@@ -203,7 +227,8 @@ Workers 는 CPU 제한 (default 50ms, paid plan ~30s) 으로 PIL / ffmpeg 인-�
 |------|-----------|
 | `APP_DB_ENABLED` 기본값 변경 | 부팅 시 `MediaJobPort` 구현체 선택 — 기존 dev 환경 `.dev.vars` 없으면 분기 뒤바뀜 |
 | `MediaJobPort` 시그니처 변경 | `DbMediaJob` + `KvMediaJob` + test fixture 동시 업데이트 |
-| `MediaJobStatus` enum 추가 | union literal + `TERMINAL_JOB_STATUSES` + 폴링 클라이언트 + 모니터링 |
+| `MediaJobStatus` (external) 추가 | `media-job-lifecycle` invariant 우선 수정 (정본) — 본 workflow 의 `toExternalStatus` 매핑 + 폴링 클라이언트 + 모니터링 동시 업데이트 |
+| `InternalJobStage` (internal) 추가 | `TERMINAL_INTERNAL_STAGES` + worker dispatch + DB column CHECK constraint. `toExternalStatus` 매핑 보존 (external 노출은 invariant 의 `MediaJobStatus` 통해서만) |
 | R2 key 스키마 (`media/<id>/<filename>`) 변경 | `WriteCoordinator.writeMediaOutput` + 기존 완료 job 의 `resultPath` 호환성 |
 | Queue 구현 변경 (Postgres LISTEN → Workers Queues) | Port 시그니처 유지하며 `subscribe()` 구현체 교체. stale-lease reaper 는 별도 재설계 필요 |
 | presigned URL 도입 | 클라이언트 파일 접근 방식 변경 — `resultPath` 응답 scheme 추가 |

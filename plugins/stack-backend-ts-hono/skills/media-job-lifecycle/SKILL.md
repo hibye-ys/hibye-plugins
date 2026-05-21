@@ -1,6 +1,6 @@
 ---
 name: media-job-lifecycle
-description: Media job 상태 전이 monotone 보장 (pending → processing → succeeded|failed|canceled), jobId = idempotency key, terminal 후 result immutable, canceled = soft signal. 6-state lifecycle 정본 (언어 무관). 위반 = 즉시 차단.
+description: Media job 상태 전이 monotone 보장 (pending → processing → succeeded|failed|canceled|dlq), jobId = idempotency key, terminal 후 result immutable, canceled = soft signal. MediaJobStatus 정본 + TERMINAL_JOB_STATUSES (언어 무관). 위반 = 즉시 차단.
 metadata:
   role: invariant
   scope: apps/api
@@ -35,7 +35,7 @@ pending (= queued) → processing (= running) → succeeded (= completed) | fail
 
 ### Invariant 3: terminal 후 result immutable
 
-- `status ∈ TERMINAL_STATUSES` 이면 `result` / `resultPath` / `resultMetadata` / `error` 필드 **변경 ✕**
+- `status ∈ TERMINAL_JOB_STATUSES` 이면 `result` / `resultPath` / `resultMetadata` / `error` 필드 **변경 ✕**
 - 변경이 필요한 경우 = **새 job 생성** (새 `jobId`)
 - DB 모드: terminal row 에 UPDATE 시 `WHERE status IN (terminal)` 조건 + check constraint 또는 `RETURNING` 검증으로 차단
 - KV 모드: WriteCoordinator 가 terminal guard 검증 후 stale write drop (`media.stale_terminal_write` 경고)
@@ -45,7 +45,7 @@ pending (= queued) → processing (= running) → succeeded (= completed) | fail
 - `DELETE /media/jobs/<id>` 호출은 **즉시 종료 보장 ✕**. `canceled` 상태 set + worker 의 **다음 checkpoint** 에서 종료
 - worker 는 pickup 시 / checkpoint 마다 status 확인 — `canceled` 면 handler skip 또는 cooperative cancel
 - 강제 종료 = `AbortController.abort()` cascade 도 가능하지만 **외부 SDK 호출 중간에는 강제 중단 불가** — best-effort 정책
-- terminal set 에 포함됨 (`TERMINAL_STATUSES`) — 일단 `canceled` 면 추가 전이 ✕
+- terminal set 에 포함됨 (`TERMINAL_JOB_STATUSES`) — 일단 `canceled` 면 추가 전이 ✕
 
 ## TypeScript 표현 (apps/api)
 
@@ -79,7 +79,7 @@ export interface MediaJob {
   updatedAt: string;
 }
 
-export const TERMINAL_STATUSES: ReadonlyArray<MediaJobStatus> = [
+export const TERMINAL_JOB_STATUSES: ReadonlyArray<MediaJobStatus> = [
   'succeeded',
   'failed',
   'canceled',
@@ -87,23 +87,24 @@ export const TERMINAL_STATUSES: ReadonlyArray<MediaJobStatus> = [
 ] as const;
 
 export function isTerminal(status: MediaJobStatus): boolean {
-  return TERMINAL_STATUSES.includes(status);
+  return TERMINAL_JOB_STATUSES.includes(status);
 }
 ```
 
-### 6-state ↔ 본 invariant 4 의 매핑
+### 6-state ↔ 본 invariant 의 매핑
 
-본 invariant 가 정의한 4 상태 (pending / processing / succeeded / failed / canceled) 은 `media-pipeline-patterns` skill 의 6-state (queued / running / completed / failed / canceled / dlq) 와 다음과 같이 매핑:
+본 invariant 가 정의한 6 상태 (`MediaJobStatus` = pending / processing / succeeded / failed / canceled / dlq) 는 **외부 API contract**. `media-pipeline-patterns` workflow 의 6 internal stage (queued / running / completed / failed / canceled / dlq) 와 다음과 같이 매핑:
 
-| 본 invariant | media-pipeline-patterns 6-state | 비고 |
-|--------------|--------------------------------|------|
+| 본 invariant `MediaJobStatus` (external) | workflow `InternalJobStage` (internal) | 비고 |
+|----------------------------------------|---------------------------------------|------|
 | `pending` | `queued` | enqueue 직후 |
 | `processing` | `running` | worker pickup + handler 호출 직전 |
 | `succeeded` | `completed` | handler 성공 |
-| `failed` | `failed` (legacy) / `dlq` (신규) | `dlq` 도 `isTerminal` true |
+| `failed` | `failed` | handler 예외 (legacy 경로) |
 | `canceled` | `canceled` | DELETE 트리거, soft signal |
+| `dlq` | `dlq` | retry 예산 소진 또는 permanent error |
 
-> 구현은 6-state 사용. 본 skill 의 4-invariant 는 6-state 위에서도 동일하게 적용된다 (terminal set 확장만).
+> 매핑 함수 = `toExternalStatus(stage: InternalJobStage): MediaJobStatus` (workflow skill `media-pipeline-patterns` 정의). DB column / worker queue 는 `InternalJobStage` 사용, 외부 응답은 `MediaJobStatus`. 본 invariant 의 4 invariant (monotone / idempotency / immutable / soft cancel) 는 두 vocabulary 모두에 적용 — terminal set 도 6 stage 모두 포함 (`TERMINAL_JOB_STATUSES` ⊇ `succeeded` / `failed` / `canceled` / `dlq`, `TERMINAL_INTERNAL_STAGES` ⊇ `completed` / `failed` / `canceled` / `dlq`).
 
 ## 위반 = 즉시 차단
 
@@ -167,7 +168,7 @@ export async function cancelJob(db: Database, jobId: string): Promise<void> {
   await db
     .update(mediaJobs)
     .set({ status: 'canceled', updatedAt: new Date().toISOString() })
-    .where(and(eq(mediaJobs.id, jobId), notInArray(mediaJobs.status, [...TERMINAL_STATUSES])));
+    .where(and(eq(mediaJobs.id, jobId), notInArray(mediaJobs.status, [...TERMINAL_JOB_STATUSES])));
   // worker 가 다음 checkpoint 에서 status 확인 + skip
 }
 ```
