@@ -19,6 +19,20 @@
       "version": "0.0.1",
       "deprecated": true,
       "successor": "core"
+    },
+    {
+      "name": "stack-backend-ts-hono",
+      "description": "Hono + Web 표준 (Workers 호환) backend rules for TypeScript projects.",
+      "category": "development",
+      "source": "./plugins/stack-backend-ts-hono",
+      "version": "0.0.1"
+    },
+    {
+      "name": "surface-web-vite-react",
+      "description": "Vite + React 19 + RR7 + Tailwind v4 token-only styling rules for web SPA.",
+      "category": "development",
+      "source": "./plugins/surface-web-vite-react",
+      "version": "0.0.1"
     }
   ]
 }
