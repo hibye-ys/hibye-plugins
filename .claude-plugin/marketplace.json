@@ -33,6 +33,13 @@
       "category": "development",
       "source": "./plugins/surface-web-vite-react",
       "version": "0.0.1"
+    },
+    {
+      "name": "stack-backend-python",
+      "description": "Python FastAPI AI agent backend rules + skills (legacy 보존, ref/iyaki-zip-ai 흡수).",
+      "category": "development",
+      "source": "./plugins/stack-backend-python",
+      "version": "0.0.1"
     }
   ]
 }

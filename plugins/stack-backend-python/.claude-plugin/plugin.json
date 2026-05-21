@@ -1,0 +1,8 @@
+{
+  "name": "stack-backend-python",
+  "version": "0.0.1",
+  "description": "Python FastAPI AI agent backend rules + skills (legacy 보존, ref/iyaki-zip-ai 흡수).",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT",
+  "keywords": ["python", "fastapi", "asyncio", "ai-agent", "agent-skills"]
+}

@@ -1,0 +1,54 @@
+{
+  "skill_name": "testing-infra",
+  "evals": [
+    {
+      "id": 1,
+      "name": "conftest-and-patterns-design",
+      "prompt": "I'm starting backend/tests/conftest.py for App unit tests. Show me the shared fixtures I need (mock_anthropic_stream, mock_data_reader, session_factory, tool registry isolation), the AsyncMock pattern for streaming providers, how to manually construct tool_use content blocks for testing the agent loop, and the pytest markers I should define. Also explain what's out of scope for the baseline testing setup.",
+      "assertions": [
+        {
+          "id": "4_fixtures",
+          "text": "Answer defines all 4 core fixtures explicitly by name — mock_anthropic_stream, mock_data_reader, session_factory, and a tool-registry isolation fixture — with code or clear signatures, not just a narrative list",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "autouse_isolation",
+          "text": "Answer marks the tool-registry isolation fixture (and/or a provider-cache reset fixture) as autouse=True and explains that process-state fixtures MUST be autouse to prevent silent test pollution",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "asyncmock_pattern",
+          "text": "Answer shows the AsyncMock streaming pattern as a factory that takes a list of scripted ProviderEvent dicts and yields them via an async generator, not a single return_value mock",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "tool_use_manual",
+          "text": "Answer includes a concrete example of manually constructing tool_use content blocks (tool_use_start/delta/end sequence) to drive the agent loop without a real LLM call, tied to registering a stub Tool in ToolRegistry",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "pytest_markers",
+          "text": "Answer defines exactly 4 pytest markers by name — unit, integration, slow, phase2b — in a pyproject.toml [tool.pytest.ini_options] markers list with descriptions",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "no_VCR_in_phase2a",
+          "text": "Answer explicitly states that VCR cassette / record-replay infrastructure is documented in Chapter B (or equivalent), instead of silently including a VCR recipe in the base setup",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "no_reference",
+          "text": "Answer does not reference any retired internal identifiers (Phase / AD-### / harness porter labels).",
+          "kind": "objective",
+          "critical": true
+        }
+      ]
+    }
+  ]
+}

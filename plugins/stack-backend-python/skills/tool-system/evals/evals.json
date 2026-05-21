@@ -1,0 +1,80 @@
+{
+  "skill": "tool-system",
+  "version": "0.1",
+  "prompt": "I'm starting backend/tools/base.py for the App agent. Show me the Tool protocol I should implement, including how to handle concurrency safety per invocation, the registry API I need, and what fields go in ToolContext. Also list the steps to register a new tool.",
+  "assertions": [
+    {
+      "id": "A1_protocol_pydantic_v2",
+      "must_contain_any": [
+        "pydantic",
+        "BaseModel",
+        "model_config"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "A2_concurrency_input_based",
+      "must_contain_all": [
+        "is_concurrency_safe",
+        "input"
+      ],
+      "must_not_contain": [
+        "@classmethod\\s+is_concurrency_safe",
+        "class attribute"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "A3_registry_singleton",
+      "must_contain_all": [
+        "ToolRegistry",
+        "register",
+        "get",
+        "definitions"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "A4_partitioning_gather",
+      "must_contain_all": [
+        "asyncio.gather",
+        "safe",
+        "unsafe",
+        "sequential"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "A5_toolcontext_fields",
+      "must_contain_all": [
+        "session_id",
+        "tool_use_id",
+        "cancel_event"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "A6_register_checklist",
+      "must_contain_all": [
+        "registry",
+        "schema",
+        "test",
+        "allowlist"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "A7_no_static_concurrency",
+      "must_not_contain": [
+        "concurrency_safe = True",
+        "concurrency_safe: bool ="
+      ],
+      "weight": 2
+    },
+    {
+      "id": "A8_no_reference_keywords",
+      "weight": 2
+    }
+  ],
+  "min_pass_score": 9
+}

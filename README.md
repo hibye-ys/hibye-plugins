@@ -13,6 +13,7 @@ Shared agent assets marketplace for Claude Code + Codex.
 |---|---|---|
 | `core` | L1 | 진입점 + `using-marketplace` bootstrap skill + `debug-session` skill |
 | `stack-backend-ts-hono` | L2 | Hono + Web 표준 (Workers 호환) backend 룰 + `verify-workers-compat` skill |
+| `stack-backend-python` | L2 | Python FastAPI AI agent backend 룰 (23) + `_shared` 언어 무관 룰 (14) + 스킬 (45) — ref/iyaki-zip-ai legacy 보존 |
 | `surface-web-vite-react` | L3 | Vite + React + Tailwind v4 토큰 룰 + Pack 시스템 룰 + `verify-token-only-styling` skill |
 | `deprecated-example` | — | M0 #10 deprecation 시그널 검증 fixture |
 

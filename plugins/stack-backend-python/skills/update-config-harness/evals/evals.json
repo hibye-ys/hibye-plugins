@@ -1,0 +1,36 @@
+{
+  "skill_name": "update-config-harness",
+  "evals": [
+    {
+      "id": 1,
+      "name": "add-post-tool-use-hook",
+      "prompt": "I have an existing `.claude/settings.json` with two PreToolUse hooks already registered (pre_write_guard for Write/Edit/NotebookEdit, pre_bash_guard for Bash). I now want to add a new PostToolUse hook that runs ruff check after every Write/Edit and injects the lint result as additional context for the next turn.\n\nWalk me through the full procedure:\n1. How to verify my new hook script works before touching settings.json\n2. How to add the new hook entry without breaking the existing two\n3. How to validate the resulting JSON\n4. How to prove the hook actually fires\n\nAssume the hook script is `.claude/hooks/python_lint_post.py` and it already outputs the correct JSON. Focus on the settings.json editing procedure and verification steps.",
+      "assertions": [
+        {
+          "text": "Answer explicitly tells the user to pipe-test the hook script with simulated stdin BEFORE editing settings.json (e.g. `echo '{...}' | python .claude/hooks/python_lint_post.py`)",
+          "kind": "objective"
+        },
+        {
+          "text": "Answer warns against replacing the whole hooks object / permissions arrays and instructs merge-style incremental edit (preserving the two existing PreToolUse entries)",
+          "kind": "objective"
+        },
+        {
+          "text": "Answer uses `jq -e` or equivalent for schema validation of the resulting settings.json",
+          "kind": "objective"
+        },
+        {
+          "text": "Answer includes a 'prove the hook fires' step — doing an actual Write/Edit in the session and checking that the hook ran, not just 'looks right'",
+          "kind": "objective"
+        },
+        {
+          "text": "Answer identifies the correct stdout shape for PostToolUse result injection (hookSpecificOutput.additionalContext or similar), not just prints to stderr",
+          "kind": "objective"
+        },
+        {
+          "text": "Answer mentions the dedup check — make sure the same matcher+command isn't already registered",
+          "kind": "objective"
+        }
+      ]
+    }
+  ]
+}

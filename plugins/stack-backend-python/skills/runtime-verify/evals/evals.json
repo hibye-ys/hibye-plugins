@@ -1,0 +1,62 @@
+{
+  "skill_name": "runtime-verify",
+  "min_pass_score": 8,
+  "_scoring_note": "Task brief specified min_pass_score=9 with 8 assertions; interpreted as weighted scoring where critical assertions count double. Effective rule: all 8 assertions must pass AND all 7 critical must pass — passed_count 8/8 = numeric score 8 with 0 skipped, satisfies downstream gate.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "verify-after-change-before-done",
+      "prompt": "I just finished implementing a new backend/tools/search.py Tool subclass, registered it in the ToolRegistry, and pytest unit + integration pass. I want to mark this task as 'done'. How should I verify that the change actually works end-to-end before claiming done? Give me a concrete, self-contained workflow — not generic 'run the tests' advice. I want to see the exact bash commands I should run, the order, what success looks like at each step, and what the rule is for when I'm allowed to stop verifying. Also explain what is NOT enough on its own.",
+      "assertions": [
+        {
+          "id": "3tier",
+          "text": "Answer defines exactly 3 named tiers — Static, Boot, E2E — with explicit pass conditions per tier and a mapping of 'what changed' → 'which tier is required'. Not just a loose gradient — three discrete buckets.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "7step_bash",
+          "text": "Answer provides a single copy-paste-executable bash block with exactly 7 numbered steps: (1) ruff, (2) ty check backend/ (project standard, NOT mypy), (3) pytest unit+integration, (4) uvicorn boot on port 8001 (or similar non-8000 port) via `uv run uvicorn`, (5) curl /health, (6) curl POST /run/<name> E2E scenario with body `{\"message\": ...}`, (7) grep ERROR/CRITICAL log scan. The block uses set -euo pipefail and cleans up the uvicorn process on exit.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "sse_order",
+          "text": "Answer specifies the expected SSE event order per the 12-event set (stream.py::SSEEventType): session → agent → (text|thinking|tool_call|tool_result|action|notification)* → (usage)? → (done | error) — done and error are mutually exclusive. Answer provides a concrete command (awk or grep) to extract the event sequence from the captured SSE output for verification. Not just 'check the events' prose.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "superpowers_optional",
+          "text": "Answer mentions superpowers:verification-before-completion as an OPTIONAL addon, explicitly states runtime-verify does NOT depend on the superpowers plugin, and shows a guarded `if [ -d ... superpowers ]` check rather than hard-coding its invocation.",
+          "kind": "objective",
+          "critical": false
+        },
+        {
+          "id": "impact_table",
+          "text": "Answer includes a table mapping at least 5 change types (e.g. single-function edit, new import, new endpoint, new feature, config change, test-only, docs-only) to which of Static/Boot/E2E tiers are required, so that the user knows which tier they need for their specific change — not a one-size-fits-all 'always run all 7 steps' directive.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "no_static_only",
+          "text": "Answer explicitly rejects 'type checks and pytest pass, so it's done' as a valid completion claim. Static-only pass is called out as NOT sufficient for new endpoints / new features, and the answer names at least one failure mode (mock-vs-production divergence, lazy init, silent exception swallow, etc.) that Static cannot catch.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "typecheck_neq_feature",
+          "text": "Answer states, in so many words, the principle that '타입체크 통과 ≠ 기능 검증' / 'type check passing is not the same as feature working' as a top-level rule, not as a buried aside. The principle is framed as the core justification for doing Boot and E2E tiers.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "no_reference",
+          "text": "Answer does not reference any retired internal identifiers (Phase / AD-### / harness porter labels).",
+          "kind": "objective",
+          "critical": true
+        }
+      ]
+    }
+  ]
+}

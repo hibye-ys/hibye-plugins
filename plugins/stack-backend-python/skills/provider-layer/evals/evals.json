@@ -1,0 +1,75 @@
+{
+  "skill": "provider-layer",
+  "version": "0.1",
+  "prompt": "I'm starting backend/providers/base.py and backend/providers/anthropic.py for App (Python FastAPI AI agent backend). I also need backend/services/model_resolution.py. Show me the Provider Protocol I should implement, the unified Message/ContentBlock types (with tool_use and tool_result variants), the 4-stage model resolution algorithm, the fuzzy-match table for model aliases, the connected-providers cache pattern, and the retry policy distinguishing foreground vs background calls. Also explain how to handle 529 overload errors per provider, why stream forwarding needs a tee pattern, and how tests should handle the connected-providers cache. Be specific enough that I can start typing real code from your answer.",
+  "assertions": [
+    {
+      "id": "B1_protocol_protocol",
+      "must_contain_all": [
+        "Protocol",
+        "call_stream",
+        "count_tokens"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "B2_message_unified",
+      "must_contain_all": [
+        "Message",
+        "ContentBlock",
+        "tool_use",
+        "tool_result"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "B3_resolution_4stage",
+      "must_contain_all": [
+        "explicit",
+        "agent",
+        "fallback",
+        "default"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "B4_retry_fg_bg_split",
+      "must_contain_all": [
+        "foreground",
+        "background",
+        "max_retries",
+        "backoff"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "B5_529_allowlist",
+      "must_contain_all": [
+        "529",
+        "allowlist"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "B6_cache_clear",
+      "must_contain_all": [
+        "cache_clear",
+        "monkeypatch"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "B7_stream_tee",
+      "must_contain_any": [
+        "tee",
+        "Queue"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "B8_no_reference",
+      "weight": 2
+    }
+  ],
+  "min_pass_score": 9
+}

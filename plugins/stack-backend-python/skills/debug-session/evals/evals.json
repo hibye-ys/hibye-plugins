@@ -1,0 +1,61 @@
+{
+  "skill_name": "debug-session",
+  "min_pass_score": 8,
+  "evals": [
+    {
+      "id": 1,
+      "name": "debug-workflow-when-broken",
+      "prompt": "Something is broken in my App backend. One pytest test just started failing and the dev server is returning 500 on POST /run/chat. I don't know where to start. Walk me through the deterministic debug workflow I should follow — what commands to run, in what order, what to look for, and what I absolutely should NOT do (including any files that are off-limits for editing during debug). I want a reusable playbook, not a speculative theory about my specific bug.",
+      "assertions": [
+        {
+          "id": "5_steps",
+          "text": "Answer describes exactly a 5-step workflow in order: (1) enable / verify debug logging, (2) tail log file with ERROR/WARN grep, (3) parse pytest traceback with --lf, (4) locate FastAPI request/response logs with session_id tracking, (5) consult design doc / subsystem mapping. Not 3 steps, not 7 steps, not a different ordering.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "pytest_lf",
+          "text": "Answer prescribes `pytest --lf -x --tb=short` (or equivalent last-failed + fail-fast + short traceback combo) as the canonical pytest debug command, not a plain `pytest` or `pytest -v` full-suite re-run.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "log_paths",
+          "text": "Answer names the canonical App log file paths — at minimum `logs/ai_backend.log` and `logs/ai_backend.jsonl` — and shows explicit tail/grep commands for them, not generic 'check your logs' advice.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "symptom_table",
+          "text": "Answer includes a symptom-to-first-move table (at least 4 rows) mapping common symptoms like pytest failure, dev server 500, agent hang, tool not firing to a concrete first shell command, not only prose.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "termination_criteria",
+          "text": "Answer defines explicit debug termination criteria — at minimum (a) root cause explainable in one sentence, (b) reproducible minimal case, (c) fix / workaround expressed in code — and explicitly rejects 'seems fixed' / '증상이 사라졌다' as a stopping condition.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "env_prohibition",
+          "text": "Answer explicitly forbids editing the `.env` file during debug and points to environment variable override (e.g. `LOG_LEVEL=DEBUG uvicorn ...`) as the only allowed mechanism. Not a soft suggestion — a hard prohibition.",
+          "kind": "objective",
+          "critical": true
+        },
+        {
+          "id": "fixture_vs_production",
+          "text": "Answer warns against papering over pytest fixture errors with production code changes, and explains the fixture-error-vs-test-body-error distinction (fixture problem → fix fixture, implementation problem → fix implementation).",
+          "kind": "objective",
+          "critical": false
+        },
+        {
+          "id": "no_reference",
+          "text": "Answer does not reference any retired internal identifiers (Phase / AD-### / harness porter labels).",
+          "kind": "objective",
+          "critical": true
+        }
+      ]
+    }
+  ]
+}
