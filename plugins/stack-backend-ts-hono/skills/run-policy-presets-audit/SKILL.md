@@ -1,0 +1,32 @@
+---
+name: run-policy-presets-audit
+description: AI run / job 설정 코드 변경 후. run-policy-presets invariant 의 timeout / max-turn / retry preset 우회 검출.
+metadata:
+  role: audit
+  scope: apps/api
+  source: (신규)
+  pair_invariant: run-policy-presets
+---
+
+# run-policy-presets-audit
+
+## 검증 대상 invariant
+[run-policy-presets/SKILL.md](../run-policy-presets/SKILL.md)
+
+## 실행
+
+```bash
+# 패턴 1: timeout / max_turns 등 매직 넘버
+grep -rEn 'timeout:\s*\d+|max.turns?:\s*\d+|maxTurns:\s*\d+' apps/api/src/ai/
+
+# 패턴 2: invariant preset 안 import
+grep -rL 'RUN_POLICY\|POLICY_PRESET' apps/api/src/ai/runs/
+```
+
+## 위반 시 조치
+1. timeout/maxTurns 매직 넘버 → `run-policy-presets` 상수 import 로 교체
+2. preset import 없는 runs/ 파일 → invariant preset 사용 추가
+
+## 통과 기준
+- 패턴 1 — preset 상수 import (매직 넘버 ✕)
+- 패턴 2 — runs/ 디렉토리에 preset 사용
