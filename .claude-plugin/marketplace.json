@@ -1,0 +1,24 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "hibye-plugins",
+  "description": "Shared agent assets — workflows, LLM backend principles, stack rules.",
+  "owner": { "name": "hibye-ys" },
+  "plugins": [
+    {
+      "name": "core",
+      "description": "Universal LLM backend principles and workflows.",
+      "category": "development",
+      "source": "./plugins/core",
+      "version": "0.0.1"
+    },
+    {
+      "name": "deprecated-example",
+      "description": "Test fixture for M0 #10 — deprecation warning.",
+      "category": "development",
+      "source": "./plugins/deprecated-example",
+      "version": "0.0.1",
+      "deprecated": true,
+      "successor": "core"
+    }
+  ]
+}
