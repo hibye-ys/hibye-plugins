@@ -40,8 +40,8 @@ for line in text.splitlines():
     if ref.startswith('/'):
         # absolute path
         target = pathlib.Path(ref)
-    elif ref.startswith('.'):
-        # relative to input-md's directory
+    elif ref.startswith('./') or ref.startswith('../'):
+        # explicitly relative to input-md's directory
         target = (pathlib.Path(input_path).parent / ref).resolve()
     else:
         # project-root relative (e.g. .claude/plugins/cache/... or apps/...)
