@@ -61,8 +61,16 @@ export type Env = {
 const app = new Hono<Env>()
 
 // Middleware 등록 순서 = 실행 순서 (Hono FIFO — FastAPI 와 달리 add 순서가 곧 실행 순서)
+//
+// **순서 의도 (앞 → 뒤):**
+// 1. requestId    — 모든 로그·trace 의 root. 가장 먼저 붙여야 하위 미들웨어 로그에 ID 포함
+// 2. rateLimit    — *auth 전* (IP-based, anonymous DDoS 보호). auth 비용 소모 전 차단.
+//                   인증 후 per-user 제한은 route handler 또는 별도 미들웨어에서 처리.
+// 3. cors         — preflight 처리 (auth·parse 전). OPTIONS 요청에 auth 불필요.
+// 4. authMiddleware — JWT/api-key 검증 → c.set('userId', ...). 보호 경로에만 적용.
+// 5. zod validation — route 수준 (authMiddleware 통과 후 body parse)
 app.use('*', requestIdMiddleware)       // 1. X-Request-Id
-app.use('*', rateLimitMiddleware)       // 2. Rate limit
+app.use('*', rateLimitMiddleware)       // 2. Rate limit (auth 전 — IP-based DDoS 보호)
 app.use('*', cors({                     // 3. CORS
   origin: ['https://app.example.com'],
   exposeHeaders: [

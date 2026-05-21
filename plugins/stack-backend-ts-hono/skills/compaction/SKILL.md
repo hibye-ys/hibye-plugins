@@ -1,6 +1,6 @@
 ---
 name: compaction
-description: apps/api 에서 토큰 한계 접근 시 conversation 요약·압축 트리거 시 invoke. 4 전략 에스컬레이션 (snip/micro/auto/reactive), CompactionResult 타입, COMPACTABLE_TOOLS frozenset, autoCompactThreshold 계산 안내. "context window exceeded" 에러, auto compaction 미발동 디버깅 시에도 invoke.
+description: apps/api 에서 토큰 한계 접근 시 conversation 요약·압축 트리거 시 invoke. 5 전략 에스컬레이션 (snip/micro/session_memory/auto/reactive), CompactionResult 타입, COMPACTABLE_TOOLS frozenset, autoCompactThreshold 계산 안내. "context window exceeded" 에러, auto compaction 미발동 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: apps/api
@@ -21,12 +21,13 @@ metadata:
 
 Compaction 은 Agent Loop 의 **Stage 2** (pre-query) 에 해당. 매 turn 마다 provider 호출 직전에 "현재 메시지 배열이 context window 에 넘치는가?" 판단하고, 넘치면 요약/압축.
 
-### 4 핵심 원칙
+### 5 핵심 원칙
 
 1. **정보 보존 우선** — `tool_use_id` 같은 구조적 필수 필드는 절대 제거 금지
 2. **비용 최소화** — LLM 없이 처리(snip) 가능하면 LLM 없이. 필요하면 경량 모델
-3. **전략 에스컬레이션** — snip → micro → auto → reactive
+3. **전략 에스컬레이션** — snip → micro → session_memory → auto → reactive (Error Recovery only)
 4. **멱등 안전성** — 이미 요약된 블록(`compacted: true` 마커)은 재요약 skip
+5. **에스컬레이션 타겟** — 각 전략은 `ESCALATION_TARGET_RATIO = 0.80` 목표 (threshold 의 80%)
 
 ## autoCompactThreshold 계산
 
@@ -47,7 +48,7 @@ export function autoCompactThreshold(): number {
 
 ```typescript
 export interface CompactionResult {
-  strategy: 'snip' | 'micro' | 'auto' | 'reactive'
+  strategy: 'snip' | 'micro' | 'session_memory' | 'auto' | 'reactive'
   messages: Message[]
   itemsCompacted: number
   tokensBefore: number
@@ -144,7 +145,51 @@ export async function microCompact(
 }
 ```
 
-### Strategy 3 — auto (단계별 전체 요약)
+### Strategy 3 — session_memory (이전 세션 본문 → long-term memory 이관)
+
+이전 session 본문을 long-term memory 로 이관. history 에는 메모리 placeholder 만 남김. micro 이후에도 threshold 를 초과하는 경우 적용.
+
+```typescript
+export async function sessionMemoryCompact(
+  messages: Message[],
+  threshold: number,
+  provider: Provider,
+  opts: { memoryStore?: MemoryStore } = {},
+): Promise<CompactionResult> {
+  const tokensBefore = estimateTokens(messages)
+  const targetTokens = Math.floor(threshold * ESCALATION_TARGET_RATIO)
+
+  // 오래된 메시지를 long-term memory 에 이관
+  const keepTail = 4
+  const old = messages.slice(0, -keepTail)
+  const recent = messages.slice(-keepTail)
+
+  if (opts.memoryStore && old.length > 0) {
+    const summaryText = await llmSummarize(old, provider, {
+      instruction: 'Extract key facts, decisions, and context as a concise memory entry.',
+    })
+    await opts.memoryStore.store({ content: summaryText, timestamp: Date.now() })
+  }
+
+  // placeholder 삽입
+  const placeholder: Message = {
+    role: 'assistant',
+    content: [{ type: 'text', text: '[이전 세션 내용이 long-term memory 에 이관됨]', compacted: true } as ContentBlock],
+  }
+  const compacted = [placeholder, ...recent]
+
+  return {
+    strategy: 'session_memory',
+    messages: compacted,
+    itemsCompacted: old.length,
+    tokensBefore,
+    tokensAfter: estimateTokens(compacted),
+    notes: `session_memory: ${old.length} messages moved to long-term memory`,
+  }
+}
+```
+
+### Strategy 4 — auto (단계별 전체 요약)
 
 ```typescript
 export async function autoCompact(
@@ -184,10 +229,11 @@ export async function autoCompact(
 }
 ```
 
-### Strategy 4 — reactive (PromptTooLongError 응답)
+### Strategy 5 — reactive (PromptTooLongError 응답 — Error Recovery only)
 
 ```typescript
-export const REACTIVE_TARGET_RATIO = 0.70
+export const ESCALATION_TARGET_RATIO = 0.80  // 각 전략의 목표 비율 (threshold 대비)
+export const REACTIVE_TARGET_RATIO = 0.70   // reactive 는 더 공격적 (30% 여유)
 
 export async function reactiveCompact(
   messages: Message[],
@@ -232,16 +278,24 @@ export async function compactMessages(
   messages: Message[],
   threshold: number,
   provider: Provider,
-  opts: { isReactive?: boolean } = {},
+  opts: { isReactive?: boolean; memoryStore?: MemoryStore } = {},
 ): Promise<CompactionResult> {
+  // reactive = Error Recovery only (PromptTooLongError 직접 응답)
   if (opts.isReactive) return reactiveCompact(messages, threshold, provider)
 
+  // Stage 1: snip (LLM 없음)
   let result = snipCompact(messages, threshold)
   if (result.tokensAfter <= threshold) return result
 
+  // Stage 2: micro (1회 LLM — 최근 N 쌍 보존)
   result = await microCompact(messages, threshold, provider)
   if (result.tokensAfter <= threshold) return result
 
+  // Stage 3: session_memory (이전 세션 → long-term memory 이관)
+  result = await sessionMemoryCompact(messages, threshold, provider, { memoryStore: opts.memoryStore })
+  if (result.tokensAfter <= threshold) return result
+
+  // Stage 4: auto (청크 단위 전체 요약)
   return autoCompact(messages, threshold, provider)
 }
 ```
@@ -283,7 +337,8 @@ async function llmSummarize(
 
 ## 검증 체크리스트
 
-- [ ] 4 전략 (`snip` / `micro` / `auto` / `reactive`) 코드에서 식별 가능
+- [ ] 5 전략 (`snip` / `micro` / `session_memory` / `auto` / `reactive`) 코드에서 식별 가능
+- [ ] `ESCALATION_TARGET_RATIO = 0.80` + `REACTIVE_TARGET_RATIO = 0.70` 상수 존재
 - [ ] `autoCompactThreshold()` = 187,000 (`compaction-thresholds` invariant 일치)
 - [ ] `COMPACTABLE_TOOLS` 에 읽기 전용 도구만 포함
 - [ ] `CompactionResult` 에 6 필드 (`strategy` / `messages` / `itemsCompacted` / `tokensBefore` / `tokensAfter` / `notes`)

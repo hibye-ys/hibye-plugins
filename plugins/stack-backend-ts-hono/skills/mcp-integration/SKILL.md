@@ -49,6 +49,8 @@ import { z } from 'zod'
 export const MCPServerConfigSchema = z.object({
   name: z.string(),
   transport: z.enum(['stdio', 'sse']),
+  // stdio = Node-only (child_process.spawn 의존 — Cloudflare Workers runtime 비호환)
+  // sse  = Workers + Node 모두 지원
   command: z.string().optional(),            // stdio: 실행할 바이너리
   args: z.array(z.string()).default([]),
   url: z.string().optional(),               // sse: endpoint URL
@@ -100,7 +102,7 @@ export class MCPClient {
   private client: Client | null = null
   private toolsCache: Record<string, unknown>[] | null = null
 
-  constructor(private readonly config: MCPServerConfig) {}
+  constructor(readonly config: MCPServerConfig) {}
 
   async connect(bindings: Record<string, string>): Promise<void> {
     const { resolveEnvVars } = await import('./config.ts')
@@ -108,6 +110,9 @@ export class MCPClient {
 
     let transport
     if (this.config.transport === 'stdio') {
+      // ⚠️ **Workers 비호환**: `StdioClientTransport` 는 Node `child_process.spawn` 의존 —
+      // Cloudflare Workers runtime 에서 throw. Workers 배포 시 `SSEClientTransport` 만 사용.
+      // stdio 는 *Node 모드* (`@hono/node-server`) 의 escape hatch.
       if (!this.config.command) throw new Error(`stdio transport requires command: ${this.config.name}`)
       transport = new StdioClientTransport({
         command: this.config.command,
@@ -172,11 +177,12 @@ import type { MCPClient } from './client.ts'
 import type { Tool, ToolResult, ToolContext, ToolInputSchema } from '../tools/base.ts'
 import { toolRegistry } from '../tools/registry.ts'
 
-const MCP_TOOL_PREFIX = 'mcp_'
+const MCP_TOOL_PREFIX = 'mcp__'
 
 export function makeMCPToolClass(client: MCPClient, mcpTool: Record<string, unknown>): Tool {
   const rawName = mcpTool.name as string
-  const toolName = `${MCP_TOOL_PREFIX}${rawName}`
+  const toolName = `${MCP_TOOL_PREFIX}${client.config.name}__${rawName}`
+  // e.g. mcp__github__create_issue, mcp__postgres__query
   const description = (mcpTool.description as string | undefined) ?? `MCP tool: ${rawName}`
   const schema = (mcpTool.inputSchema as Record<string, unknown> | undefined) ?? {}
 
@@ -260,7 +266,7 @@ function jsonTypeToZod(schema: Record<string, unknown>): z.ZodTypeAny {
 }
 ```
 
-> **`mcp_` prefix**: MCP 에서 가져온 tool 은 `mcp_query`, `mcp_create_issue` 등 prefix 로 native tool 과 이름 충돌 방지. `mcp-namespace` invariant 참조.
+> **`mcp__<server>__<tool>` 형식**: MCP 에서 가져온 tool 은 `mcp__postgres__query`, `mcp__github__create_issue` 등 이중 밑줄 namespace 로 native tool 과 이름 충돌 방지. `mcp-namespace` invariant 의 SoT 형식 = `mcp__<server>__<tool>` (double underscore).
 > **`isConcurrencySafe = false`**: MCP server 내부 동작 불명 → 보수적 sequential 실행.
 
 ## 동적 tool 등록 흐름 (boot 시 1회)
@@ -286,7 +292,7 @@ function jsonTypeToZod(schema: Record<string, unknown>): z.ZodTypeAny {
 
 - [ ] `MCPServerConfig` 가 zod schema 로 검증
 - [ ] `MCPClient` 가 connect / listTools / callTool / close 메서드 보유
-- [ ] `MCP_TOOL_PREFIX = 'mcp_'` 로 모든 MCP tool name 에 prefix
+- [ ] `MCP_TOOL_PREFIX = 'mcp__'` + `<server>__<tool>` 형식으로 모든 MCP tool name 에 namespace prefix (`mcp-namespace` invariant SoT)
 - [ ] `isConcurrencySafe` 가 항상 `false` 반환
 - [ ] 4 실패 모드 처리 코드 존재
 - [ ] boot 시 sequential 등록 (concurrent 호출 방지)

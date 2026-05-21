@@ -60,6 +60,18 @@ parent turn N
 import { z } from 'zod'
 import type { Tool, ToolResult, ToolContext } from './base.ts'
 
+/**
+ * spawn_agent 전용 ToolContext 확장.
+ * executionCtx / metadata 는 base ToolContext 에 없으므로 여기서 선언.
+ */
+interface SpawnToolContext extends ToolContext {
+  executionCtx?: ExecutionContext  // Cloudflare Workers c.executionCtx (background waitUntil)
+  metadata?: {
+    spawnDepth?: number            // 현재 agent 체인 깊이 (checkDepth 에서 참조)
+    [key: string]: unknown
+  }
+}
+
 const SpawnAgentInputSchema = z.object({
   agentName: z.string().describe(
     'Name of the child agent to invoke (must exist in agents/<name>.json).'
@@ -110,7 +122,7 @@ export const spawnTool: Tool = {
     return false
   },
 
-  async execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
+  async execute(args: unknown, ctx: SpawnToolContext): Promise<ToolResult> {
     const input = SpawnAgentInputSchema.parse(args)
     checkDepth(ctx)  // 무한 재귀 방지
 
@@ -197,7 +209,7 @@ export class SpawnDepthExceeded extends Error {
   }
 }
 
-export function checkDepth(ctx: ToolContext): void {
+export function checkDepth(ctx: SpawnToolContext): void {
   const depth = ctx.metadata?.spawnDepth ?? 0
   if (depth >= MAX_SPAWN_DEPTH) {
     throw new SpawnDepthExceeded(depth)

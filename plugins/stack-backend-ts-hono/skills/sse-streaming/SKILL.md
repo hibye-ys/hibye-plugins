@@ -118,24 +118,26 @@ app.post('/run/:name', async (c) => {
 
 ## Heartbeat (Workers 환경)
 
-Workers 에서 `setInterval` 은 지원되지 않는다. heartbeat 는 `stream.sleep()` + 명시 loop 으로 구현:
+Workers 에서 `setInterval` 은 지원되지 않는다. heartbeat 는 `streamSSE` 내부에서 `stream.sleep()` + inline 패턴으로 구현:
 
 ```typescript
-// heartbeat 별도 코루틴 (Workers-safe)
-async function* withHeartbeat(
-  source: AsyncIterable<[string, unknown]>,
-  intervalMs = 15_000
-): AsyncIterable<[string, unknown]> {
-  // Workers에서는 AbortSignal 조합 또는 Promise.race 패턴 사용
-  for await (const event of source) {
-    yield event
-  }
-}
+// SSE 라우트 안 inline heartbeat 패턴 (별도 generator wrapper 불필요)
+return streamSSE(c, async (stream) => {
+  const heartbeatIntervalMs = 15_000
 
-// 또는 streamSSE 내부에서 직접 sleep + writeSSE 조합
-// await stream.sleep(15_000)
-// await stream.writeSSE({ event: 'heartbeat', data: '{}' })
+  // 장기 streaming 이 예상되는 경우 Promise.race 로 heartbeat 삽입
+  // (단순한 경우 — 이벤트 흐름이 heartbeat 간격보다 빠르면 생략 가능)
+  for await (const [eventType, payload] of runAgentLoop({ ... })) {
+    await stream.writeSSE({ event: eventType, data: JSON.stringify(payload) })
+  }
+
+  // heartbeat 가 별도로 필요한 경우 (producer 중단 가능성 있을 때):
+  // Promise.race([nextEvent(), stream.sleep(heartbeatIntervalMs)]) 패턴 사용
+  // stream.sleep() 은 Workers-safe (setInterval ✕)
+})
 ```
+
+> **`withHeartbeat` generator wrapper 는 사용하지 않는다** — passthrough 만 하는 stub 은 동작 보장 ✕. `stream.sleep()` 직접 패턴이 명확하고 안전.
 
 ## Secret Scanner
 

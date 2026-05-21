@@ -67,14 +67,17 @@ import { getProvider } from '../ai/providers/index.ts'
 import { compactMessages, autoCompactThreshold } from './compaction.ts'
 import type { Message } from '../types/index.ts'
 
-export async function* runAgentLoop(opts: {
+type RunOpts = {
   agentSpec: AgentSpec
   userInput: string
   history: Message[]
   maxTurns?: number
+  sessionId?: string   // ToolContext 에 전달할 session id (선택)
   env: Env
-}): AsyncIterable<[string, unknown]> {
-  const { agentSpec, userInput, history, maxTurns = 30, env } = opts
+}
+
+export async function* runAgentLoop(opts: RunOpts): AsyncIterable<[string, unknown]> {
+  const { agentSpec, userInput, history, maxTurns = 50, sessionId, env } = opts
   const state = createLoopState(maxTurns)
   const provider = getProvider(agentSpec.model, env)
 
@@ -136,7 +139,7 @@ export async function* runAgentLoop(opts: {
 
     // Stage 5: tool 실행 (병렬/순차 파티셔닝)
     const toolResults = await dispatchToolCalls(toolUses, toolRegistry, {
-      sessionId: opts.sessionId ?? '',
+      sessionId: sessionId ?? '',
       agentName: agentSpec.name,
       turnIndex: state.turnCount,
       toolUseId: toolUses[0].id,

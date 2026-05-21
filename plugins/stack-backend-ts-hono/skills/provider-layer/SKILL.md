@@ -132,7 +132,10 @@ export function fuzzyMatch(name: string): string {
   return FUZZY_MAP[name.toLowerCase()] ?? name
 }
 
-// 모듈 레벨 캐시 — process lifetime (Workers: invocation lifetime)
+// 모듈 레벨 캐시.
+// Workers: isolation context lifetime — 같은 invocation 안 여러 호출은 1회만 검사,
+//          cold start / 새 isolation 마다 다시 검사.
+// Node: process lifetime — 프로세스 재시작 전까지 캐시.
 let _cachedConnectedProviders: Set<string> | null = null
 
 export function connectedProviders(env: Env): Set<string> {
@@ -160,7 +163,7 @@ export function providerFor(modelId: string): string {
 }
 ```
 
-> Workers 환경에서 `_cachedConnectedProviders` 는 invocation lifetime 캐시. 테스트에서 반드시 `clearConnectedProvidersCache()` 호출.
+> Workers: `_cachedConnectedProviders` 는 isolation context lifetime 캐시 (cold start 마다 재검사). Node: process lifetime. 테스트에서 반드시 `clearConnectedProvidersCache()` 호출.
 
 ## Retry Policy — Foreground vs Background
 
@@ -220,10 +223,11 @@ Agent Loop Stage 3 는 provider stream 을 SSE forward 와 tool_use 수집에 �
 
 ```typescript
 // src/ai/providers/tee.ts
-export async function* teeStream(
+// pump-and-buffer 패턴: source 를 두 independent queue 로 분기
+// type-safe: 일반 function → Promise<[...]> tuple 반환 (async function* 는 return tuple 불가)
+export function teeStream(
   source: AsyncIterable<ProviderEvent>
 ): [AsyncIterable<ProviderEvent>, AsyncIterable<ProviderEvent>] {
-  // Workers 환경: TransformStream 2개로 분기
   const forwardQueue: ProviderEvent[] = []
   const collectQueue: ProviderEvent[] = []
   const done = { value: false }

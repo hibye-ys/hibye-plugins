@@ -196,7 +196,7 @@ export const rateLimitMiddleware: MiddlewareHandler<{ Bindings: Env['Bindings'] 
 
   const raw = await c.env.KV_SESSIONS.get(key, 'json') as { count: number; resetAt: number } | null
   const windowMs = 60_000   // 1분
-  const maxRequests = 60    // run-policy-presets 참조
+  const maxRequests = 60    // 프로젝트 기본 rate limit (per-IP, anonymous). 인증 후 per-user 제한은 별도 핸들러.
 
   if (raw && now < raw.resetAt) {
     if (raw.count >= maxRequests) {
