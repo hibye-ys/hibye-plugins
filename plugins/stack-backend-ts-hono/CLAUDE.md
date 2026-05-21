@@ -2,8 +2,7 @@
 
 `apps/api` 같은 *Hono + TypeScript* 백엔드 작업 시 적용. Cloudflare Workers 호환 룰 처음부터 강제.
 
-본 plugin 의 상시 룰 본문:
-
+## 백엔드 영역 룰
 @./rules/hono-workers-compat.md
 
 ## on-demand 체크리스트

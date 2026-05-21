@@ -13,7 +13,7 @@ INPUT="${1:?Usage: $0 <input-md> <output-md> [base-dir]}"
 OUTPUT="${2:?Usage: $0 <input-md> <output-md> [base-dir]}"
 INPUT="$(cd "$(dirname "$INPUT")" && pwd)/$(basename "$INPUT")"
 BASE_DIR="${3:-$(dirname "$INPUT")}"
-BASE_DIR="$(cd "$BASE_DIR" && pwd)"
+BASE_DIR="$(cd "$BASE_DIR" 2>/dev/null && pwd)" || { echo "error: base-dir not found: ${3:-(default)}" >&2; exit 1; }
 
 if [[ ! -f "$INPUT" ]]; then
   echo "error: input not found: $INPUT" >&2
@@ -51,7 +51,7 @@ for line in text.splitlines():
         continue
     body = target.read_text(encoding='utf-8')
     # strip YAML frontmatter
-    fm = re.match(r'^---\n.*?\n---\n', body, re.DOTALL)
+    fm = re.match(r'^---[ \t]*\r?\n.*?\r?\n---[ \t]*\r?\n?', body, re.DOTALL)
     if fm:
         body = body[fm.end():]
     out_lines.append('')
