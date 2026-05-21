@@ -20,7 +20,9 @@ metadata:
 grep -rEn '\b(0\.[5-9]|0\.95)\b.*token|token.*\b(0\.[5-9]|0\.95)\b' apps/api/src/
 
 # 패턴 2: invariant 상수 import 안 함
-grep -rL 'COMPACT_AT\|EMERGENCY_COMPACT_AT' apps/api/src/context/compaction*
+for f in $(find apps/api/src/context -name '*compaction*' -type f 2>/dev/null); do
+  grep -qE 'COMPACT_AT|EMERGENCY_COMPACT_AT' "$f" || echo "no-const: $f"
+done
 ```
 
 ## 위반 시 조치

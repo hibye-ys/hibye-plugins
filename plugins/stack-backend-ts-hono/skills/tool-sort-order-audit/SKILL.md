@@ -17,7 +17,7 @@ metadata:
 
 ```bash
 # tools/registry.ts 안 등록 순서 추출
-grep -nE 'register\(.*?\)|tools\.set\(' apps/api/src/tools/registry.ts
+grep -nE 'register\([^)]*\)|tools\.set\(' apps/api/src/tools/registry.ts
 ```
 
 ## 위반 시 조치

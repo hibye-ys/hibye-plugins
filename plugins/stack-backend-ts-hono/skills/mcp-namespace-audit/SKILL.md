@@ -20,7 +20,16 @@ metadata:
 grep -rEn 'mcp.*?register|mcpClient\.tool' apps/api/src/mcp/ -A 5
 
 # 패턴 2: namespace 중복 (다른 서버가 같은 prefix)
-grep -rE 'prefix:\s*["\x27]([^"\x27]+)["\x27]' apps/api/src/mcp/ | awk -F'"' '{print $2}' | sort | uniq -d
+grep -rhoE "prefix:\\s*['\"]([^'\"]+)['\"]" apps/api/src/mcp/ \
+  | sed -E "s/^prefix:[[:space:]]*['\"]([^'\"]+)['\"].*/\1/" \
+  | sort | uniq -d
+
+# 패턴 3: tool name 이 mcp__<server>__<tool> 형식인지
+grep -rhoEn "name:\\s*['\"]([^'\"]+)['\"]" apps/api/src/mcp/ \
+  | sed -E "s/.*name:[[:space:]]*['\"]([^'\"]+)['\"].*/\1/" \
+  | while read -r name; do
+      echo "$name" | grep -qE '^mcp__[a-z0-9_]+__[a-z0-9_]+$' || echo "wrong-format: $name"
+    done
 ```
 
 ## 위반 시 조치
@@ -30,3 +39,4 @@ grep -rE 'prefix:\s*["\x27]([^"\x27]+)["\x27]' apps/api/src/mcp/ | awk -F'"' '{p
 ## 통과 기준
 - 패턴 1 = 모든 등록이 prefix 명시
 - 패턴 2 match 0건 (prefix 중복 ✕)
+- 패턴 3 = 모든 name 이 `mcp__<server>__<tool>` 형식

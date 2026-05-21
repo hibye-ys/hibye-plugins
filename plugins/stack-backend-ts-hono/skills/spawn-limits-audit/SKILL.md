@@ -17,7 +17,9 @@ metadata:
 
 ```bash
 # 패턴 1: Promise.all / allSettled 사용처에 limit 없음
-grep -rEn 'Promise\.(all|allSettled)\(' apps/api/src/ai/sub-agents/ -A 3 | grep -B 3 -v 'limit\|MAX_PARALLEL\|p-limit'
+for f in $(grep -rlE 'Promise\.(all|allSettled)\(' apps/api/src/ai/sub-agents/); do
+  grep -qE 'limit|MAX_PARALLEL|p-limit' "$f" || echo "no-limit: $f"
+done
 
 # 패턴 2: invariant 상수 import 안 함
 grep -rL 'SPAWN_LIMIT\|MAX_PARALLEL_SUBAGENTS' apps/api/src/ai/sub-agents/

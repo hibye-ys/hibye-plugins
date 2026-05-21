@@ -16,8 +16,8 @@ metadata:
 ## 실행
 
 ```bash
-# 패턴 1: 8000/16000/32000 등 매직 넘버 (token 상수 우회)
-grep -rEn '\b(8000|16000|32000|128000)\b' apps/api/src/context/ apps/api/src/ai/
+# 패턴 1: 8000/16000/32000 등 매직 넘버 (token 상수 우회, numeric separator 포함)
+grep -rEn '\b(8_?000|16_?000|32_?000|128_?000)\b' apps/api/src/context/ apps/api/src/ai/
 
 # 패턴 2: invariant 의 상수 import 안 함
 grep -rL 'TOKEN_BUDGET\|MAX_HISTORY_TOKENS' apps/api/src/context/

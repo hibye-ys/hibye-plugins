@@ -17,7 +17,9 @@ metadata:
 
 ```bash
 # 패턴 1: zod 검증 없이 c.req.json() 사용
-grep -rEn 'await\s+c\.req\.json\(\)' apps/api/src/routes/ -A 5 | grep -B 5 -v 'parse\|safeParse\|z\.'
+for f in $(grep -rlE 'await\s+c\.req\.json\(\)' apps/api/src/routes/); do
+  grep -qE 'parse|safeParse|z\.' "$f" || echo "no-zod: $f"
+done
 
 # 패턴 2: middleware 순서 (auth before parse before handler)
 grep -nE 'app\.use\(' apps/api/src/middleware/index.ts apps/api/src/index.ts

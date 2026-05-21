@@ -53,8 +53,9 @@
 - `debug-session` — 백엔드 debug session (Hono+Workers 특화)
 - `update-config-runtime` — Workers c.env 바인딩 / .dev.vars / wrangler.toml (renamed)
 
-## 사용 가능한 audit 스킬 12 (on-demand)
+## 사용 가능한 audit 스킬 12 + 1 (on-demand)
 
+> 12 = M2.5 Task 4.1-4.12 산출. +1 = d1-forbidden-audit (M2.5 Task 6.4 산출, Codex 4차 추가).
 > 배포 전 / provider 추가 후 / route 추가 후 등 *변화 후 검증* 시 trigger.
 
 - `provider-retry-audit` — retry-able vs fatal sentinel 매트릭스 (provider 추가 후)

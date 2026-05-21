@@ -22,11 +22,11 @@ grep -rEn '\b(writer|author|scenario|novel|character|persona)\b' \
 
 # 패턴 2 (정밀화 — Codex 리뷰): TS import 정확 매치. 기존 `from\s+['"]\.\.\/(ai|sse|storage)/` 는
 # `import ... from` 의 `from` 만 매치 (OK). 단 `import type`, `import { ... } from` 변형 모두 cover 위해:
-grep -rEn "^import\s+(\{[^}]*\}|[^\s]+|\*\s+as\s+\w+|type\s+\{[^}]*\})\s+from\s+['\"]\\.\\.\\/(ai|sse|storage|middleware)\\/" \
+grep -rEn "^import\s+(\{[^}]*\}|[^\s]+|\*\s+as\s+\w+|type\s+\{[^}]*\})\s+from\s+['\"](\.\./)+(ai|sse|storage|middleware)/" \
   apps/api/src/domain/
 
-# 추가: side-effect import (`import './foo'`) 도 검출
-grep -rEn "^import\s+['\"]\\.\\.\\/(ai|sse|storage|middleware)\\/" apps/api/src/domain/
+# 추가: side-effect import (`import './foo'`) 도 검출 (임의 depth)
+grep -rEn "^import\s+['\"](\.\./)+(ai|sse|storage|middleware)/" apps/api/src/domain/
 ```
 
 ## 위반 시 조치

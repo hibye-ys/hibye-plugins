@@ -20,16 +20,9 @@ metadata:
 grep -rEn 'retry.*\b(401|403|404|422)\b|\b(401|403|404|422)\b.*retry' apps/api/src/ai/providers/
 
 # 패턴 2 (정밀화 — Codex 리뷰): fetch 가 *block 단위* 로 retry wrap 안에 있는지.
-# 단순 grep 'fetch(' + grep -v 'retry' 는 인근 라인의 retry wrapper false-positive.
-# 대안: AST or block-level — ripgrep + multi-line regex 또는 ts-morph 스캐너.
-# 1차: ripgrep multi-line — `pRetry|retry|backoff` 와 *같은 함수 안* 에 fetch 가 있는지 확인.
-rg --multiline --multiline-dotall 'async\s+function\s+\w+\([^)]*\)\s*\{(?:(?!^\}).)*?fetch\(' apps/api/src/ai/providers/ -U -o | \
-  while read -r match; do
-    # 매치된 함수가 pRetry/retry/backoff 호출 포함 — 통과. 미포함 — 위반
-    echo "$match" | grep -qE 'pRetry|retry|backoff' || echo "VIOLATION: $match"
-  done
+# (rg multi-line 옵션은 PCRE2 지원 필요 — 환경 의존적이라 file-level 패턴만 유지)
 
-# 패턴 2 대안 (간단): 디렉토리 단위 — 각 파일에 fetch 있으면서 retry 단어 없는지
+# 패턴 2: 디렉토리 단위 — 각 파일에 fetch 있으면서 retry 단어 없는지
 for f in $(grep -rlE 'fetch\(' apps/api/src/ai/providers/); do
   grep -qE 'pRetry|retry|backoff' "$f" || echo "no-retry: $f"
 done

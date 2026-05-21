@@ -24,7 +24,7 @@ grep -rEn 'UPDATE\s+\w+\s+SET' apps/api/src/ | grep -v 'pg_advisory_lock\|FOR UP
 ```
 
 ## 위반 시 조치
-1. KV/R2 put 중 경쟁 위험 경로 → mutex 또는 Durable Objects 패턴 검토
+1. KV/R2 put 중 경쟁 위험 경로 → mutex 또는 serialization queue (async-mutex / p-queue) 패턴. Durable Objects ✕ (spec §1.2 절대 금지)
 2. UPDATE 쿼리 → `BEGIN; SELECT ... FOR UPDATE; UPDATE ...; COMMIT;` 트랜잭션 감싸기
 
 ## 통과 기준
