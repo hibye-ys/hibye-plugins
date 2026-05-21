@@ -1,0 +1,14 @@
+{
+  "name": "deprecated-example",
+  "version": "0.0.1",
+  "description": "Test fixture for M0 #10 — deprecation warning visibility.",
+  "skills": "./skills/",
+  "deprecated": true,
+  "successor": "core",
+  "removalDate": "2026-12-31",
+  "interface": {
+    "displayName": "Deprecated Example",
+    "category": "Coding",
+    "capabilities": ["Interactive"]
+  }
+}
