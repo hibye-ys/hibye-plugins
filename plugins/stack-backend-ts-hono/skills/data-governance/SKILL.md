@@ -134,9 +134,11 @@ R2 binding 은 `c.env.STORAGE` (wrangler.toml `[[r2_buckets]]`). **D1 binding �
 
 ```typescript
 // src/services/governance/check.ts
+import type { PgDatabase } from 'drizzle-orm/pg-core'
+
 export async function assertUserActive(
   userId: string,
-  db: NeonDatabase
+  db: PgDatabase<any>
 ): Promise<void> {
   if (userId === ANONYMOUS_USER_ID) return // anon 은 tombstone 대상 아님
 

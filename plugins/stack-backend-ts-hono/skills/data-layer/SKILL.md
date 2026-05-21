@@ -39,7 +39,7 @@ metadata:
 // Python: @runtime_checkable class SessionPort(Protocol):
 // TS: export interface SessionPort { ... }
 
-import { NeonDatabase } from '@neondatabase/serverless'
+import type { PgDatabase } from 'drizzle-orm/pg-core'
 import { Message, MediaJob, SessionRecord, SessionIdentity } from '../types'
 
 export interface SessionPort {

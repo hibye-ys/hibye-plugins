@@ -28,7 +28,7 @@ D1 은 다음 3가지 방식으로 코드에 침투할 수 있다:
 
 ```bash
 # 패턴 1: wrangler.toml / wrangler.jsonc 안 d1_databases binding
-grep -rE 'd1_databases|D1Database|D1_BINDING' \
+grep -rE 'd1_databases|D1_BINDING' \
   apps/api/wrangler.toml apps/api/wrangler.jsonc 2>/dev/null
 
 # 패턴 2: TS 코드에서 D1Database import
@@ -131,7 +131,7 @@ FAIL=0
 echo "=== D1 Forbidden Audit ==="
 
 # 패턴 1: wrangler 설정 파일
-if grep -rE 'd1_databases|D1Database|D1_BINDING' \
+if grep -rE 'd1_databases|D1_BINDING' \
     apps/api/wrangler.toml apps/api/wrangler.jsonc 2>/dev/null; then
   echo "FAIL: D1 binding found in wrangler config"
   FAIL=1

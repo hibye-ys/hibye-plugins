@@ -160,6 +160,7 @@ export default defineConfig({
   dialect: 'postgresql',
   dbCredentials: {
     url: process.env.DATABASE_URL!, // CI/deploy 시 환경변수
+    // drizzle.config.ts 는 *Node CLI* (drizzle-kit migrate) — process.env 정상. Workers runtime 에서는 c.env 사용.
   },
 })
 ```
