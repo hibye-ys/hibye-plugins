@@ -8,6 +8,8 @@ metadata:
 allowed-tools: Read, Write, Edit, Bash
 ---
 
+**적용된 §4.4 매트릭스 행**: pytest → vitest, fastapi.testclient.TestClient → app.request, conftest.py fixtures → Vitest beforeAll/beforeEach/vi.mock, 환경변수 (os.getenv → c.env)
+
 ## Core Rules (CRITICAL — baseline already knows common Vitest patterns, these are the UNIQUE differentiators)
 1. MUST configure Vitest for Workers-compatible async (no `setInterval`, `Buffer`, `fs` direct use)
 2. MUST use `app.request(path, init)` (Hono in-process) — NOT a real HTTP server
@@ -321,3 +323,9 @@ export function createTestDb() {
 - "Workers binding 이 필요하다" → `unstable_dev` 또는 `miniflare` 통합 테스트로 분리
 - "DB 테스트 격리가 필요하다" → `better-sqlite3` in-memory 또는 Drizzle transaction rollback
 - 위 가이드로 안 풀리면: 사용자에게 보고.
+
+## 관련 skill
+
+- 새 테스트 파일 골격 → `test-scaffold`
+- afterEach/afterAll 정리 패턴 → `test-cleanup`
+- TDD red→green 사이클 적용 → `red-green-fix`

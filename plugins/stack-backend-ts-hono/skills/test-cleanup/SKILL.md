@@ -8,6 +8,8 @@ metadata:
 allowed-tools: Read, Bash
 ---
 
+**적용된 §4.4 매트릭스 행**: pytest hooks (yield+teardown) → Vitest afterEach/afterAll, DB rollback (SQLAlchemy session.rollback → Drizzle tx.rollback), mock reset (unittest.mock → vi.restoreAllMocks/clearAllMocks)
+
 # test-cleanup — 레거시 테스트 정리 + 격리 가이드
 
 ## 이 skill은 언제 로드되는가
@@ -45,14 +47,13 @@ describe('DB 격리', () => {
   })
 
   it('transaction rollback — 데이터 누수 없음', async () => {
-    // Drizzle transaction 안에서 실행 후 rollback
-    await db.transaction(async (tx) => {
+    // withRollback helper 사용 — 테스트 끝나면 자동 rollback (아래 helper 정의 참조)
+    await withRollback(db, async (tx) => {
       await tx.insert(myTable).values({ id: 'test-001', name: 'test' })
       // 테스트 로직
       const rows = await tx.select().from(myTable)
-      // assert ...
-      // 테스트 완료 — transaction 끝나면 자동 commit
-      // rollback 이 필요하면: throw new Error('rollback') — catch 로 처리
+      expect(rows[0].id).toBe('test-001')
+      // 함수 종료 후 withRollback 이 자동으로 rollback — DB 에 데이터 남지 않음
     })
   })
 })
@@ -86,10 +87,11 @@ async function withRollback<T>(
 ```ts
 // apps/api/src/kv/__tests__/kv-cleanup.test.ts
 import { describe, it, afterAll, beforeAll } from 'vitest'
+import { createTestKV } from '../../test/helpers'  // testing-infra SKILL.md 의 Map-backed KV stub
 
 const TEST_KEY_PREFIX = 'test:cleanup:'
 
-// Map-backed KV stub (testing-infra SKILL.md 의 createTestKV)
+// Map-backed KV stub
 const kv = createTestKV()  // Map<string, string>
 
 // 테스트에서 생성한 key 목록 추적

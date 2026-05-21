@@ -8,6 +8,8 @@ metadata:
 allowed-tools: Read, Write, Edit, Bash
 ---
 
+**적용된 §4.4 매트릭스 행**: pytest -x --pdb → vitest --reporter=verbose --bail=1, watch (pytest-watch → vitest --watch), TDD 사이클 (red/green/refactor) 어휘 그대로
+
 # red-green-fix — 버그 수정 TDD 워크플로우
 
 ## 이 skill은 언제 로드되는가
@@ -268,3 +270,9 @@ npx vitest run apps/api/src/ --reporter=verbose
 - "수정했는데 다른 테스트가 깨진다" → 최소 변경 원칙 재적용. 깨진 테스트가 아닌 production 코드 수정 방법 변경
 - "Workers 에서만 실패" → `miniflare` 통합 테스트로 재현 후 `testing-infra` skill 의 Workers 환경 테스트 패턴 적용
 - 위 가이드로 안 풀리면: `debug-session` skill 로 전환
+
+## 관련 skill
+
+- 새 테스트 골격 필요 → `test-scaffold`
+- 테스트 오염·격리 → `test-cleanup`
+- Vitest 셋업 (Workers 환경 등) → `testing-infra`

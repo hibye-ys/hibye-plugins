@@ -8,6 +8,8 @@ metadata:
 allowed-tools: Read, Write, Edit, Bash
 ---
 
+**적용된 §4.4 매트릭스 행**: pytest fixture (conftest.py) → Vitest setup.ts, async test (pytest-asyncio) → it(..., async () => ...), HTTP 클라이언트 (TestClient → app.request)
+
 # test-scaffold — 테스트 스캐폴딩 가이드
 
 ## 이 skill은 언제 로드되는가
