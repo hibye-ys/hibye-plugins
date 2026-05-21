@@ -58,7 +58,7 @@ OpenRouter default 자체는 root `AGENTS.md`. 본 디렉토리 구현 시 추�
 
 ---
 
-## 상시 적용 invariant 14개
+## 상시 적용 invariant 16개
 
 > Claude Code 가 plugin install 후 fresh 세션 시작 시 다음 invariant 본문이 *상시 노출*. Workers 호환 / SSE lifecycle / provider retry 등 *불변* 룰 자동 적용.
 
@@ -1564,7 +1564,7 @@ async function agentLoop(state: LoopState, deps: LoopDeps): Promise<LoopResult> 
 <!-- ━━━ inlined from ./skills/app-domain-boundary/SKILL.md ━━━ -->
 
 
-**적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). 본문 안 `iyaki_*` 식별자 → `app_*` / `domain_*` 로 치환.
+**적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). 본문 안 도메인 식별자는 `app_*` / `domain_*` 로 일반화 (legacy prefix 잔존 금지).
 
 > **정본** — App backend ↔ 웹서비스 도메인 경계 규약.
 > 언어 무관 (Python / TS 공통). 양쪽 `*_agent_rules/architecture.md` 와
@@ -1656,11 +1656,335 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 - `DOMAIN_DATABASE_URL` 누락을 silent fallback 으로 무시 (DSN 분리 원칙)
 - 도메인 도구가 domain_mutations 쓰지 않고 구조화 로깅으로만 audit 갈음 (예외는 project lifecycle 메타 작업만)
 
-(legacy 이름: `iyaki-domain-boundary`)
+(legacy 출처 경로는 frontmatter `source` 참조)
+
+<!-- ━━━ inlined from ./skills/media-job-lifecycle/SKILL.md ━━━ -->
+
+
+> Language-neutral invariants — Media job lifecycle, retry classification, stale-lease reaper, tenant ownership.
+> 정본 (single source of truth) for Python harness, TS / Hono harness, 그리고 미래 Rust harness.
+> Cited from: `stack-backend-python/rules/_shared/media-job-lifecycle.md`, `stack-backend-python/rules/media-pipeline-patterns.md`, `stack-backend-ts-hono/skills/media-pipeline-patterns/SKILL.md`.
+
+# Media Job Lifecycle — 언어 무관 불변식
+
+(slug: `media-job-lifecycle` — workflow 의 `media-pipeline-patterns` 와 구분)
+
+## 검증 대상 invariant 4건
+
+### Invariant 1: 상태 전이 monotone — 역행 금지
+
+```
+pending (= queued) → processing (= running) → succeeded (= completed) | failed | canceled | dlq
+```
+
+- **역행 금지**: terminal → pending, processing → pending (단, stale-lease reaper 예외 — 아래 참조), succeeded → processing 등 일체 금지
+- **점프 금지**: pending → succeeded 직접 전이 ✕ (반드시 processing 거침)
+- 단, **`STALE_SEC` 초과한 running lease 의 reaper 복원** (`running` → `queued`, `attemptCount` 보존) 은 의도된 예외 — orphan 복구이지 정상 흐름의 역행이 아님
+
+### Invariant 2: `jobId` = idempotency key — 재시도 멱등
+
+- 동일 `jobId` 로 enqueue 호출 = noop (기존 job 반환). 새 job 생성 ✕
+- 동일 `jobId` 로 worker 가 다시 pickup 해도 result 가 달라지면 안 됨 (handler idempotent 의무)
+- 클라이언트 retry 시 새 `jobId` 발급하지 말고 기존 `jobId` 로 polling
+
+### Invariant 3: terminal 후 result immutable
+
+- `status ∈ TERMINAL_JOB_STATUSES` 이면 `result` / `resultPath` / `resultMetadata` / `error` 필드 **변경 ✕**
+- 변경이 필요한 경우 = **새 job 생성** (새 `jobId`)
+- DB 모드: terminal row 에 UPDATE 시 `WHERE status IN (terminal)` 조건 + check constraint 또는 `RETURNING` 검증으로 차단
+- KV 모드: WriteCoordinator 가 terminal guard 검증 후 stale write drop (`media.stale_terminal_write` 경고)
+
+### Invariant 4: canceled = soft signal
+
+- `DELETE /media/jobs/<id>` 호출은 **즉시 종료 보장 ✕**. `canceled` 상태 set + worker 의 **다음 checkpoint** 에서 종료
+- worker 는 pickup 시 / checkpoint 마다 status 확인 — `canceled` 면 handler skip 또는 cooperative cancel
+- 강제 종료 = `AbortController.abort()` cascade 도 가능하지만 **외부 SDK 호출 중간에는 강제 중단 불가** — best-effort 정책
+- terminal set 에 포함됨 (`TERMINAL_JOB_STATUSES`) — 일단 `canceled` 면 추가 전이 ✕
+
+## TypeScript 표현 (apps/api)
+
+```typescript
+// src/services/media/types.ts
+export type MediaJobStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+  | 'dlq';
+
+export interface MediaResult {
+  resultPath?: string;                                  // R2 key
+  resultMetadata?: Record<string, unknown>;
+}
+
+export interface MediaJob {
+  jobId: string;                                        // crypto.randomUUID() 기반 + 'job_' prefix
+  userId: string | null;
+  category: 'image' | 'audio' | 'video';
+  op: string;                                           // qualified name (e.g. 'image.generate')
+  status: MediaJobStatus;
+  attemptCount: number;
+  nextRetryAt: string | null;                           // ISO 8601
+  request: Record<string, unknown>;                     // op-specific params
+  result?: MediaResult;
+  error?: { code: string; message: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const TERMINAL_JOB_STATUSES: ReadonlyArray<MediaJobStatus> = [
+  'succeeded',
+  'failed',
+  'canceled',
+  'dlq',
+] as const;
+
+export function isTerminal(status: MediaJobStatus): boolean {
+  return TERMINAL_JOB_STATUSES.includes(status);
+}
+```
+
+### 6-state ↔ 본 invariant 의 매핑
+
+본 invariant 가 정의한 6 상태 (`MediaJobStatus` = pending / processing / succeeded / failed / canceled / dlq) 는 **외부 API contract**. `media-pipeline-patterns` workflow 의 6 internal stage (queued / running / completed / failed / canceled / dlq) 와 다음과 같이 매핑:
+
+| 본 invariant `MediaJobStatus` (external) | workflow `InternalJobStage` (internal) | 비고 |
+|----------------------------------------|---------------------------------------|------|
+| `pending` | `queued` | enqueue 직후 |
+| `processing` | `running` | worker pickup + handler 호출 직전 |
+| `succeeded` | `completed` | handler 성공 |
+| `failed` | `failed` | handler 예외 (legacy 경로) |
+| `canceled` | `canceled` | DELETE 트리거, soft signal |
+| `dlq` | `dlq` | retry 예산 소진 또는 permanent error |
+
+> 매핑 함수 = `toExternalStatus(stage: InternalJobStage): MediaJobStatus` (workflow skill `media-pipeline-patterns` 정의). DB column / worker queue 는 `InternalJobStage` 사용, 외부 응답은 `MediaJobStatus`. 본 invariant 의 4 invariant (monotone / idempotency / immutable / soft cancel) 는 두 vocabulary 모두에 적용 — terminal set 도 6 stage 모두 포함 (`TERMINAL_JOB_STATUSES` ⊇ `succeeded` / `failed` / `canceled` / `dlq`, `TERMINAL_INTERNAL_STAGES` ⊇ `completed` / `failed` / `canceled` / `dlq`).
+
+## 위반 = 즉시 차단
+
+다음 코드는 **PR / CI 시 차단**:
+
+```typescript
+// ✕ pending → succeeded 직접 점프 (Invariant 1 위반)
+await db.update(mediaJobs).set({ status: 'succeeded', result }).where(eq(mediaJobs.id, jobId));
+// (이 row 의 status 가 'pending' 이었으면 → CHECK constraint 또는 transition guard 가 reject)
+
+// ✕ terminal → pending 역행 (Invariant 1 위반, reaper 예외 제외)
+await db.update(mediaJobs).set({ status: 'pending' }).where(eq(mediaJobs.id, jobId));
+
+// ✕ 동일 jobId 에 다른 result write (Invariant 3 위반)
+const job = await getJob(jobId);
+if (job.status === 'succeeded') {
+  await db.update(mediaJobs).set({ result: differentResult }).where(eq(mediaJobs.id, jobId));
+}
+
+// ✕ canceled 강제 즉시 종료 (Invariant 4 위반 — soft signal 이어야 함)
+await killWorkerHandler(jobId);                       // 외부 SDK 가 중간에 cancel 안 됨
+```
+
+### 정상 코드
+
+```typescript
+// ✅ 상태 전이는 trasition function 경유 (CHECK 와 guard 둘 다)
+export async function transitionJob(
+  db: Database,
+  jobId: string,
+  from: MediaJobStatus,
+  to: MediaJobStatus,
+): Promise<void> {
+  if (isTerminal(from)) {
+    throw new Error(`cannot transition out of terminal status: ${from} → ${to}`);
+  }
+  const updated = await db
+    .update(mediaJobs)
+    .set({ status: to, updatedAt: new Date().toISOString() })
+    .where(and(eq(mediaJobs.id, jobId), eq(mediaJobs.status, from)))
+    .returning({ id: mediaJobs.id });
+  if (updated.length === 0) {
+    throw new Error(`stale transition: ${jobId} not in expected status ${from}`);
+  }
+}
+
+// ✅ result write 는 transition 과 atomic
+export async function completeJob(
+  db: Database,
+  jobId: string,
+  result: MediaResult,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await transitionJob(tx, jobId, 'processing', 'succeeded');
+    await tx.update(mediaJobs).set({ result }).where(eq(mediaJobs.id, jobId));
+  });
+}
+
+// ✅ cancel 은 status set 만, handler kill 시도 ✕
+export async function cancelJob(db: Database, jobId: string): Promise<void> {
+  await db
+    .update(mediaJobs)
+    .set({ status: 'canceled', updatedAt: new Date().toISOString() })
+    .where(and(eq(mediaJobs.id, jobId), notInArray(mediaJobs.status, [...TERMINAL_JOB_STATUSES])));
+  // worker 가 다음 checkpoint 에서 status 확인 + skip
+}
+```
+
+## 핵심 상수 (언어 무관)
+
+| 상수 | 값 | 의미 |
+|------|----|------|
+| `STALE_MS` | 1_800_000 (30분) | claim 후 이 시간 지나면 stale 로 판정 + reaper 복원 |
+| `MAX_ATTEMPTS` | 5 | retry 예산 (분류된 retryable 에러) |
+| `MAX_UNKNOWN_ATTEMPTS` | 3 | 분류 안 된 에러의 retry 예산 |
+| Backoff 시퀀스 | `10s → 40s → 160s → 640s → 2560s` | exponential ± 25% jitter |
+| `CATEGORY_CAPS` | `{ image: 100, audio: 200, video: 50 }` | queued 상태 row 개수 상한. 초과 시 429 + `Retry-After: 60` |
+| `CATEGORY_CONCURRENCY` | `{ image: 2, audio: 3, video: 1 }` | per-category worker pool 크기 |
+
+## Stale-lease reaper (Invariant 1 예외)
+
+- 모든 claim 은 `workerId` + `claimedAt` 을 row 에 기록 (dequeue SQL 이 atomic 하게 증가)
+- 부팅 시 + 주기적 (Cron Trigger `*/15 * * * *`) 으로 `resetStaleLeases(cutoff = now - STALE_MS)` 실행 — `claimedAt < cutoff` 인 `running` (= `processing`) row 를 `queued` (= `pending`) 로 복원 (`attemptCount` 보존, `workerId` / `claimedAt` 초기화)
+- 본 invariant 1 의 monotone 규칙의 **유일한 예외** — orphan 복구이지 정상 흐름의 역행이 아님
+- Handler 는 idempotent 해야 함 (재시작 시 max 1회 추가 실행) — Invariant 2 의 idempotency key 와 일관
+
+## 테넌트 소유권 (IDOR fix)
+
+- `MediaJob.userId: string | null` — 신규 job 은 enqueue 라우트가 auth context 에서 채움. nullable 은 pre-fix 데이터 호환용 — 신규 생성 시 `null` 금지
+- `GET` / `DELETE /media/jobs/{id}`: 소유자 불일치 + wildcard scope 없으면 **leak-safe 404** (403 금지 — 존재 자체를 leak 하지 않음)
+- 구현: `assertOwnerOrWildcard` (`job.userId !== caller && !hasScope(scopes, '*')` → 404)
+
+## 에러 처리 + 자동 retry
+
+- Worker 는 cancel 시그널 전파 (`AbortSignal`) + 핸들러 실패는 분류 후 전이
+- **분류 기반 자동 retry** — worker 가 handler 예외를 `classifyError` 로 분류:
+  - retryable (429 / 5xx / timeout / connection) → `scheduleRetry` + exponential backoff
+  - permanent (4xx / validation) → 즉시 `markDlq`
+  - retry 예산 소진 → DLQ
+- LLM 도구 에러 정책 (모델 반환) 은 적용 안 됨 — 미디어는 모델이 호출자가 아님
+- 에러 message 는 worker 가 `scrubSecrets` 적용 후 `job.error.message` 에 저장 (SDK exception 에 API key 포함 가능성)
+
+## 공통 금지 사항 (언어 무관)
+
+- 상태 전이 monotone 위반 (역행 / 점프) — Invariant 1
+- 동일 `jobId` 로 신규 row 중복 생성 — Invariant 2
+- terminal 후 `result` / `error` mutate — Invariant 3
+- `canceled` 강제 즉시 종료 (`AbortController.abort()` 외 — 외부 SDK 중간에는 ✕) — Invariant 4
+- 결과물을 HTTP body 로 inline 반환 (반드시 R2 key / signed URL)
+- `WriteCoordinator` 우회한 직접 바이너리 쓰기 (single writer 위반)
+- DB 모드에서 transaction 우회한 raw SQL / 직접 execute
+- 호출자가 concrete 구현체 import (오직 `MediaJobPort` interface 만 참조)
+- LLM 루프에서 `/media/*` 를 tool 처럼 HTTP 호출 (필요 시 미디어 전용 도구를 `tools/` 에 추가)
+- SSE 이벤트 스트림으로 미디어 결과 전송 (/run vs /media 분리 원칙 위반)
+- Handler exception message 를 scrub 없이 `job.error` 에 저장 (API key leak)
+- 영속화된 `error.message` 를 scrub 없이 logger 로 emit (이중 leak 경로)
+- `jobId` 에 개인정보 / 순차 카운터 사용 (UUID 기반 강제)
+- `userId` 없이 신규 job 생성 (auth context 에서 반드시 주입)
+- Job 조회 / 취소 시 `assertOwnerOrWildcard` 우회 (leak-safe 404 깨짐)
+- 동일 op 를 `registerHandler` 로 두 번 다른 callable 등록 (idempotent 는 같은 callable 만)
+
+<!-- ━━━ inlined from ./skills/architecture-invariants/SKILL.md ━━━ -->
+
+
+# architecture-invariants (overview / meta)
+
+> 본 skill = apps/api 의 **16 invariant** 카탈로그 + 라우팅 가이드. 각 invariant 의 원칙·금지·grep 패턴은 개별 invariant SKILL.md 가 정본 — 본 파일은 *어디서 어떤 invariant 를 봐야 하는지* 만 안내한다.
+> Cited from: Python 측 14 invariant 카탈로그 (legacy). TS 측 = workers-compat + media-job-lifecycle 추가 → 16 invariant. 도메인 boundary invariant 는 `app-domain-boundary` 로 rename (메모리 룰 — 도메인 중립 식별자).
+
+## 이 skill 은 언제 invoke 되는가
+
+- `apps/api/` 안에서 새 모듈 작성 시 (어느 invariant 가 적용되는지 빠르게 매핑)
+- "이 변경 이 invariant 깨뜨리나?" 빠른 확인 필요 시
+- 새 invariant 추가/삭제 시 (본 파일 카탈로그 갱신)
+- code review 준비 — 변경 영역에 걸리는 invariant 만 좁히기
+
+## 원칙은 개별 invariant SKILL.md 에 있다
+
+**불변식 본문 / 금지 사항 / grep 패턴 / 영향도** 는 모두 개별 invariant SKILL.md 안에 있다. 본 skill 은 **인덱스 + 라우팅** 만 담당한다. 충돌 시 개별 invariant SKILL.md 가 authoritative.
+
+## 16 invariant 카탈로그
+
+| invariant | 적용 상황 |
+|---|---|
+| workers-compat | 모든 코드 — `Buffer` / `fs` / `process.env` 직접 접근 ✕ (apps/api 는 Workers compat) |
+| single-writer | SSE 응답 — writer 1개만 (`streamSSE` 내부에서 동시 write ✕) |
+| provider-retry-matrix | LLM / 외부 API 호출 — p-retry + CircuitBreaker + per-provider 재시도 분류 |
+| token-budget-constants | context 조립 / compaction 판정 — js-tiktoken 카운트 + 5 budget 상수 |
+| sse-lifecycle | SSE 응답 라이프사이클 — 12 이벤트 / 종료 4 제약 (`done` 미누락 / `done` + `error` 배타 / `usage` direct-before-`done` / payload 메타 혼합 ✕) |
+| compaction-thresholds | context 81% 도달 시 — compaction 트리거 / 결과 검증 / 실패 시 폴백 |
+| http-error-sentinels | `HTTPException` 던질 때 — 4 패턴 (공개 envelope / 내부 throw / 부팅 throw / 옵션 null+warn) |
+| input-safety-gate-ordering | 사용자 입력 처리 시 — gate 순서 (size → schema → safety → policy) 고정 |
+| mcp-namespace | MCP tool 등록 시 — namespace prefix + 충돌 검출 + 도구 정렬 안정성 |
+| run-policy-presets | agent run 시작 시 — interactive / classifier / tool-based / multi-agent 4 preset + cross-field validation |
+| spawn-limits | sub-agent spawn 시 — `MAX_SPAWN_DEPTH = 3` / `SpawnDepthExceeded` / `checkDepth()` 가드 / CacheSafeParams |
+| tool-sort-order | tool list 렌더링 시 — built-in (이름순) → MCP (이름순) cache-stable 정렬 |
+| agent-loop-invariants | agent loop 실행 시 — 6-stage 순서 고정 + LoopTransition 8종 + LoopDeps/LoopState/RunPolicyLike |
+| app-domain-boundary | 도메인 분리 검증 시 — 백엔드는 도메인 어휘 ✕, 식별자 중립 |
+| media-job-lifecycle | 미디어 job 처리 시 — 6-state machine + terminal status 집합 + 상태 전이 단방향 |
+| architecture-invariants | (본 skill 자체 = 메타 라우터 — 카탈로그 갱신용) |
+
+## 적용 매핑 (작업 → invariant 묶음)
+
+각 코드 영역 작업 시 *동시에* 적용되는 invariant 묶음:
+
+| 작업 영역 | 적용 invariant |
+|---|---|
+| 새 route 추가 (`src/routes/`) | workers-compat + http-error-sentinels + (auth) |
+| LLM 호출 (`src/providers/`) | workers-compat + provider-retry-matrix + token-budget-constants + tool-sort-order |
+| SSE 응답 핸들러 | workers-compat + sse-lifecycle + single-writer + token-budget-constants |
+| context 조립 (`src/engine/context.ts`) | workers-compat + token-budget-constants + compaction-thresholds + tool-sort-order |
+| 새 tool 등록 (`src/tools/`) | workers-compat + tool-sort-order + mcp-namespace |
+| 새 sub-agent 호출 (`src/tools/spawn.ts`) | workers-compat + spawn-limits + agent-loop-invariants + run-policy-presets |
+| 사용자 입력 처리 (`src/middleware/safety.ts`) | workers-compat + input-safety-gate-ordering + http-error-sentinels |
+| 미디어 job 처리 (`src/media/`) | workers-compat + media-job-lifecycle + (single-writer 의 미디어 쓰기 부분) |
+| 도메인 영역 침범 검토 | app-domain-boundary (+ 모든 import 직접 grep) |
+
+## 새 invariant 추가 절차
+
+1. `apps/api/src/<area>/` 안 새 불변 식별 (지속적 / 위반 시 큰 비용)
+2. 별도 SKILL.md 작성 — `metadata.role: invariant` + scope/source 명시
+3. 본 SKILL.md 카탈로그 표에 1행 추가 (적용 상황 컬럼)
+4. 적용 매핑 표에도 해당 작업 영역에 추가
+5. 가능하면 audit skill 도 동시 추가 (`<invariant>-audit`) — `audit-all.sh` 에 등록
+6. pre-deploy-check chain 에 추가 검토 (위반이 배포 차단 사유면)
+
+## 새 invariant 삭제 절차
+
+1. 코드에서 해당 패턴 사용처 0 확인
+2. 본 SKILL.md 카탈로그에서 행 제거
+3. 적용 매핑 표 정리
+4. audit skill 삭제 + `audit-all.sh` 에서 라인 제거
+5. 의존 invariant (다른 SKILL.md 의 "참조" 줄) 갱신
+
+## invariant 변경 vs 새로 추가 판단
+
+| 변경 유형 | 처리 |
+|---|---|
+| 기존 invariant 의 본문 명확화 / 예시 추가 | 해당 invariant SKILL.md 만 갱신 |
+| 기존 invariant 의 *경계* 확장 (예: spawn-limits MAX_SPAWN_DEPTH 3 → 5) | 해당 invariant SKILL.md + 의존 코드 동시 갱신 + audit 갱신 |
+| 새 영역 (지속 강제 필요) 발견 | 새 invariant SKILL.md + 본 카탈로그 추가 + audit 추가 |
+| 일회성 / 단발 규칙 | invariant ✕ — workflow 또는 audit 으로 처리 |
+
+## 자주 보는 함정
+
+- **"이거 invariant 인가, workflow 인가?"** → *지속 강제 + 위반 시 큰 비용* = invariant. *어떻게 작성하는지 절차* = workflow. *기존 코드 점검 grep* = audit.
+- **"단일 invariant 가 너무 커진다"** → 분리. invariant 1개당 한 가지 불변에 집중 (예: sse-lifecycle 은 이벤트 집합만, single-writer 는 동시 writer 만).
+- **"invariant SKILL.md 와 코드가 다르다"** → invariant 가 정본. 코드 정정 또는 사용자 합의 후 invariant 갱신 — *코드 일치를 핑계로 invariant 슬쩍 완화 ✕*.
+- **새 invariant 카탈로그 미갱신** → 본 SKILL.md 가 stale → agent 가 invariant 누락 → 위반 코드 통과. 신규 추가 시 본 카탈로그 갱신 의무.
+
+## 검증 체크리스트
+
+- [ ] 본 SKILL.md 카탈로그 행 수 = `ls plugins/stack-backend-ts-hono/skills/ | rg -c '^(workers-compat|single-writer|provider-retry-matrix|token-budget-constants|sse-lifecycle|compaction-thresholds|http-error-sentinels|input-safety-gate-ordering|mcp-namespace|run-policy-presets|spawn-limits|tool-sort-order|agent-loop-invariants|app-domain-boundary|media-job-lifecycle)$'` = 15 (본 skill 제외)
+- [ ] 적용 매핑 표 = 작업 영역마다 *모든* 관련 invariant 명시 (누락 ✕)
+- [ ] 신규 invariant 추가 시 — 카탈로그 + 적용 매핑 동시 갱신
+- [ ] 모든 카탈로그 행에 frontmatter `name` 일치하는 SKILL.md 존재
+
+## 구현 중 막히면
+
+- `apps/api/` 디렉토리가 없음 → NOT_YET_IMPLEMENTED. invariant 만 정의되고 적용 코드는 추후
+- "이 변경에 어떤 invariant 가 걸리는지 모르겠다" → 작업 영역 컬럼 매핑 표 참고. 그래도 모르면 사용자 확인
+- 새 invariant 가 기존 invariant 와 중복 → 통합 또는 한 쪽 폐기. 같은 영역의 invariant 2개 공존 ✕
 
 ---
 
-## 사용 가능한 workflow 스킬 22개 (on-demand, description trigger)
+## 사용 가능한 workflow 스킬 39개 (on-demand, description trigger)
 
 - `backend-overview` — 코드베이스 진입 / 모듈 위치 결정
 - `provider-layer` — 새 LLM provider 추가 / retry-timeout 수정
@@ -1684,11 +2008,30 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 - `test-cleanup` — afterEach/afterAll DB/KV/mock 정리 패턴 시
 - `red-green-fix` — TDD red→green→refactor 사이클 시
 - `pre-deploy-check` — Workers 배포 전 6-step 체인 (type/lint/audit-all/vitest/whoami/dry-run)
+- `ai-agent-patterns` — AI agent 휴리스틱 / context budgeting / safety gate
+- `coding-standards` — TS 백엔드 코딩 컨벤션 (eslint/prettier/biome)
+- `commit-rules` — conventional commit + scope 카탈로그
+- `design-principles` — YAGNI / DRY / SoC / TS 예시
+- `media-pipeline-patterns` — 미디어 R2/ML-worker 파이프라인 (Workers compat)
+- `codex-commands` — Codex slash command 카탈로그 + arg 파싱
+- `codex-subagents` — Codex subagent dispatch 가이드
+- `ts-agent-rules` — TS 백엔드 agent 룰 카탈로그 + core-infra 흡수
+- `new-agent` — 새 agent 추가 절차 (AgentDef + Codex marker)
+- `new-run` — 새 run 추가 절차 (SSE + budget + abort)
+- `lsp-server` — tsc/vtsls 진단 (Workers vs Node 분리)
+- `performance-profiling` — 0x/clinic/node --inspect
+- `incident-triage` — wrangler tail / Sentry / rollback
+- `security-runtime` — zod parse / rate limit / CSRF / audit log
+- `usage-tracking` — LLM 토큰 사용량 집계 + Cron Triggers
+- `provider-scaffold` — 새 provider 추가 스캐폴딩
+- `provider-catalog-sync` — OpenRouter 모델 카탈로그 sync (Node 전용)
 
-## 사용 가능한 audit 스킬 12 + 1 (on-demand)
+## 사용 가능한 audit 스킬 24개 (on-demand)
 
-> 12 = M2.5 Task 4.1-4.12 산출. +1 = d1-forbidden-audit (M2.5 Task 6.4 산출, Codex 4차 추가). M2.5 audit 총 13.
+> 13 = M2.5 Task 4.1-4.12 + d1-forbidden-audit (Task 6.4). +11 = M2.5 Task 9e.1-9e.11 (audit-port). M2.5 audit 총 24.
 > 배포 전 / provider 추가 후 / route 추가 후 등 *변화 후 검증* 시 trigger.
+
+### 기존 13 audit
 
 - `provider-retry-audit` — retry-able vs fatal sentinel 매트릭스 (provider 추가 후)
 - `sse-lifecycle-audit` — 4-state + onAbort + heartbeat (SSE route 변경 후)
@@ -1703,3 +2046,17 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 - `spawn-limits-audit` — parallel call limit 없음 (sub-agent 변경 후)
 - `app-domain-boundary-audit` — core 디렉토리 도메인 어휘 누출 (모듈 추가/이동 후)
 - `d1-forbidden-audit` — Cloudflare D1 사용 검출 (spec §1.2 enforce, 배포 전 — 06 Task 6.4 산출, Codex 4차 추가)
+
+### 신규 11 audit (Task 9e.1–9e.11)
+
+- `agent-verify-def` — agent def 필수 필드 / 중복 name
+- `api-audit` — Hono route zValidator / auth middleware
+- `data-audit` — FK 인덱스 / RLS / migration 순서
+- `full-architecture-audit` — 24 audit 통합 + madge cycle + 디렉토리 정합
+- `infra-audit` — wrangler.toml 필수 키 / bindings / preview env
+- `loop-audit` — while(true) 안전성
+- `session-audit` — KV TTL / storage adapter 우회
+- `security-audit-check` — secret 하드코딩 / eval / SSRF / SQL injection
+- `rule-linting` — SKILL.md frontmatter 검증
+- `dependency-scanning` — npm audit CVE + Workers-incompat
+- `runtime-verify` — deploy 직후 health / SSE timing

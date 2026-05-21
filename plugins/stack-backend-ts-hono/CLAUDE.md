@@ -15,7 +15,7 @@
 
 ---
 
-## 상시 적용 invariant 14개
+## 상시 적용 invariant 16개
 
 > Claude Code 가 plugin install 후 fresh 세션 시작 시 다음 invariant 본문이 *상시 노출*. Workers 호환 / SSE lifecycle / provider retry 등 *불변* 룰 자동 적용.
 
@@ -33,10 +33,12 @@
 @./skills/tool-sort-order/SKILL.md
 @./skills/agent-loop-invariants/SKILL.md
 @./skills/app-domain-boundary/SKILL.md
+@./skills/media-job-lifecycle/SKILL.md
+@./skills/architecture-invariants/SKILL.md
 
 ---
 
-## 사용 가능한 workflow 스킬 22개 (on-demand, description trigger)
+## 사용 가능한 workflow 스킬 39개 (on-demand, description trigger)
 
 - `backend-overview` — 코드베이스 진입 / 모듈 위치 결정
 - `provider-layer` — 새 LLM provider 추가 / retry-timeout 수정
@@ -60,6 +62,23 @@
 - `test-cleanup` — afterEach/afterAll DB/KV/mock 정리 패턴 시
 - `red-green-fix` — TDD red→green→refactor 사이클 시
 - `pre-deploy-check` — Workers 배포 전 6-step 체인 (type/lint/audit-all/vitest/whoami/dry-run)
+- `ai-agent-patterns` — AI agent 휴리스틱 / context budgeting / safety gate
+- `coding-standards` — TS 백엔드 코딩 컨벤션 (eslint/prettier/biome)
+- `commit-rules` — conventional commit + scope 카탈로그
+- `design-principles` — YAGNI / DRY / SoC / TS 예시
+- `media-pipeline-patterns` — 미디어 R2/ML-worker 파이프라인 (Workers compat)
+- `codex-commands` — Codex slash command 카탈로그 + arg 파싱
+- `codex-subagents` — Codex subagent dispatch 가이드
+- `ts-agent-rules` — TS 백엔드 agent 룰 카탈로그 + core-infra 흡수
+- `new-agent` — 새 agent 추가 절차 (AgentDef + Codex marker)
+- `new-run` — 새 run 추가 절차 (SSE + budget + abort)
+- `lsp-server` — tsc/vtsls 진단 (Workers vs Node 분리)
+- `performance-profiling` — 0x/clinic/node --inspect
+- `incident-triage` — wrangler tail / Sentry / rollback
+- `security-runtime` — zod parse / rate limit / CSRF / audit log
+- `usage-tracking` — LLM 토큰 사용량 집계 + Cron Triggers
+- `provider-scaffold` — 새 provider 추가 스캐폴딩
+- `provider-catalog-sync` — OpenRouter 모델 카탈로그 sync (Node 전용)
 
 ## 사용 가능한 audit 스킬 24개 (on-demand)
 
