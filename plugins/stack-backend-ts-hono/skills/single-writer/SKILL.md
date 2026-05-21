@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 동시성 (asyncio.gather → Promise.all/allSettled), Lock (asyncio.Lock → async-mutex `new Mutex()` 또는 advisory SQL lock `pg_advisory_xact_lock`)
 
 > Language-neutral invariants — Single-writer pattern, atomic write, per-resource locking.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/data-layer-patterns.md`, `ts_agent_rules/data-layer-patterns.md`,
 >             `python_agent_rules/architecture.md`, `ts_agent_rules/architecture.md`.
 
@@ -50,6 +50,8 @@ metadata:
 ```
 
 → crash-safe 불변. 부분 쓰기 / 손상 파일 발생 불가.
+
+> ⚠️ Workers 환경 caveat: `fsync` / `rename` (Node fs API) 은 *escape hatch only* — `apps/api/src/storage/provider.ts` 의 `LocalFsProvider` 내부에서만 사용. Workers runtime 에서는 R2 / KV SDK 의 atomic put 패턴으로 대체 (예: `await c.env.R2_BUCKET.put(key, data, { onlyIf: { etagDoesNotMatch: oldEtag } })`).
 
 ### 2. Per-resource Lock
 

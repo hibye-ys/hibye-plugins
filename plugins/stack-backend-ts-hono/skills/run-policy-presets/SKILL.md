@@ -1,6 +1,6 @@
 ---
 name: run-policy-presets
-description: RunPolicy 13 필드 defaults, cross-field 불변, 정책 해석 순서, 프리셋 가이드 invariant. YAML 추가만으로 새 엔드포인트.
+description: RunPolicy 16 필드 defaults, cross-field 불변, 정책 해석 순서, 프리셋 가이드 invariant. YAML 추가만으로 새 엔드포인트.
 metadata:
   role: invariant
   scope: apps/api
@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 거의 ✕ (constants table). 본문 안 Python config 클래스 → TS `const` + zod 검증 형태로 적용.
 
 > Language-neutral invariants — RunPolicy schema, defaults, cross-field validation, presets.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/run-policy.md`, `ts_agent_rules/run-policy.md`.
 
 # RunPolicy — 언어 무관 불변식
@@ -23,7 +23,7 @@ metadata:
 - RunPolicy 는 **범위 제약** 만 선언, 엔진(6-stage loop) 은 하나
 - RunPolicy 는 **frozen** + Zod `strict()` — 인스턴스 생성 후 mutate 차단 + 오타 시 startup `ValidationError`
 
-## RunPolicy 13 필드 (defaults + 의미)
+## RunPolicy 16 필드 (defaults + 의미)
 
 TS 구현: `z.object({ ... }).readonly()` 또는 `Object.freeze(policy)` 로 immutability 보장.
 

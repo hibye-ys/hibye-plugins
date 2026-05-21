@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). MCP 클라이언트 import: Python `mcp` SDK → `@modelcontextprotocol/sdk` (TS)
 
 > Language-neutral invariants — MCP namespace, connection lifecycle, env substitution policy, registry isolation.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/mcp-patterns.md`, `ts_agent_rules/mcp-patterns.md`.
 
 # MCP Integration — 언어 무관 불변식

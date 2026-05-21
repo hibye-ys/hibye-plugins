@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 에러 (HTTPException(FastAPI) → HTTPException(hono/http-exception), `throw new HTTPException(status, { message })`), 전역 예외 핸들러 (@app.exception_handler → app.onError)
 
 > Language-neutral invariants — HTTP error code sentinels, error envelope shape, leak-safe 404, scrub_text.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/api-routing-patterns.md`, `ts_agent_rules/api-routing-patterns.md`,
 >             `python_agent_rules/error-handling.md`, `ts_agent_rules/error-handling.md`.
 
@@ -34,17 +34,37 @@ metadata:
 ## Hono 에러 핸들링 패턴
 
 ```ts
-import { HTTPException } from 'hono/http-exception';
+import { HTTPException } from "hono/http-exception";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-// 라우트에서 raise
-throw new HTTPException(422, { message: errorBody('validation_error', scrubText(err.message)) });
+// helper — 라우트 outer-scope c 없이도 호출 가능, type-safe
+// HTTPException message: 는 string 전용 → errorBody() 객체를 직접 전달하면 타입 오류.
+// Hono 의 의도된 API: res: 에 Response 객체를 담아 envelope 보장.
+function throwSentinelError(
+  code: SentinelCode,
+  status: ContentfulStatusCode,
+  detail: string
+): never {
+  const body = errorBody(code, scrubText(detail));
+  throw new HTTPException(status, {
+    res: new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
+  });
+}
+
+// 라우트에서 사용
+throwSentinelError("validation_error", 422, err.message);
 
 // 전역 핸들러 (app.onError — @app.exception_handler 대응)
 app.onError((err, c) => {
   if (err instanceof HTTPException) {
-    return c.json(err.message, err.status);
+    // throwSentinelError 경유 시 err.res 에 올바른 envelope 가 담겨 있음 — 그대로 반환
+    return err.getResponse();
   }
-  return c.json(errorBody('internal_error', 'internal server error'), 500);
+  // 알 수 없는 에러
+  return c.json(errorBody("internal_error", "unexpected"), 500);
 });
 ```
 

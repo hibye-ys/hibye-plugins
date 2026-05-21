@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 토큰 카운트 (tiktoken → js-tiktoken)
 
 > Language-neutral invariants — TokenBudget allocation, attachment ordering, partial loading thresholds.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/context-assembly-patterns.md`, `ts_agent_rules/context-assembly-patterns.md`.
 
 # Token Budget — 언어 무관 불변식
@@ -24,7 +24,7 @@ metadata:
 | HINT | 500 | 2000자 컷 후 토큰 검증 |
 | MEMORY | 16,000 | 최신순 LRU |
 | CONVERSATION | 150,000 | Compaction 대상 (Stage 1 트리거) |
-| RESERVED | 21,500 | LLM 출력 + 안전 마진 |
+| RESERVED | 21,500 | output 예약 + tool overhead allocation (응답 생성 공간 확보 — output reservation 개념이며, compaction trigger threshold 와 다른 개념임. trigger SoT = `compaction-thresholds` 의 `SAFETY_BUFFER`) |
 | **합계** | **200,000** | 기준 모델 (Claude 200K) context window |
 
 ## Provider 별 effective window 동적 스케일
@@ -40,9 +40,14 @@ metadata:
 
 ## Compaction 트리거 조건
 
+> **주의**: 트리거 공식의 단일 정본(SoT)은 `compaction-thresholds/SKILL.md` 의 `SAFETY_BUFFER` 상수.
+> `RESERVED` 는 *output 영역 예약 + tool overhead 배정* 개념 — compaction trigger threshold 와 **다른 개념**이다.
+> 두 상수(RESERVED=21,500 / SAFETY_BUFFER=13,000)는 역할이 다르므로 값이 달라도 모순이 아님.
+
 ```
-trigger if current_input_tokens > effective_window - RESERVED
+trigger if current_input_tokens > effective_window - SAFETY_BUFFER
 ```
+(trigger 상수 = `compaction-thresholds/SKILL.md` 의 `SAFETY_BUFFER`. 본 파일의 `RESERVED` 와 혼동 금지)
 
 - `totalInput()` / `effectiveWindow()` 는 **instance method** (self 기반 합산)
 - `forModel(modelId)` 만 static method (인스턴스 생성)

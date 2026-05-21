@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: HTTP 클라이언트 (httpx.AsyncClient → fetch), Retry (tenacity → p-retry 또는 수동 exponential backoff), 환경변수 (os.getenv → c.env), 에러 (HTTPException(FastAPI) → HTTPException(hono/http-exception))
 
 > Language-neutral invariants — Provider abstraction, retry/fallback matrix, circuit breaker, model resolution.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/ai-provider-patterns.md`, `ts_agent_rules/ai-provider-patterns.md`.
 
 # Provider Layer — 언어 무관 불변식
@@ -52,6 +52,9 @@ Azure OpenAI / AWS Bedrock 은 현재 미지원 — 필요 시 새 provider 추�
 TS 구현: `p-retry` 라이브러리 또는 수동 exponential backoff:
 
 ```ts
+// 공통 helper (재사용 가능)
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // p-retry 예시
 import pRetry from 'p-retry';
 const result = await pRetry(() => fetch(url, init), { retries: 3, minTimeout: 100 });

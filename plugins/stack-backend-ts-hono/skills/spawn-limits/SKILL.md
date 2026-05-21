@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 동시성 (asyncio.gather → Promise.all), 프로세스 분리 (Workers `c.executionCtx.waitUntil` 한계 명시), 큐 (BackgroundTasks → Promise/waitUntil 동등 패턴). Workers 제약: CPU 시간 한계, `waitUntil` 길이 제한. `p-limit` 라이브러리 권장.
 
 > Language-neutral invariants — Sub-agent spawn limits, isolation, cache discipline.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/sub-agent-patterns.md`, `ts_agent_rules/sub-agent-patterns.md`.
 
 # Sub-Agent Spawn Limits — 언어 무관 불변식

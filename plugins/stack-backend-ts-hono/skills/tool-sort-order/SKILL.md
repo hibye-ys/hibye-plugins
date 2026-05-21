@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 거의 ✕. Python tool 등록 예시 → TS `Map<string, ToolHandler>` 또는 array 형태로 치환.
 
 > Language-neutral invariants — Tool sort order, cache-stable tools array, dynamic safety determination.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/tool-system-patterns.md`, `ts_agent_rules/tool-system-patterns.md`,
 >             `python_agent_rules/core-infrastructure.md`, `ts_agent_rules/core-infrastructure.md`.
 

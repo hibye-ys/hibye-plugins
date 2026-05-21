@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 스키마 (pydantic → zod, `z.object({...})`), 검증 (pydantic validator → `z.refine`), 의존성 주입 (Depends → `c.set/get` Hono Context), 미들웨어 (FastAPI middleware → `app.use`)
 
 > Language-neutral invariants — Input safety gate V3 ordering, two-port jailbreak, orthogonal moderation, header sentinels.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/run-policy.md`, `ts_agent_rules/run-policy.md`,
 >             `python_agent_rules/architecture.md`, `ts_agent_rules/architecture.md`.
 

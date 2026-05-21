@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 비동기 (async def → async function), 동시성 (asyncio.gather → Promise.all), 루프 (while True → while (true)), 최상위 (asyncio.run → top-level await)
 
 > Language-neutral invariants — Agent Loop 6-stage order, LoopTransition enum, Error Recovery strategy.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/agent-loop-patterns.md`, `ts_agent_rules/agent-loop-patterns.md`.
 
 # Agent Loop Invariants — 언어 무관 불변식

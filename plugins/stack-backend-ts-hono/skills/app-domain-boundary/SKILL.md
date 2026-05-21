@@ -56,7 +56,7 @@ INSERT / UPDATE / DELETE 할 때 **반드시 다음 3 조건을 동일 트랜잭
 같은 **project 메타 작업** 에는 위 3 조건 비적용:
 
 - `lockProject` 적용 불가 (project_id 가 아직 없거나 — create / 글로벌 key — switch)
-- audit 는 `ai_backend.domain_mutations` 가 아니라 구조화 로깅 (`console.log` / `structuredLog`) 으로 대체
+- audit 는 `ai_backend.domain_mutations` 가 아니라 `structuredLog` (구조화 로깅) 으로 대체
 - 적용 도구: `domain_create_project`, `domain_switch_project` (V0 신규)
 
 ## 마이그레이션 격리

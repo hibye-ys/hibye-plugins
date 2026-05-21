@@ -10,7 +10,7 @@ metadata:
 **적용된 §4.4 매트릭스 행**: 토큰 카운트 (간접 — 토큰 측정은 js-tiktoken 사용). 본문 자체는 language-neutral.
 
 > Language-neutral invariants — Compaction stage order, thresholds, post-compact re-inject, tool output boundary.
-> 정본 (single source of truth) for both Python and TS harnesses.
+> 정본 (single source of truth) for both Python and TS implementations.
 > Cited from: `python_agent_rules/compaction-patterns.md`, `ts_agent_rules/compaction-patterns.md`.
 
 # Compaction — 언어 무관 불변식
@@ -39,7 +39,7 @@ metadata:
 | `SNIP_LIMIT_CHARS` | 200 | snip stage 의 head-truncate 길이 |
 | `ESCALATION_TARGET_RATIO` | 0.80 | 각 stage 의 중단 조건 = `threshold × 0.80` 이하. 재트리거 가드 |
 | `REACTIVE_TARGET_RATIO` | 0.70 | reactive stage 는 escalation 보다 공격적 |
-| `SAFETY_BUFFER` | 13_000 | 요약 LLM 여유 + 한 턴 분량 + α |
+| `SAFETY_BUFFER` | 13_000 | **compaction trigger threshold 의 SoT** — 요약 LLM 여유 + 한 턴 분량 + α. `token-budget-constants` 의 `RESERVED`(=21,500, output 예약 + tool overhead 배정)와 역할이 다른 별개 상수 |
 | `EFFECTIVE_CONTEXT_WINDOW` | 200_000 | 기준 모델 (Claude 200K). 비-200K 는 `TokenBudget.forModel()` 가 별개 스케일 |
 | `MAX_PTL_RETRIES` | 3 | Compaction 자체가 prompt-too-long 시 oldest group 삭제 후 재시도 한계 |
 | `MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES` | 3 | 연속 실패 한계. 초과 시 상위로 에러 전파 |
