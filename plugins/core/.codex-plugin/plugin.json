@@ -1,0 +1,22 @@
+{
+  "name": "core",
+  "version": "0.0.1",
+  "description": "Universal LLM backend principles and workflows.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Core",
+    "shortDescription": "Universal LLM backend principles.",
+    "longDescription": "Workflow and LLM backend principles shared across projects.",
+    "developerName": "hibye-ys",
+    "category": "Coding",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": [
+      "이 프로젝트 디버깅 도와줘",
+      "이 변경 사항 검토해줘"
+    ],
+    "brandColor": "#3B82F6",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg",
+    "screenshots": []
+  }
+}

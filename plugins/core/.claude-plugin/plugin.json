@@ -1,0 +1,8 @@
+{
+  "name": "core",
+  "version": "0.0.1",
+  "description": "Universal LLM backend principles and workflows.",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT",
+  "keywords": ["llm", "backend", "workflow", "agent-skills"]
+}
