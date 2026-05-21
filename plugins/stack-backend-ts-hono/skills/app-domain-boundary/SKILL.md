@@ -7,7 +7,7 @@ metadata:
   source: stack-backend-python/_shared/iyaki-domain-boundary.md (renamed)
 ---
 
-**적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). 본문 안 `iyaki_*` 식별자 → `app_*` / `domain_*` 로 치환.
+**적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). 본문 안 도메인 식별자는 `app_*` / `domain_*` 로 일반화 (legacy prefix 잔존 금지).
 
 > **정본** — App backend ↔ 웹서비스 도메인 경계 규약.
 > 언어 무관 (Python / TS 공통). 양쪽 `*_agent_rules/architecture.md` 와
@@ -99,4 +99,4 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 - `DOMAIN_DATABASE_URL` 누락을 silent fallback 으로 무시 (DSN 분리 원칙)
 - 도메인 도구가 domain_mutations 쓰지 않고 구조화 로깅으로만 audit 갈음 (예외는 project lifecycle 메타 작업만)
 
-(legacy 이름: `iyaki-domain-boundary`)
+(legacy 출처 경로는 frontmatter `source` 참조)
