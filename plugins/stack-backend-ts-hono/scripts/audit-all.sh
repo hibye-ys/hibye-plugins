@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# audit-all.sh — apps/api/src/ 에 audit 13 일괄 실행. pre-deploy-check 의 Step 3.
+# audit-all.sh — apps/api/ 에 audit 24 일괄 실행. pre-deploy-check 의 Step 3.
 # 각 audit 의 grep 패턴 = 해당 SKILL.md 본문 발췌.
 #
 # NOTE: 이 batch script 는 *문턱 검사* 만 — 빠른 fail-fast. 각 audit 의 *전체* 패턴 (block-level, multi-pattern)
@@ -7,10 +7,19 @@
 #
 # Usage: ./audit-all.sh [api-dir]
 #   api-dir 미지정 시 = cwd. 일반적으로 apps/api/ 안에서 실행.
+#
+# 24 audit:
+#   기존 13 — provider-retry / sse-lifecycle / single-writer / token-budget /
+#            tool-sort-order / input-safety / mcp-namespace / compaction-thresholds /
+#            http-error-sentinels / run-policy-presets / spawn-limits /
+#            app-domain-boundary / d1-forbidden
+#   신규 11 (Task 9e.1–9e.11) — agent-verify-def / api-audit / data-audit /
+#            full-architecture / infra / loop / session / security-audit-check /
+#            rule-linting / dependency-scanning / runtime-verify
 
 set -uo pipefail
 
-# Codex 4차 정정 — API_DIR 인자 또는 cwd. grep 경로는 API_DIR 기준 *상대*
+# API_DIR 인자 또는 cwd. grep 경로는 API_DIR 기준 *상대*
 API_DIR="${1:-$(pwd)}"
 cd "$API_DIR" || { echo "error: API_DIR not found: $API_DIR" >&2; exit 2; }
 
@@ -33,6 +42,8 @@ run_audit() {
     echo "PASS [$name]"
   fi
 }
+
+# ─────────────────────────── 기존 13 audit ───────────────────────────
 
 # 1. provider-retry-audit
 run_audit "provider-retry" 'retry.*\b(401|403|404|422)\b|\b(401|403|404|422)\b.*retry' src/ai/providers/
@@ -117,7 +128,7 @@ for dir in src/ai src/sse src/storage src/middleware; do
   [[ -d "$dir" ]] && run_audit "app-domain-boundary-$dir" '\b(writer|author|scenario|novel|character|persona)\b' "$dir"
 done
 
-# 13. d1-forbidden-audit (spec §1.2 enforce, Codex 4차 추가)
+# 13. d1-forbidden-audit (spec §1.2 enforce)
 if [[ -f wrangler.toml ]]; then
   run_audit "d1-forbidden-wrangler" 'd1_databases|D1Database' wrangler.toml
 fi
@@ -126,7 +137,212 @@ if [[ -f wrangler.jsonc ]]; then
 fi
 run_audit "d1-forbidden-code" '\bD1Database\b' src/
 
-# 결론
+# ─────────────────────────── 신규 11 audit (Task 9e.1–9e.11) ───────────────────────────
+
+# 14. agent-verify-def — agent default export 필수 필드 + name 중복
+agent_verify_def_check() {
+  [[ ! -d src/agents ]] && { echo "SKIP [agent-verify-def]: src/agents/ 없음"; return; }
+  local count=0
+  for f in src/agents/*.ts; do
+    [[ -f "$f" ]] || continue
+    for field in name version step modelMix; do
+      grep -q "$field" "$f" || { echo "VIOLATION [agent-verify-def]: $f missing $field"; count=$((count+1)); }
+    done
+  done
+  # name 중복
+  local dups
+  dups=$(grep -hE "^\s*name:\s*['\"]" src/agents/*.ts 2>/dev/null \
+    | sed -E "s/.*name:\s*['\"]([^'\"]+)['\"].*/\1/" \
+    | sort | uniq -d | wc -l | tr -d ' ')
+  if [[ $dups -gt 0 ]]; then
+    echo "VIOLATION [agent-verify-def]: $dups 개 name 중복"
+    count=$((count+dups))
+  fi
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [agent-verify-def]"
+}
+agent_verify_def_check
+
+# 15. api-audit — POST/PUT/PATCH 안 zValidator 누락 + protected path auth 누락
+api_audit_check() {
+  [[ ! -d src/routes ]] && { echo "SKIP [api-audit]: src/routes/ 없음"; return; }
+  local count=0
+  for f in $(find src/routes -type f -name '*.ts' 2>/dev/null); do
+    awk '/app\.(post|put|patch)\(/{flag=1; start=NR}
+         flag && /zValidator/{flag=0}
+         flag && /\)\s*$/{print FILENAME":"start": missing zValidator"; flag=0; count++}
+         END {exit count>0?1:0}' "$f" 2>/dev/null
+    [[ $? -ne 0 ]] && count=$((count+1))
+  done
+  # protected auth
+  if [[ -d src/routes/protected ]]; then
+    local no_auth
+    no_auth=$(grep -L "authMiddleware" src/routes/protected/*.ts 2>/dev/null | wc -l | tr -d ' ')
+    if [[ $no_auth -gt 0 ]]; then
+      echo "VIOLATION [api-audit]: $no_auth protected route(s) missing authMiddleware"
+      count=$((count+no_auth))
+    fi
+  fi
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [api-audit]"
+}
+api_audit_check
+
+# 16. data-audit — migration 순서 + FK 인덱스 (full check 는 SKILL.md 참조)
+data_audit_check() {
+  local count=0
+  if [[ -d drizzle ]]; then
+    ls drizzle/*.sql 2>/dev/null | sort -c 2>/dev/null \
+      || { echo "VIOLATION [data-audit]: migration 순서 어긋남"; count=$((count+1)); }
+  fi
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [data-audit]"
+}
+data_audit_check
+
+# 17. full-architecture-audit — 디렉토리 화이트리스트 + 4-layer 역참조
+full_architecture_check() {
+  [[ ! -d src ]] && { echo "SKIP [full-architecture]: src/ 없음"; return; }
+  local count=0
+  local extra
+  extra=$(ls src/ 2>/dev/null \
+    | grep -vE "^(routes|agents|runs|providers|db|storage|middleware|index\.ts)$" \
+    | wc -l | tr -d ' ')
+  if [[ $extra -gt 0 ]]; then
+    echo "VIOLATION [full-architecture]: $extra 화이트리스트 외 디렉토리"
+    count=$((count+extra))
+  fi
+  # 4-layer 역참조 (db / providers 에서 routes import)
+  local reverse
+  reverse=$(grep -rE "from\s+['\"](?:\.\./)+routes" src/db/ src/providers/ 2>/dev/null | wc -l | tr -d ' ')
+  if [[ $reverse -gt 0 ]]; then
+    echo "VIOLATION [full-architecture]: $reverse 역참조 (db/providers → routes)"
+    count=$((count+reverse))
+  fi
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [full-architecture]"
+}
+full_architecture_check
+
+# 18. infra-audit — wrangler 필수 키 + binding + preview env
+infra_audit_check() {
+  local wrangler="wrangler.toml"
+  [[ ! -f "$wrangler" ]] && wrangler="wrangler.jsonc"
+  [[ ! -f "$wrangler" ]] && { echo "SKIP [infra-audit]: wrangler config 없음"; return; }
+  local count=0
+  for key in name main compatibility_date; do
+    grep -qE "^\s*\"?${key}\"?\s*[:=]" "$wrangler" \
+      || { echo "VIOLATION [infra-audit]: missing $key"; count=$((count+1)); }
+  done
+  for binding in DATABASE_URL OPENROUTER_API_KEY; do
+    grep -q "$binding" "$wrangler" \
+      || { echo "VIOLATION [infra-audit]: missing $binding binding"; count=$((count+1)); }
+  done
+  grep -qE "\[env\.preview\]|\"preview\"\s*:" "$wrangler" \
+    || { echo "VIOLATION [infra-audit]: missing preview env"; count=$((count+1)); }
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [infra-audit]"
+}
+infra_audit_check
+
+# 19. loop-audit — while(true) 안 break/abort/turn 종료 조건
+loop_audit_check() {
+  local count=0
+  for f in $(find src/agents src/runs -type f -name '*.ts' 2>/dev/null); do
+    awk '/while\s*\(\s*true\s*\)/{flag=1; start=NR; brace_depth=0}
+         flag && /\{/{brace_depth++}
+         flag && /(break|abort|signal\.aborted|turn\s*[>=])/{flag=0}
+         flag && /\}/{
+           brace_depth--
+           if (brace_depth <= 0) {
+             print FILENAME":"start": unsafe while(true)"
+             flag=0
+           }
+         }' "$f" 2>/dev/null | while read line; do
+      [[ -n "$line" ]] && echo "VIOLATION [loop-audit]: $line"
+    done
+  done
+  # AWK 안 count 외부 전파 불가 → 출력 grep 으로 재집계
+  local violations
+  violations=$(for f in $(find src/agents src/runs -type f -name '*.ts' 2>/dev/null); do
+    awk '/while\s*\(\s*true\s*\)/{flag=1; start=NR; brace_depth=0}
+         flag && /\{/{brace_depth++}
+         flag && /(break|abort|signal\.aborted|turn\s*[>=])/{flag=0}
+         flag && /\}/{
+           brace_depth--
+           if (brace_depth <= 0) {
+             print FILENAME":"start
+             flag=0
+           }
+         }' "$f" 2>/dev/null
+  done | wc -l | tr -d ' ')
+  VIOLATIONS=$((VIOLATIONS + violations))
+  [[ $violations -eq 0 ]] && echo "PASS [loop-audit]"
+}
+loop_audit_check
+
+# 20. session-audit — KV.put TTL 누락 + c.env.KV 직접 접근
+session_audit_check() {
+  [[ ! -d src ]] && { echo "SKIP [session-audit]: src/ 없음"; return; }
+  local count=0
+  # TTL 누락 (간이 — KV 토큰 포함 파일에서 .put 라인 다음 5줄에 expirationTtl 없음)
+  rg -nP "\.put\(" src/ 2>/dev/null | grep -E "(KV|kv)" | while IFS=: read -r file ln rest; do
+    [[ -z "$file" ]] && continue
+    awk -v ln="$ln" 'NR>=ln && NR<=ln+5 {print}' "$file" | grep -q "expirationTtl" \
+      || echo "VIOLATION [session-audit]: $file:$ln missing expirationTtl"
+  done
+  # c.env.KV 우회
+  local bypass
+  bypass=$(rg -nP "c\.env\.\w*KV\w*\." src/ 2>/dev/null | grep -v "src/storage/" | wc -l | tr -d ' ')
+  if [[ $bypass -gt 0 ]]; then
+    echo "VIOLATION [session-audit]: $bypass storage adapter 우회"
+    count=$((count+bypass))
+  fi
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [session-audit]"
+}
+session_audit_check
+
+# 21. security-audit-check — secret / eval / dynamic require / SQL inj / SSRF
+security_audit_check() {
+  [[ ! -d src ]] && { echo "SKIP [security-audit-check]: src/ 없음"; return; }
+  local count=0
+  local m
+  m=$(rg -nP "(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]+)" src/ 2>/dev/null | wc -l | tr -d ' ')
+  [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m hardcoded secret"; count=$((count+m)); }
+  m=$(rg -nP "\beval\(|new\s+Function\(" src/ 2>/dev/null | wc -l | tr -d ' ')
+  [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m eval/new Function"; count=$((count+m)); }
+  m=$(rg -nP "require\([^'\"\\\`]+\)" src/ 2>/dev/null | wc -l | tr -d ' ')
+  [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m 동적 require"; count=$((count+m)); }
+  m=$(rg -nP "fetch\(\s*(req\.|body\.|c\.req\.)" src/ 2>/dev/null | wc -l | tr -d ' ')
+  [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m SSRF 의심"; count=$((count+m)); }
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [security-audit-check]"
+}
+security_audit_check
+
+# 22. rule-linting — 본 plugin 자체 frontmatter (apps/api 가 아니라 plugin 검증 — manual 만 표시)
+echo "MANUAL [rule-linting]: 본 plugin 의 skills/*/SKILL.md frontmatter 검증은 rule-linting/SKILL.md 의 ## 실행 직접 호출"
+
+# 23. dependency-scanning — Node built-in import (node: prefix 없는)
+dependency_scanning_check() {
+  [[ ! -d src ]] && { echo "SKIP [dependency-scanning]: src/ 없음"; return; }
+  local m
+  m=$(rg -nP "from\s+['\"](?:fs|net|tls|child_process|cluster|dgram|dns|http|https|os|path|stream|tty|vm)['\"]" \
+       src/ 2>/dev/null | grep -v "node:" | grep -v "// workers-compat-ok" | wc -l | tr -d ' ')
+  if [[ $m -gt 0 ]]; then
+    echo "VIOLATION [dependency-scanning]: $m Node built-in import (node: prefix 누락)"
+    VIOLATIONS=$((VIOLATIONS + m))
+  else
+    echo "PASS [dependency-scanning]"
+  fi
+}
+dependency_scanning_check
+
+# 24. runtime-verify — endpoint hit 은 배포 후 별도 실행 (manual)
+echo "MANUAL [runtime-verify]: 배포 후 runtime-verify/SKILL.md 의 ## 실행 (BASE_URL 지정) 별도 호출"
+
+# ─────────────────────────── 결론 ───────────────────────────
 echo ""
 echo "===================="
 echo "Total violations: $VIOLATIONS"

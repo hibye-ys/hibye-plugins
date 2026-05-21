@@ -61,10 +61,12 @@
 - `red-green-fix` — TDD red→green→refactor 사이클 시
 - `pre-deploy-check` — Workers 배포 전 6-step 체인 (type/lint/audit-all/vitest/whoami/dry-run)
 
-## 사용 가능한 audit 스킬 12 + 1 (on-demand)
+## 사용 가능한 audit 스킬 24개 (on-demand)
 
-> 12 = M2.5 Task 4.1-4.12 산출. +1 = d1-forbidden-audit (M2.5 Task 6.4 산출, Codex 4차 추가). M2.5 audit 총 13.
+> 13 = M2.5 Task 4.1-4.12 + d1-forbidden-audit (Task 6.4). +11 = M2.5 Task 9e.1-9e.11 (audit-port). M2.5 audit 총 24.
 > 배포 전 / provider 추가 후 / route 추가 후 등 *변화 후 검증* 시 trigger.
+
+### 기존 13 audit
 
 - `provider-retry-audit` — retry-able vs fatal sentinel 매트릭스 (provider 추가 후)
 - `sse-lifecycle-audit` — 4-state + onAbort + heartbeat (SSE route 변경 후)
@@ -79,3 +81,17 @@
 - `spawn-limits-audit` — parallel call limit 없음 (sub-agent 변경 후)
 - `app-domain-boundary-audit` — core 디렉토리 도메인 어휘 누출 (모듈 추가/이동 후)
 - `d1-forbidden-audit` — Cloudflare D1 사용 검출 (spec §1.2 enforce, 배포 전 — 06 Task 6.4 산출, Codex 4차 추가)
+
+### 신규 11 audit (Task 9e.1–9e.11)
+
+- `agent-verify-def` — agent def 필수 필드 / 중복 name
+- `api-audit` — Hono route zValidator / auth middleware
+- `data-audit` — FK 인덱스 / RLS / migration 순서
+- `full-architecture-audit` — 24 audit 통합 + madge cycle + 디렉토리 정합
+- `infra-audit` — wrangler.toml 필수 키 / bindings / preview env
+- `loop-audit` — while(true) 안전성
+- `session-audit` — KV TTL / storage adapter 우회
+- `security-audit-check` — secret 하드코딩 / eval / SSRF / SQL injection
+- `rule-linting` — SKILL.md frontmatter 검증
+- `dependency-scanning` — npm audit CVE + Workers-incompat
+- `runtime-verify` — deploy 직후 health / SSE timing
