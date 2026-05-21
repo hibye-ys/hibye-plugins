@@ -1660,7 +1660,7 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 
 ---
 
-## 사용 가능한 workflow 스킬 14개 (on-demand, description trigger)
+## 사용 가능한 workflow 스킬 22개 (on-demand, description trigger)
 
 - `backend-overview` — 코드베이스 진입 / 모듈 위치 결정
 - `provider-layer` — 새 LLM provider 추가 / retry-timeout 수정
@@ -1676,9 +1676,18 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 - `sub-agent` — sub-agent 호출 (Workers 호환)
 - `debug-session` — 백엔드 debug session (Hono+Workers 특화)
 - `update-config-runtime` — Workers c.env 바인딩 / .dev.vars / wrangler.toml (renamed)
+- `data-governance` — 데이터 거버넌스 (retention/PII/portability) 정책 결정 시
+- `data-layer` — Repository/DAO 패턴, transaction, optimistic locking 추가 시
+- `database` — DB 선택·연결·마이그레이션 (Workers 호환 Neon, D1 ✕)
+- `testing-infra` — Vitest+Hono 테스트 인프라 셋업 시
+- `test-scaffold` — 새 route/service/provider 테스트 골격 생성 시
+- `test-cleanup` — afterEach/afterAll DB/KV/mock 정리 패턴 시
+- `red-green-fix` — TDD red→green→refactor 사이클 시
+- `pre-deploy-check` — Workers 배포 전 6-step 체인 (type/lint/audit-all/vitest/whoami/dry-run)
 
-## 사용 가능한 audit 스킬 12 (on-demand)
+## 사용 가능한 audit 스킬 12 + 1 (on-demand)
 
+> 12 = M2.5 Task 4.1-4.12 산출. +1 = d1-forbidden-audit (M2.5 Task 6.4 산출, Codex 4차 추가). M2.5 audit 총 13.
 > 배포 전 / provider 추가 후 / route 추가 후 등 *변화 후 검증* 시 trigger.
 
 - `provider-retry-audit` — retry-able vs fatal sentinel 매트릭스 (provider 추가 후)

@@ -1,6 +1,10 @@
 ---
 name: verify-workers-compat
 description: Use after writing/editing backend TypeScript code that runs on Hono (apps/api or similar). Runs grep checks for Node-only APIs that break Cloudflare Workers compatibility. Run BEFORE commit on backend changes.
+metadata:
+  role: workflow
+  scope: apps/api
+  source: M1 — stack-backend-ts-hono M1 산출
 ---
 
 # verify-workers-compat

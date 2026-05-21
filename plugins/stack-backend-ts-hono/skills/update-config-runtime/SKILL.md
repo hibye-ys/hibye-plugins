@@ -3,9 +3,11 @@ name: update-config-runtime
 description: ".codex/settings.json, .codex/hooks/**, .claude/settings.json, .claude/hooks/** 에 항목 추가·수정·검증 시 invoke. 6단계 검증 플로우 (dedup / command 구성 / pipe-test 시뮬레이션 / merge-not-replace / schema 검증 / 실제 발화 증명) 실행. 새 hook 이벤트 등록 (PreToolUse, PostToolUse, SessionStart, PreCompact, PostCompact 등) 또는 기존 hook 미발화 디버깅 시에도 invoke. config 파일에 side effect — 명시적 invocation 권장."
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/update-config-harness/SKILL.md
 ---
+
+scope 확장 = `.codex/` `.claude/` 까지 (apps/api 에 국한되지 않고 project 전체 runtime config 관리).
 
 **적용된 §4.4 매트릭스 행**: Python hook script (`*.py`) → TypeScript/JS hook script (`*.ts` / `*.js` / `*.sh`), `python .codex/hooks/pre_write_guard.py` → `node .codex/hooks/pre_write_guard.js` 또는 `bash .codex/hooks/pre_write_guard.sh`, `jq` 기반 설정 검증 → 동일 (jq 는 runtime 무관), echo stdin 파이프 테스트 → 동일
 

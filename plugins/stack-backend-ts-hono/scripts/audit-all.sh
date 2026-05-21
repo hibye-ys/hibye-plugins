@@ -2,6 +2,9 @@
 # audit-all.sh — apps/api/src/ 에 audit 13 일괄 실행. pre-deploy-check 의 Step 3.
 # 각 audit 의 grep 패턴 = 해당 SKILL.md 본문 발췌.
 #
+# NOTE: 이 batch script 는 *문턱 검사* 만 — 빠른 fail-fast. 각 audit 의 *전체* 패턴 (block-level, multi-pattern)
+# 검증은 해당 SKILL.md 의 ## 실행 섹션 참조. CI 의 pre-deploy 단계는 *문턱 검사* 통과 + 수동 audit *전체 패턴* 모두.
+#
 # Usage: ./audit-all.sh [api-dir]
 #   api-dir 미지정 시 = cwd. 일반적으로 apps/api/ 안에서 실행.
 
