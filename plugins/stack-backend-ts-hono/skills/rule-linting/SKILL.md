@@ -82,4 +82,4 @@ description 은 *언제 invoke 하는지* + *무엇을 검증하는지* 가 한 
 
 - frontmatter 외 본문 구조 (검증 / 실행 / 통과 기준 / 위반 시) — 본 audit 은 frontmatter 만
 - root `AGENTS.md` / `CLAUDE.md` 룰 → 별도 root-level lint
-- skill 본문 안 도메인 어휘 (iyaki / harness-* 등) → forbidden-terms scan
+- skill 본문 안 금지 어휘 (도메인명 / 식별자 prefix 등) → 별도 forbidden-terms scan 으로 분리
