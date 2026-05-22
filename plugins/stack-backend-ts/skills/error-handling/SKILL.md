@@ -1,6 +1,6 @@
 ---
 name: error-handling
-description: apps/api 에서 에러 sentinel 매핑 / 전역 에러 핸들러 / structured logging 추가 수정 시 invoke. 4 표준 패턴, 예외 계층, tool result 에러 반환 패턴 안내. "에러가 노출됨", "에러 처리 패턴 불일치" 디버깅 시에도 invoke.
+description: <api-app> 에서 에러 sentinel 매핑 / 전역 에러 핸들러 / structured logging 추가 수정 시 invoke. 4 표준 패턴, 예외 계층, tool result 에러 반환 패턴 안내. "에러가 노출됨", "에러 처리 패턴 불일치" 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: project

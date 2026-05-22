@@ -1,6 +1,6 @@
 ---
 name: auth
-description: apps/api 인증·세션·시크릿 추가 또는 수정 시 invoke. JWT 인증 / 세션 스토어 / API key / rate limit 패턴, scope 검증, 시크릿 누락 에러 처리. 인증 실패 401 디버깅, 시크릿 누락 에러 시에도 invoke.
+description: <api-app> 인증·세션·시크릿 추가 또는 수정 시 invoke. JWT 인증 / 세션 스토어 / API key / rate limit 패턴, scope 검증, 시크릿 누락 에러 처리. 인증 실패 401 디버깅, 시크릿 누락 에러 시에도 invoke.
 metadata:
   role: workflow
   scope: project
@@ -29,7 +29,7 @@ metadata:
 인증 middleware 책임:
 1. `Authorization` 헤더 파싱 — `Bearer <jwt>` 또는 `ApiKey <key>` scheme 분기.
 2. 검증 성공 → request context 에 `auth: { userId, scopes, method }` 주입.
-3. 검증 실패 → `HTTPException(401)` throw (메시지는 일반화 — leak 방지).
+3. 검증 실패 → `<framework HTTP error class>(401)` throw (메시지는 일반화 — leak 방지).
 4. anonymous fallback 은 환경 플래그 (`APP_AUTH_REQUIRED=false`) 가 명시적으로 false 일 때만 허용.
 
 ## API Key 인증 원칙
@@ -79,7 +79,7 @@ SessionPort {
 
 - 요청 context 의 `auth.scopes` 와 route 가 요구하는 scope 비교.
 - `"*"` scope 는 super — 모든 scope 통과.
-- scope 불일치 → **leak-safe 404** (`HTTPException(404, "resource not found")`). 403 금지 ([[api-routing]] Leak-safe 404 참조).
+- scope 불일치 → **leak-safe 404** (`<framework HTTP error class>(404, "resource not found")`). 403 금지 ([[api-routing]] Leak-safe 404 참조).
 - scope 검증은 별도 middleware factory 또는 route-level guard 로 분리 — auth middleware 본체에서 직접 검사 금지.
 
 ## 시크릿 누락 에러 처리 원칙

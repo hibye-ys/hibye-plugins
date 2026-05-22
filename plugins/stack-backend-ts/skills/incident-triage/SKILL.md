@@ -1,13 +1,13 @@
 ---
 name: incident-triage
-description: 배포 후 incident 1차 진단 dispatch. 사용자 증상 ("느림", "응답 이상", "tool 실패") → 7 symptom class 분류 → 1차 진단 도구 / 증거 수집 체크리스트로 dispatch. Workers tail / Sentry / Logflare 라이브 로그 + AsyncLocalStorage 10 필드 상관관계.
+description: 배포 후 incident 1차 진단 dispatch. 사용자 증상 ("느림", "응답 이상", "tool 실패") → 7 symptom class 분류 → 1차 진단 도구 / 증거 수집 체크리스트로 dispatch. runtime live tail / Sentry / log aggregator 라이브 로그 + AsyncLocalStorage 10 필드 상관관계.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/incident-triage
 ---
 
-**적용된 §4.4 매트릭스 행**: `loguru` / `structlog` → `pino` (Node) 또는 `console.log(JSON.stringify(...))` (Workers, Logflare 적재), `structlog.contextvars` ContextVar 10 필드 → `AsyncLocalStorage<RequestContext>` 10 필드, `prometheus` 메트릭 → **Cloudflare Analytics Engine** 또는 **Sentry**, alerting `pagerduty` / `opsgenie` → **PagerDuty** / **Sentry Issue Alert**, `os.getenv` → `c.env.<NAME>`, 라이브 로그 tail → `wrangler tail` (Workers) / `pino-tail` (Node), DB raw SQL → Drizzle `db.execute(sql\`...\`)`
+**적용된 §4.4 매트릭스 행**: `loguru` / `structlog` → `pino` (Node) 또는 `console.log(JSON.stringify(...))` (edge runtime + log aggregator 적재), `structlog.contextvars` ContextVar 10 필드 → `AsyncLocalStorage<RequestContext>` 10 필드, `prometheus` 메트릭 → 런타임별 analytics 또는 **Sentry**, alerting `pagerduty` / `opsgenie` → **PagerDuty** / **Sentry Issue Alert**, `os.getenv` → `<framework env binding>.<NAME>`, 라이브 로그 tail → runtime live tail / `pino-tail` (Node), DB raw SQL → Drizzle `db.execute(sql\`...\`)`
 
 # incident-triage — 배포 후 incident 1차 진단 dispatch
 
@@ -26,35 +26,31 @@ metadata:
 | 입력 | 구체 에러 메시지 | 로그 + loop state | 사용자 증상 서술 ("느리다", "답변 이상") |
 | 출력 | 버그 원인 가설 | loop stage fix | 1차 진단 경로 (어느 도구로 dispatch) |
 
-## 1차 진단 체크리스트 (Workers 환경 특화)
+## 1차 진단 체크리스트 (runtime-specific — 도구 명령은 instance 측 project-local skill 참조)
 
 배포 후 incident → 가장 먼저 5분 안에 확보:
 
 ```bash
-# 1. wrangler tail — Workers 라이브 로그
-pnpm exec wrangler tail --format pretty
-# 또는 특정 deployment 만
-pnpm exec wrangler tail --status error
+# 1. 라이브 로그 tail (runtime-specific — instance 측 project-local skill 참조)
+#    예: edge runtime 의 live tail, Node + pino-tail, k8s `kubectl logs -f`
 
-# 2. Sentry / Logflare 에러 burst 확인
+# 2. Sentry / log aggregator 에러 burst 확인
 #    Sentry → Issues → Last 1 hour → frequency spike
-#    Logflare → query: severity:error AND timestamp:[now-1h TO now]
+#    log aggregator → query: severity:error AND timestamp:[now-1h TO now]
 
 # 3. LLM provider status (외부 의존)
 curl -sI https://openrouter.ai/api/v1/auth/key   # OpenRouter
 #    https://status.openai.com / https://status.anthropic.com 대시보드
 
-# 4. Neon DB status
-#    https://neon.tech/status 또는 wrangler tail 안 'NEON_' 에러 grep
+# 4. DB status
+#    제공자 status 페이지 또는 로그 tail 안 DB 에러 prefix grep
 
-# 5. R2 / KV 가용성
-pnpm exec wrangler r2 bucket list
-pnpm exec wrangler kv:namespace list
+# 5. object storage / KV 가용성 (runtime-specific CLI — instance 측 project-local skill 참조)
 ```
 
-> Workers 는 stdout 이 즉시 사라진다 (per-request scope). 영속 적재는 **Logflare**
-> (또는 Workers Logpush → R2) 필수. `loguru` / `structlog` Python 패턴 대신
-> `console.log(JSON.stringify({...}))` 구조화 출력 → Logflare 가 자동 파싱.
+> 일부 런타임 (예: per-request 격리) 에서는 stdout 이 즉시 사라진다. 영속 적재는 외부 log aggregator
+> 필수. `loguru` / `structlog` Python 패턴 대신 `console.log(JSON.stringify({...}))` 구조화
+> 출력 → log aggregator 가 자동 파싱.
 
 ## AsyncLocalStorage 10 필드 상관관계
 
@@ -70,26 +66,18 @@ runName, agent, model, turnCount, spawnDepth
 1. 고객 리포트에서 **`requestId` 또는 session URL 확보** (프론트 CORS expose 헤더 `X-Request-Id`, `X-App-Session-Id`)
 2. `requestId` 로 해당 요청의 전체 로그 추출:
    ```bash
-   # Logflare query (예시)
-   #   project:apps-api AND request_id:"<id>"
-   pnpm exec wrangler tail --search "<request_id>"
+   # log aggregator query (예시)
+   #   project:<api-app> AND request_id:"<id>"
+   # runtime live tail 의 search 옵션 (instance 측 project-local skill 참조)
    ```
 3. `turnCount` + `spawnDepth` 로 loop 상태 추적, `model` 로 provider 파악
 4. 증상 class 매핑 후 해당 도구로 dispatch
 
 ## 격리 / 빠른 복구 (5분 안)
 
-1. **wrangler rollback** — 직전 deployment 으로 즉시 복구
-   ```bash
-   pnpm exec wrangler rollback   # 인터랙티브
-   # 또는 특정 version id:
-   pnpm exec wrangler rollback --version-id <id>
-   ```
-2. **Feature flag off** — KV / env 의 feature flag 즉시 비활성
-   ```bash
-   pnpm exec wrangler kv:key put --binding=CACHE "flag:<name>" "false"
-   ```
-3. **Cloudflare WAF 일시 차단** (DDoS / 악의적 입력 의심 시) — `vercel:vercel-firewall` 와 별개로 CF dashboard Attack Mode
+1. **runtime rollback** — 직전 deployment 으로 즉시 복구 (runtime-specific CLI — instance 측 project-local skill 참조)
+2. **Feature flag off** — KV / env 의 feature flag 즉시 비활성 (runtime-specific KV CLI — instance 측 project-local skill 참조)
+3. **WAF / edge firewall 일시 차단** (DDoS / 악의적 입력 의심 시) — runtime-specific dashboard 의 Attack Mode
 
 ## Symptom Class Matrix (7 classes)
 
@@ -100,11 +88,11 @@ runName, agent, model, turnCount, spawnDepth
 - **키워드**: "SSE 끊김", "응답 중간에 멈춤", "stream hang", "done 이벤트 안 옴", "connection dropped"
 - **1차 도구**:
   1. `sse-streaming` workflow + `sse-lifecycle-audit` — 로컬 재현
-  2. `wrangler tail --status error --search 'sse'` — Workers SSE 에러
+  2. runtime live tail (error filter + SSE search) — instance 측 project-local skill 참조
 - **증거 수집**:
   - [ ] 마지막으로 수신된 이벤트 type (text / tool_call / done / error?)
   - [ ] `doneSeen` 로그 (`loop.terminal_missing` WARN 있는지 — stream finally 안전망)
-  - [ ] keepalive heartbeat (15s) 정상 수신 여부 (Cloudflare 100s idle timeout?)
+  - [ ] keepalive heartbeat (15s) 정상 수신 여부 (런타임/프록시 idle timeout 확인 — instance 측)
   - [ ] `stream.onAbort` 발생 여부 (클라이언트가 먼저 끊었는지 서버가?)
   - [ ] `scrubSecrets` 미통과로 PII 포함 의심?
 
@@ -112,13 +100,13 @@ runName, agent, model, turnCount, spawnDepth
 
 - **키워드**: "응답 느림", "timeout", "10초 이상", "slow response"
 - **1차 도구**:
-  1. `performance-profiling` workflow — `wrangler tail` + Server-Timing 헤더
+  1. `performance-profiling` workflow — runtime live tail + Server-Timing 헤더
   2. `provider-layer` workflow — circuit breaker / fallback chain 상태
 - **증거 수집**:
   - [ ] provider circuit breaker state (CLOSED / OPEN / HALF_OPEN)
   - [ ] `toolCall` 수 + tool 실행 시간
   - [ ] blocking I/O 의심 (`await` 누락? sync `JSON.stringify` of huge object?)
-  - [ ] DB connection (Neon HTTP / WebSocket) 응답 시간
+  - [ ] DB connection (HTTP / WebSocket driver) 응답 시간
   - [ ] MCP 서버 응답 지연 (`mcp-integration` workflow)
 
 ### Class 3: Quality degradation
@@ -197,7 +185,7 @@ runName, agent, model, turnCount, spawnDepth
 
 1. **증거 수집 (Collect)**: 위 체크리스트로 로그/메트릭/상태 스냅샷 확보. **추측 금지** — 증거가 부족하면 수집으로 돌아감
 2. **가설 (Hypothesize)**: 수집된 증거로부터 가능한 원인 1-3 개 열거. 가장 증거가 뒷받침하는 것을 primary hypothesis 로
-3. **검증 (Verify)**: primary hypothesis 를 검증하는 실험 1개 설계 (로컬 재현 / 로그 추가 / 특정 설정 변경 / `wrangler rollback` 이전 비교). 확인되지 않으면 다른 가설로
+3. **검증 (Verify)**: primary hypothesis 를 검증하는 실험 1개 설계 (로컬 재현 / 로그 추가 / 특정 설정 변경 / runtime rollback 이전 비교). 확인되지 않으면 다른 가설로
 
 ## Incident Report 템플릿
 
@@ -214,7 +202,7 @@ incident 마무리 시 작성 — 팀 공유 / 재발 방지:
 - 기간: YYYY-MM-DD HH:MM UTC ~ HH:MM UTC
 - 심각도: P0 / P1 / P2
 - 증상 class: <1-7 중>
-- Deployment id: <wrangler deployment id>
+- Deployment id: <runtime deployment id>
 
 ## Reproduction
 - 요청: POST /run/<name> body `{...}`
@@ -225,14 +213,14 @@ incident 마무리 시 작성 — 팀 공유 / 재발 방지:
 (증거 수집 + 가설 + 검증 결과)
 
 ## Mitigation
-(즉시 완화 조치 — `wrangler rollback` / KV feature flag off / Cloudflare WAF / restart)
+(즉시 완화 조치 — runtime rollback / KV feature flag off / WAF / restart)
 
 ## Timeline
 - HH:MM 증상 보고 수신
 - HH:MM /incident 실행 → class N 로 분류
-- HH:MM 증거 수집 완료 (wrangler tail + Sentry)
+- HH:MM 증거 수집 완료 (runtime live tail + Sentry)
 - HH:MM root cause 확인
-- HH:MM mitigation 적용 (wrangler rollback to <version-id>)
+- HH:MM mitigation 적용 (runtime rollback to <version-id>)
 - HH:MM 정상 복구 확인
 
 ## Prevention
@@ -242,7 +230,7 @@ incident 마무리 시 작성 — 팀 공유 / 재발 방지:
 - `requestId`: <...>
 - `sessionId`: <...>
 - 관련 PR / commit:
-- Logflare query:
+- log aggregator query:
 - Sentry issue:
 ```
 

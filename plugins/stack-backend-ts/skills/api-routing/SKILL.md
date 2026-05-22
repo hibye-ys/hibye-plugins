@@ -1,6 +1,6 @@
 ---
 name: api-routing
-description: apps/api 에 새 HTTP route / middleware / 전역 에러 핸들러 추가 시 invoke. route 그룹화 + middleware 순서 + auth middleware 패턴, HTTP 에러 sentinel 변환, CORS expose_headers 규약 안내.
+description: <api-app> 에 새 HTTP route / middleware / 전역 에러 핸들러 추가 시 invoke. route 그룹화 + middleware 순서 + auth middleware 패턴, HTTP 에러 sentinel 변환, CORS expose_headers 규약 안내.
 metadata:
   role: workflow
   scope: project
@@ -49,7 +49,7 @@ Middleware 는 **요청 진입 순서 = 등록 순서** (FIFO) 로 동작하는 
 - Route 는 **thin layer** — HTTP 파라미터 파싱, 스키마 검증, 응답 포맷 결정만 담당.
 - 도메인 로직은 `src/engine/` 또는 `src/ai/` 경유.
 - 요청 body 는 zod 등 스키마로 검증 → 검증 실패 시 422.
-- run 이름 미존재 → 404 `HTTPException` 류 sentinel throw.
+- run 이름 미존재 → 404 `<framework HTTP error class>` 류 sentinel throw.
 - SSE 응답 경로는 별도 streaming handler 위임 ([[sse-streaming]] / [[sse-lifecycle]] 참조).
 - non-SSE 경로는 단일 JSON 응답.
 
@@ -73,7 +73,7 @@ Middleware 는 **요청 진입 순서 = 등록 순서** (FIFO) 로 동작하는 
 
 | 에러 종류 | HTTP | 응답 envelope |
 |---|---|---|
-| `HTTPException` (라이브러리 자체) | 그대로 통과 | 그대로 |
+| `<framework HTTP error class>` (라이브러리 자체) | 그대로 통과 | 그대로 |
 | 스키마 검증 실패 (`ZodError` 등) | 422 | `{ error: { code: "validation_error", message } }` |
 | `ConfigurationError` | 500 | `{ error: { code: "configuration_error", message: "service misconfigured" } }` |
 | `InternalError` / 기타 unhandled | 500 | `{ error: { code: "internal_error", message: "internal server error" } }` |

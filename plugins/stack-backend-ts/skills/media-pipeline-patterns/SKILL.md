@@ -8,24 +8,24 @@ metadata:
 ---
 
 > **Runtime/Storage 추상화 (이 skill 의 핵심 용어)**
-> - **object storage**: 바이너리를 보관하는 외부 객체 저장소. 예: Cloudflare R2, AWS S3, GCS. Instance 측에서 구체 binding/SDK 선택.
-> - **key-value cache**: 작고 빠른 KV 저장소. 예: Workers KV, Redis, Upstash. Instance 측에서 구체 binding/SDK 선택.
-> - **런타임 특화**: `waitUntil`, fetch handler body 한도, Cron Trigger, presigned URL API 등은 런타임 (Node / Workers / Bun) 별로 다르며 **instance 측에서 정의**. 본 workflow 는 추상 패턴만 명시.
+> - **object storage**: 바이너리를 보관하는 외부 객체 저장소. 예: S3, GCS, R2. Instance 측에서 구체 binding/SDK 선택.
+> - **key-value cache**: 작고 빠른 KV 저장소. 예: Redis, Upstash, edge KV. Instance 측에서 구체 binding/SDK 선택.
+> - **런타임 특화**: background task helper, fetch handler body 한도, cron trigger, presigned URL API 등은 런타임 (Node / edge / Bun) 별로 다르며 **instance 측에서 정의**. 본 workflow 는 추상 패턴만 명시.
 
 **적용된 §4.4 매트릭스 행**:
 - 파일 I/O: 동기 fs → **object storage** (`storage.put(key, blob)` / `storage.get(key)` — 런타임별 binding wrap)
 - 이미지 / 비디오 처리: in-process CPU heavy lib → **외부 ML-worker** 또는 브라우저 측 `OffscreenCanvas`
-- 스트리밍 응답: 프레임워크 streaming response → **`streamSSE`** (hono/streaming) 또는 `c.body(readableStream)`
-- 큐 / async: 인메모리 큐 → **외부 큐** (Workers Queues / Postgres `LISTEN` / Redis Streams — instance 선택)
+- 스트리밍 응답: 프레임워크 streaming response → **`<framework SSE helper>`** 또는 framework body helper (readable stream)
+- 큐 / async: 인메모리 큐 → **외부 큐** (Postgres `LISTEN` / Redis Streams / runtime queue — instance 선택)
 - DB: ORM session 추상 → **Drizzle `db.transaction(async (tx) => ...)`**
-- env: 글로벌 env helper → **`c.env.<NAME>`** (Hono context)
-- 로깅: 구조화 로거 → **pino** (Node) / **`console.log(JSON.stringify({...}))`** (Workers)
+- env: 글로벌 env helper → **`<framework env binding>.<NAME>`** (framework context)
+- 로깅: 구조화 로거 → **pino** (Node) / **`console.log(JSON.stringify({...}))`** (edge runtime)
 
 > source: `stack-backend-python/rules/media-pipeline-patterns.md`
-> **정본 invariant**: `media-job-lifecycle` skill (6-state / stale-lease reaper / IDOR fix / backpressure / retry classification — 언어 무관). 본 skill 은 TS / Hono 적용 지점만.
+> **정본 invariant**: `media-job-lifecycle` skill (6-state / stale-lease reaper / IDOR fix / backpressure / retry classification — 언어 무관). 본 skill 은 TS framework 적용 지점만.
 > 관련: `single-writer` (바이너리 WriteCoordinator), `error-handling` (4 패턴), `api-routing` (routes/media.ts)
 
-# media-pipeline-patterns — 미디어 파이프라인 (TS / Hono)
+# media-pipeline-patterns — 미디어 파이프라인 (TS)
 
 ## 이 skill은 언제 invoke 되는가
 
@@ -52,7 +52,7 @@ DELETE /media/jobs/<jobId>    → 204 (best-effort cancel)
 
 ### 런타임 본문 크기 제한 — Presigned URL 패턴
 
-일부 런타임 (예: Cloudflare Workers fetch handler) 은 request body 에 hard limit 이 있음. 정확한 한도는 **런타임 특화 — instance 측에서 확인**. 큰 입력 (e.g. 비디오 업로드) 은 직접 받지 말고 presigned URL 패턴 사용:
+일부 런타임 (예: edge fetch handler) 은 request body 에 hard limit 이 있음. 정확한 한도는 **런타임 특화 — instance 측에서 확인**. 큰 입력 (e.g. 비디오 업로드) 은 직접 받지 말고 presigned URL 패턴 사용:
 
 ```
 1. POST /media/<category>/<op>/init  → { uploadUrl, jobId }   # 클라이언트가 직접 object storage 에 PUT
@@ -104,7 +104,7 @@ export function isTerminalStage(stage: InternalJobStage): boolean {
 
 - `MediaJobStatus` (invariant 정본) — **외부 API contract**. 본 workflow 는 절대 재선언 ✕
 - `InternalJobStage` (본 workflow 정의, 6 stage) — **내부 queue / worker / DB column** 의 implementation detail. Python source (`queued` / `running` / `completed`) 어휘 유지
-- 매 `GET /media/jobs/<id>` 응답 직전에 `toExternalStatus(internalStage)` 로 변환 후 `c.json({ status: external, ... })` 직렬화
+- 매 `GET /media/jobs/<id>` 응답 직전에 `toExternalStatus(internalStage)` 로 변환 후 `<framework json response>({ status: external, ... })` 직렬화
 - `dlq` 는 양쪽에 공통 (invariant 의 `MediaJobStatus` 에 포함) — retry 예산 소진 또는 permanent error 분류 시
 - `running` 진입 시 worker 가 lease (`workerId`, `claimedAt`) 기록. **DB 모드에서는 transactional commit** — split-brain 방지
 
@@ -134,11 +134,11 @@ media/<jobId>/<filename>   # 예: media/job_abc123/output.png  (object storage k
 
 ### ML-worker 위임 (CPU bound escape)
 
-런타임에 따라 fetch handler CPU 한도가 짧을 수 있음 (예: Workers default 50ms). 이런 경우 무거운 in-process 변환 (이미지 리사이즈, 오디오 인코딩, 비디오 트랜스코드 등) 은 ✕. 모든 무거운 변환은 ML-worker 프로세스로 위임 — 일반 패턴:
+런타임에 따라 fetch handler CPU 한도가 짧을 수 있음 (예: 일부 edge runtime default 50ms). 이런 경우 무거운 in-process 변환 (이미지 리사이즈, 오디오 인코딩, 비디오 트랜스코드 등) 은 ✕. 모든 무거운 변환은 ML-worker 프로세스로 위임 — 일반 패턴:
 
 ```
 1. routes/media.ts        → enqueue 작업 (DB / KV write)
-2. ml-worker subscribe    → 외부 큐 consume (Postgres LISTEN / Workers Queue / Redis Streams — instance 선택)
+2. ml-worker subscribe    → 외부 큐 consume (Postgres LISTEN / runtime queue / Redis Streams — instance 선택)
 3. ml-worker process      → storage.get(input) → 변환 → storage.put(output) → DB update (status)
 4. 클라이언트 polling     → GET /media/jobs/<id> → completed 응답 받음
 ```
@@ -148,22 +148,22 @@ media/<jobId>/<filename>   # 예: media/job_abc123/output.png  (object storage k
 ## Stale-lease reaper (lease-based orphan 복구)
 
 - 모든 claim 은 `workerId` + `claimedAt` 을 row 에 기록 (dequeue SQL 이 atomic 하게 증가)
-- 부팅 시 (런타임 특화 — 일부 런타임 (예: Workers) 은 fetch handler 에 부팅 개념이 없으므로 scheduled trigger / ml-worker startup 에서 호출) + 주기적 (스케줄러 — 예: cron `*/15 * * * *`) 으로 `resetStaleLeases(cutoff=now-STALE_MS)` 실행 — `claimedAt < cutoff` 인 `running` row 를 `queued` 로 복원 (attemptCount 보존, workerId / claimedAt 초기화)
+- 부팅 시 (런타임 특화 — 일부 런타임 (예: edge fetch handler) 은 부팅 개념이 없으므로 scheduled trigger / ml-worker startup 에서 호출) + 주기적 (스케줄러 — 예: cron `*/15 * * * *`) 으로 `resetStaleLeases(cutoff=now-STALE_MS)` 실행 — `claimedAt < cutoff` 인 `running` row 를 `queued` 로 복원 (attemptCount 보존, workerId / claimedAt 초기화)
 - `STALE_MS = 1_800_000` (30분). handler 가 이 시간 넘으면 double-processing 위험 — 향후 heartbeat 도입 예정
 - Peer worker 의 live work 는 `claimedAt > cutoff` 이라 untouched — multi-worker safe
 - Handler 는 idempotent 해야 함 (재시작 시 max 1회 추가 실행)
 
 ## 테넌트 소유권 (IDOR fix)
 
-- `MediaJob.userId: string | null` — 신규 job 은 `enqueueJob` 라우트가 auth context (`c.get('user').id`) 에서 채움. nullable 은 pre-fix 데이터 호환용 — 신규 생성 시 `null` 금지
+- `MediaJob.userId: string | null` — 신규 job 은 `enqueueJob` 라우트가 auth context (framework context store 의 `user.id`) 에서 채움. nullable 은 pre-fix 데이터 호환용 — 신규 생성 시 `null` 금지
 - `GET` / `DELETE /media/jobs/{id}`: 소유자 불일치 + wildcard scope 없으면 **leak-safe 404** (`api-routing` skill §인증)
-- 구현: `routes/media.ts::assertOwnerOrWildcard` (`job.userId !== caller && !hasScope(scopes, '*')` → `throw new HTTPException(404, { message: 'job not found' })`)
+- 구현: `routes/media.ts::assertOwnerOrWildcard` (`job.userId !== caller && !hasScope(scopes, '*')` → `throw new <framework HTTP error class>(404, { message: 'job not found' })`)
 
 ## Job Queue — 외부 큐 메커니즘 (instance 선택)
 
-- `JobQueue` (`src/media/job-queue.ts`) — thin `MediaJobPort` wrapper. `subscribe(category)` async iterator (Postgres `LISTEN` / Workers Queues consume / Redis Streams 등 — instance 선택) + 모든 transition 메서드 delegate
+- `JobQueue` (`src/media/job-queue.ts`) — thin `MediaJobPort` wrapper. `subscribe(category)` async iterator (Postgres `LISTEN` / runtime queue consume / Redis Streams 등 — instance 선택) + 모든 transition 메서드 delegate
 - 인메모리 큐 **사용 ✕** — DB `media_jobs` 테이블이 source of truth. 재시작 시 작업 손실 없음
-- 싱글턴: ml-worker startup 이 하나 만들어 module-scoped const 에 저장 — stateless 런타임 (Workers 등) 측은 매 request 마다 신규 `MediaJobPort` instance OK
+- 싱글턴: ml-worker startup 이 하나 만들어 module-scoped const 에 저장 — stateless 런타임 (edge fetch handler 등) 측은 매 request 마다 신규 `MediaJobPort` instance OK
 - **worker 동시성**: per-category 분리 — `CATEGORY_CONCURRENCY = { image: 2, audio: 3, video: 1 } as const` (`ml-worker/worker.ts` 모듈 상수, **권장 기본값** — instance 별 override 가능, `media-job-lifecycle` invariant 참조). 각 category 가 독립 worker pool 을 가져 rate-limit 프로파일이 다른 SDK 들이 서로 막지 않음
 
 ## 에러 처리 (boundary: handler exception → failed/dlq job)
@@ -174,7 +174,7 @@ media/<jobId>/<filename>   # 예: media/job_abc123/output.png  (object storage k
 
 ## 응답 전송
 
-- `GET /media/jobs/<id>` 는 `MediaJob` 전체 JSON 반환 (status, resultPath, resultMetadata, error, progress 포함). zod schema 로 validate 후 `c.json(parsed)`
+- `GET /media/jobs/<id>` 는 `MediaJob` 전체 JSON 반환 (status, resultPath, resultMetadata, error, progress 포함). zod schema 로 validate 후 `<framework json response>(parsed)`
 - `MediaJob` 필드: `id`, `userId`, `op`, `category` (required), `status`, `progress`, `request`, `resultPath`, `resultMetadata`, `error`, `attemptCount`, `nextRetryAt`, `createdAt`, `updatedAt`. `workerId` / `claimedAt` 는 internal lease 메타데이터 — 응답에 노출 안 됨
 - `resultPath` 는 object storage key 문자열. 외부 노출 환경에서는 presigned URL 로 교체 권장
 - `resultMetadata` 스키마는 handler 자유 (`z.record(z.unknown())`). 예: 사용자 업로드 이미지 handler 는 `{ width, height }`, TTS handler 는 `{ durationSec, sampleRate }`, 처리된 비디오 handler 는 `{ width, height, durationSec, codec }` 확장
@@ -182,7 +182,7 @@ media/<jobId>/<filename>   # 예: media/job_abc123/output.png  (object storage k
 
 ## 인증 / rate limit
 
-- `/media/*` 는 `/run/*` 과 동일한 `app.use('/media/*', requireAuth)` — JWT + API 키 이중 인증
+- `/media/*` 는 `/run/*` 과 동일한 `<framework middleware registration>('/media/*', requireAuth)` — JWT + API 키 이중 인증
 - rate limit 은 현재 **전역 `rateLimitMiddleware` 만** (media 전용 정책 없음). 실 SDK handler 가 붙어 비용 프로파일이 명확해지면 category / op 별 분리 검토
 - quota 초과 → 429 + `retryAfterMs` (middleware 가 직접 변환)
 
@@ -206,14 +206,14 @@ media/<jobId>/<filename>   # 예: media/job_abc123/output.png  (object storage k
 8. category 별 workers concurrency 조정 필요 시 `worker.ts::CATEGORY_CONCURRENCY` map 수정
 9. 바이너리 출력은 반드시 `WriteCoordinator.writeMediaOutput(job.id, filename, bytes)` 경유 (내부에서 object storage `put`)
 10. 테스트 (vitest): 정상 job (queued → running → completed), retryable 에러 (retry → dlq 소진), permanent 에러 (즉시 dlq), 취소 (canceled), 동시성 (N 개 병렬), stale-lease reaper (running → queued 복원). DB 모드 + KV 모드 parametrize
-11. 런타임 config 에 필요한 secret / binding 추가 (instance 특화 — 예: `wrangler.toml`, `.env`, k8s secrets — 그리고 provider 별 키 `OPENAI_API_KEY`, `STABILITY_API_KEY` 등)
+11. 런타임 config 에 필요한 secret / binding 추가 (instance 특화 — 런타임별 config 파일, `.env`, k8s secrets 등 — 그리고 provider 별 키 `OPENAI_API_KEY`, `STABILITY_API_KEY` 등)
 
 ## 런타임 호환성 주의 (런타임 특화 — instance 측에서 확인)
 
-- **`Buffer` 사용**: 런타임 따라 ✕ (예: Workers). 호환성 위해 `Uint8Array` / `ArrayBuffer` 우선 (`new TextEncoder().encode(str)`)
-- **`node:fs` 사용**: 런타임 따라 ✕ (예: Workers, edge functions). 파일 저장은 반드시 object storage 경유
-- **무거운 CPU 작업**: 런타임 CPU 한도 (예: Workers default 50ms) 따라 in-process ✕ — ML-worker 로 위임
-- **persistent connection**: stateless 런타임 (예: Workers fetch handler) 에서 long-lived TCP / WebSocket ✕ — ml-worker 측 long-running process 에서만 OK
+- **`Buffer` 사용**: 런타임 따라 ✕ (예: 일부 edge runtime). 호환성 위해 `Uint8Array` / `ArrayBuffer` 우선 (`new TextEncoder().encode(str)`)
+- **`node:fs` 사용**: 런타임 따라 ✕ (예: edge runtime). 파일 저장은 반드시 object storage 경유
+- **무거운 CPU 작업**: 런타임 CPU 한도 (예: 일부 edge runtime default 50ms) 따라 in-process ✕ — ML-worker 로 위임
+- **persistent connection**: stateless 런타임 (예: edge fetch handler) 에서 long-lived TCP / WebSocket ✕ — ml-worker 측 long-running process 에서만 OK
 
 ## Media vs `/run/<name>` 경계 판단
 
@@ -237,7 +237,7 @@ media/<jobId>/<filename>   # 예: media/job_abc123/output.png  (object storage k
 | `MediaJobStatus` (external) 추가 | `media-job-lifecycle` invariant 우선 수정 (정본) — 본 workflow 의 `toExternalStatus` 매핑 + 폴링 클라이언트 + 모니터링 동시 업데이트 |
 | `InternalJobStage` (internal) 추가 | `TERMINAL_INTERNAL_STAGES` + worker dispatch + DB column CHECK constraint. `toExternalStatus` 매핑 보존 (external 노출은 invariant 의 `MediaJobStatus` 통해서만) |
 | object storage key 스키마 (`media/<id>/<filename>`) 변경 | `WriteCoordinator.writeMediaOutput` + 기존 완료 job 의 `resultPath` 호환성 |
-| Queue 구현 변경 (예: Postgres LISTEN → Workers Queues / Redis Streams) | Port 시그니처 유지하며 `subscribe()` 구현체 교체. stale-lease reaper 는 별도 재설계 필요 |
+| Queue 구현 변경 (예: Postgres LISTEN → runtime queue / Redis Streams) | Port 시그니처 유지하며 `subscribe()` 구현체 교체. stale-lease reaper 는 별도 재설계 필요 |
 | presigned URL 도입 | 클라이언트 파일 접근 방식 변경 — `resultPath` 응답 scheme 추가 |
 | `CATEGORY_CONCURRENCY` map 변경 | 외부 SDK rate limit 히트 빈도. 값 줄이면 처리량 감소, 늘리면 과부하 위험 |
 | retry 정책 (`MAX_ATTEMPTS` / backoff 상수) 변경 | 비용 / 중복 과금 / 사용자 체감 지연 |
@@ -259,5 +259,5 @@ media/<jobId>/<filename>   # 예: media/job_abc123/output.png  (object storage k
 - `userId` 없이 신규 job 생성 (auth context 에서 반드시 주입)
 - Job 조회 / 취소 시 `assertOwnerOrWildcard` 우회 (leak-safe 404 깨짐)
 - 동일 op 를 `registerHandler` 로 두 번 다른 callable 등록 (idempotent 는 같은 callable 만)
-- 런타임 CPU 한도가 짧은 fetch handler (예: Workers) 안에서 무거운 CPU 작업 (in-process 이미지 / 오디오 / 비디오 변환) — 반드시 ML-worker 위임
-- 런타임 비호환 API 사용 (예: Workers 에서 `Buffer` / `node:fs`) — 런타임별 호환성은 instance 측 audit
+- 런타임 CPU 한도가 짧은 fetch handler (예: 일부 edge runtime) 안에서 무거운 CPU 작업 (in-process 이미지 / 오디오 / 비디오 변환) — 반드시 ML-worker 위임
+- 런타임 비호환 API 사용 (예: edge runtime 에서 `Buffer` / `node:fs`) — 런타임별 호환성은 instance 측 audit

@@ -1,6 +1,6 @@
 ---
 name: ai-agent-patterns
-description: apps/api 에 새 agent 정의 추가 / AgentDefinition 스키마 변경 / agent loader 수정 시 invoke. YAML + markdown prompt 선언, zod 기반 AgentDefinition 검증, in-memory cache (Map) 패턴, coordinator vs worker tool 제한, prompt cache 보전 안내.
+description: <api-app> 에 새 agent 정의 추가 / AgentDefinition 스키마 변경 / agent loader 수정 시 invoke. YAML + markdown prompt 선언, zod 기반 AgentDefinition 검증, in-memory cache (Map) 패턴, coordinator vs worker tool 제한, prompt cache 보전 안내.
 metadata:
   role: workflow
   scope: project
@@ -8,9 +8,9 @@ metadata:
 ---
 
 **적용된 §4.4 매트릭스 행**:
-- LLM client: `httpx` / `aiohttp` → **`fetch`** (Workers global)
+- LLM client: `httpx` / `aiohttp` → **`fetch`** (runtime global)
 - token counting: `tiktoken` → **`js-tiktoken`**
-- env: `os.getenv("OPENAI_KEY")` → **`c.env.OPENAI_KEY`** (Hono context binding)
+- env: `os.getenv("OPENAI_KEY")` → **`<framework env binding>.OPENAI_KEY`** (framework context binding)
 - retry: `tenacity` → **`p-retry`**
 - schema 검증: `pydantic BaseModel` → **`zod`** + `z.infer<typeof Schema>`
 - 동시성: `asyncio.gather` → **`Promise.all`**
@@ -20,11 +20,11 @@ metadata:
 > source: `stack-backend-python/rules/ai-agent-patterns.md`
 > *원칙* (tool 선택 휴리스틱 / context budgeting / safety gate 순서 / fallback 정책) 는 source 그대로 유지.
 
-# ai-agent-patterns — 에이전트 정의 + 로더 (TS / Hono)
+# ai-agent-patterns — 에이전트 정의 + 로더 (TS)
 
 ## 이 skill은 언제 invoke 되는가
 
-- `apps/api/src/agents/` 에 새 agent YAML 추가
+- `<api-app>/src/agents/` 에 새 agent YAML 추가
 - `AgentDefinition` zod schema 필드 추가 / 변경
 - `loader.ts` / `discover.ts` 수정
 - coordinator / worker tool 화이트리스트 변경
@@ -32,7 +32,7 @@ metadata:
 
 ## Scope
 
-`apps/api/src/agents/` 만. 에이전트가 **YAML + markdown prompt** 로 선언되고 zod 로 검증되는 구조 규약.
+`<api-app>/src/agents/` 만. 에이전트가 **YAML + markdown prompt** 로 선언되고 zod 로 검증되는 구조 규약.
 
 - spawn / depth / cache-safe params 는 `sub-agent` skill
 - tool 필터링은 `tool-system` skill
@@ -44,7 +44,7 @@ metadata:
 ### 파일 레이아웃
 
 ```
-apps/api/src/agents/
+<api-app>/src/agents/
 ├── loader.ts              # AgentDefinition + loadAgent() + loadAgentPrompt()
 ├── discover.ts            # discoverAgents() / discoverRuns() — UI용 스캔
 ├── prompts/
@@ -83,7 +83,7 @@ export type AgentDefinition = Readonly<z.infer<typeof AgentDefinitionSchema>>;
 
 ### Loader 규약
 
-`apps/api/src/agents/loader.ts` 가 정본:
+`<api-app>/src/agents/loader.ts` 가 정본:
 
 - `loadAgent(name: string): Promise<AgentDefinition>` — module-scoped `Map<string, AgentDefinition>` 캐시. 같은 이름 재호출 시 디스크 I/O skip
 - `loadAgentPrompt(spec: AgentDefinition): Promise<string>` — prompt 파일 I/O 도 `Map<string, string>` 캐시
@@ -93,14 +93,14 @@ export type AgentDefinition = Readonly<z.infer<typeof AgentDefinitionSchema>>;
   - YAML 파싱 실패 / schema 불일치 / 이름 패턴 위반 → `ValidationError` (또는 `ZodError` wrap)
 - 캐시 무효화는 **프로세스 재시작** 또는 테스트용 reset. hot-reload 는 미지원 (의도된 YAGNI — agent YAML 은 빈번히 바뀌지 않음)
 
-Workers 런타임 메모: agent YAML / prompt 파일은 **빌드 타임에 번들** 한다 (Workers 는 `fs` 접근 ✕). 옵션:
+Edge runtime 메모: agent YAML / prompt 파일은 **빌드 타임에 번들** 한다 (edge runtime 은 `fs` 접근 ✕ — runtime-specific, instance 측 project-local skill 참조). 옵션:
 
-- `import yamlText from './<name>.yaml?raw'` + 파싱 (Wrangler raw import 지원)
+- `import yamlText from './<name>.yaml?raw'` + 파싱 (bundler raw import 지원)
 - 또는 build step 으로 정적 JSON 으로 변환
 
 ### Discover 규약 (UI 전용)
 
-`apps/api/src/agents/discover.ts` 는 **canonical loader 와 별개**:
+`<api-app>/src/agents/discover.ts` 는 **canonical loader 와 별개**:
 
 - `discoverAgents(): Promise<DiscoveredSpec[]>` — 디렉토리/번들 스캔으로 `{ name, kind, description, modelPreference, tools, sessionEnabled }` 6-필드만 뽑음. `sessionEnabled` 는 RunPolicy-only field — runs (`kind="run"`) 는 YAML 키 또는 default `true`, agents (`kind="agent"`) 는 항상 `null` (ZDR UI 계약 add-on — `/debug/agents` 응답이 이를 surface 해서 프론트엔드가 "Zero Data Retention" 인디케이터 렌더링 가능)
 - 용도: `/debug/agents`, `/debug/providers/fallback-chains` 등 UI tree view
@@ -166,11 +166,11 @@ function assertWorkerTools(tools: readonly string[]): void {
 
 ## 새 에이전트 추가하기
 
-1. `apps/api/src/agents/<name>.yaml` 생성
+1. `<api-app>/src/agents/<name>.yaml` 생성
    - `name` 은 `^[a-z0-9_]+$` 패턴 + 파일 stem 과 일치
    - `description` 권장 (UI `/debug/agents` 에 노출됨)
    - `systemPromptFile: "<name>.md"` — prompts/ 하위 경로
-2. `apps/api/src/agents/prompts/<name>.md` 작성
+2. `<api-app>/src/agents/prompts/<name>.md` 작성
    - Layer 2 agent prompt (`context-assembly` skill §3-Layer)
    - 동적 값 (timestamp, sessionId 등) 삽입 금지 — prompt cache prefix 무효화
 3. `tools` 필드 설정
@@ -211,4 +211,4 @@ function assertWorkerTools(tools: readonly string[]): void {
 - `.agents/rules/` 의 conditional rule 을 백엔드 런타임이 읽으려 시도 (이건 agent CLI 소관)
 - `loader.ts` 캐시 우회한 직접 YAML 파싱 (캐시 일관성 / 검증 우회)
 - 레지스트리 / 가드레일 / hot-reload 를 미래 구현하면서 기존 불변식 (Coordinator 도구 제한, Memory 3-Tier 금지) 우회
-- `fs.readFile` / `node:fs` 를 Workers 런타임 코드에서 직접 호출 (Workers 호환 ✕ — bundled raw import 또는 KV 사용)
+- `fs.readFile` / `node:fs` 를 edge runtime 코드에서 직접 호출 (edge runtime 호환 ✕ — bundled raw import 또는 KV 사용. runtime-specific, instance 측 project-local skill 참조)

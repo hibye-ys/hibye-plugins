@@ -11,7 +11,7 @@ metadata:
 
 ## 검증 대상 invariant
 
-`apps/api/` 의 의존성 CVE 위험:
+`<api-app>` 의 의존성 CVE 위험:
 
 - **CVE** — `pnpm audit --audit-level=high` 가 high/critical 취약점 0개
 
@@ -19,7 +19,7 @@ metadata:
 
 ```bash
 # npm/pnpm audit
-cd apps/api && pnpm audit --audit-level=high 2>&1 | tail -20
+cd <api-app> && pnpm audit --audit-level=high 2>&1 | tail -20
 ```
 
 ## 통과 기준
@@ -46,5 +46,5 @@ pnpm audit --fix                # 자동 해결 시도
 ## audit 이 커버하지 않는 것
 
 - 패키지 license 검증 → 별도 license audit
-- bundle size 폭증 → deploy 전 체크의 wrangler dry-run 단계 (instance 측 project-local skill 참조)
+- bundle size 폭증 → deploy 전 체크의 runtime dry-run 단계 (instance 측 project-local skill 참조)
 - runtime 동작 (의존성이 실제 동작하는가) → runtime 검증 (instance 측 project-local skill 참조)

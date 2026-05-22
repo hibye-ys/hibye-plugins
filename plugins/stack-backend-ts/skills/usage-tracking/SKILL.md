@@ -1,13 +1,13 @@
 ---
 name: usage-tracking
-description: apps/api 의 LLM 호출 usage 이벤트 정합성 / 토큰·비용 집계 / 일일 한도 검사 추가 수정 시 invoke. provider 응답 (OpenAI / Anthropic / OpenRouter) 정규화, Neon `llm_usage` insert, KV pre-call cache + DB post-call tx, Cron Triggers 일일 집계. "usage 이벤트 누락", "비용 폭증", "한도 검사 누락" 디버깅.
+description: <api-app> 의 LLM 호출 usage 이벤트 정합성 / 토큰·비용 집계 / 일일 한도 검사 추가 수정 시 invoke. provider 응답 (OpenAI / Anthropic / OpenRouter) 정규화, Postgres `llm_usage` insert, KV pre-call cache + DB post-call tx, runtime cron 일일 집계. "usage 이벤트 누락", "비용 폭증", "한도 검사 누락" 디버깅.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/usage-tracking
 ---
 
-**적용된 §4.4 매트릭스 행**: `pydantic UsageRecord` → `zod UsageRecordSchema` (`z.object`), `asyncpg insert` → **Drizzle `db.insert(llmUsage).values(...)`**, `decimal.Decimal` (정확 금액) → **string** (Workers `BigDecimal` 미지원 — DB 측 `numeric(18,8)` 컬럼), `os.getenv` → `c.env.<NAME>`, `structlog` → `console.log(JSON.stringify(...))`, Python `tenacity` (insert retry) → `p-retry`, Python `apscheduler` 일일 집계 → **Cloudflare Cron Triggers** (`wrangler.toml [triggers] crons`), `httpx` provider 응답 파싱 → `Response.json()` + zod parse
+**적용된 §4.4 매트릭스 행**: `pydantic UsageRecord` → `zod UsageRecordSchema` (`z.object`), `asyncpg insert` → **Drizzle `db.insert(llmUsage).values(...)`**, `decimal.Decimal` (정확 금액) → **string** (일부 runtime `BigDecimal` 미지원 — DB 측 `numeric(18,8)` 컬럼), `os.getenv` → `<framework env binding>.<NAME>`, `structlog` → `console.log(JSON.stringify(...))`, Python `tenacity` (insert retry) → `p-retry`, Python `apscheduler` 일일 집계 → runtime cron trigger (runtime-specific — instance 측 project-local skill 참조), `httpx` provider 응답 파싱 → `Response.json()` + zod parse
 
 # usage-tracking — 사용량 / 비용 추적 가이드
 
@@ -30,14 +30,14 @@ metadata:
 
 - **1 LLM 호출 = 1 row** — `llm_usage` 테이블에 항상 정확히 1 row insert (정합성 = 정산의 근거)
 - **provider 응답 정규화** — `UsageRecord` (내부) 는 provider 독립. provider 별 차이는 `_normalize<Provider>()` 단일 함수에서 흡수
-- **금액은 string** — Workers `BigDecimal` 미지원 → JS Number 정밀도 위험. DB `numeric(18,8)` + 코드에서는 string 으로 통일 (계산 시 `decimal.js` 또는 `dinero.js`)
+- **금액은 string** — 일부 runtime `BigDecimal` 미지원 → JS Number 정밀도 위험. DB `numeric(18,8)` + 코드에서는 string 으로 통일 (계산 시 `decimal.js` 또는 `dinero.js`)
 - **usage SSE 이벤트는 `done` 직전** — 한 번만, payload 에 동적 메타 혼합 ✕
 - **header 정본** — `X-App-Usage` 헤더가 정본, SSE `usage` 이벤트는 동등 사본 (클라이언트 편의)
 
 ## UsageRecord 스키마 (내부 정본)
 
 ```typescript
-// apps/api/src/usage/types.ts
+// <api-app>/src/usage/types.ts
 import { z } from 'zod'
 
 export const UsageRecordSchema = z.object({
@@ -76,7 +76,7 @@ export type UsageRecord = z.infer<typeof UsageRecordSchema>
 ## Provider 응답 정규화
 
 ```typescript
-// apps/api/src/usage/normalize.ts
+// <api-app>/src/usage/normalize.ts
 import type { UsageRecord } from './types.ts'
 
 interface ProviderUsageRaw {
@@ -127,7 +127,7 @@ export function normalizeOpenRouter(raw: {
 ## 비용 계산 (모델 카탈로그 기반)
 
 ```typescript
-// apps/api/src/usage/cost.ts
+// <api-app>/src/usage/cost.ts
 import Decimal from 'decimal.js'  // string 입출력 = 정밀도 보존
 import type { UsageRecord } from './types.ts'
 
@@ -158,12 +158,12 @@ export function computeCost(
 }
 ```
 
-> `decimal.js` 가 Workers 와 호환. `dinero.js` 도 대안. **JS Number 직접 곱셈 ✕** — `0.1 + 0.2 = 0.30000000000000004` 문제.
+> `decimal.js` 는 대부분의 runtime 호환 (runtime-specific 확인은 instance 측 project-local skill 참조). `dinero.js` 도 대안. **JS Number 직접 곱셈 ✕** — `0.1 + 0.2 = 0.30000000000000004` 문제.
 
 ## Drizzle insert (post-call)
 
 ```typescript
-// apps/api/src/usage/repo.ts
+// <api-app>/src/usage/repo.ts
 import { drizzle } from 'drizzle-orm/neon-http'
 import { neon } from '@neondatabase/serverless'
 import { pgTable, text, integer, numeric, timestamp, uuid } from 'drizzle-orm/pg-core'
@@ -224,7 +224,7 @@ export async function insertUsage(
 ## 사용자 한도 검사 (pre-call KV + post-call DB tx)
 
 ```typescript
-// apps/api/src/usage/quota.ts
+// <api-app>/src/usage/quota.ts
 import Decimal from 'decimal.js'
 
 // Pre-call: KV cache 기반 빠른 검사 (분 단위 갱신)
@@ -259,7 +259,7 @@ export async function incrementQuotaPostCall(
 ## SSE usage 이벤트 + 헤더 분리
 
 ```typescript
-// apps/api/src/sse/stream.ts (발췌)
+// <api-app>/src/sse/stream.ts (발췌)
 // done 직전, 한 번만
 await stream.writeSSE({
   event: 'usage',
@@ -284,14 +284,10 @@ c.header('X-App-Usage', JSON.stringify({
 
 ## Cron Triggers — 일일 집계
 
-```toml
-# apps/api/wrangler.toml
-[triggers]
-crons = ["0 1 * * *"]  # 매일 01:00 UTC
-```
+runtime cron 등록 (runtime-specific — instance 측 project-local skill 참조). 예: `0 1 * * *` (매일 01:00 UTC).
 
 ```typescript
-// apps/api/src/cron/dailyUsageAggregate.ts
+// <api-app>/src/cron/dailyUsageAggregate.ts
 import { drizzle } from 'drizzle-orm/neon-http'
 import { sql as dsl } from 'drizzle-orm'
 import { neon } from '@neondatabase/serverless'
@@ -321,40 +317,34 @@ export async function dailyUsageAggregate(env: { DATABASE_URL: string; CACHE: KV
 ```
 
 ```typescript
-// apps/api/src/index.ts (worker entry)
-export default {
-  fetch: app.fetch,
-  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
-    await dailyUsageAggregate(env)
-  },
-}
+// <api-app>/src/index.ts (worker entry — runtime-specific scheduled handler signature)
+// runtime cron 트리거 시 dailyUsageAggregate(env) 호출. 정확한 signature 는 runtime 별로 다름.
 ```
 
 ## 감사 체크리스트
 
 ```bash
 # 1. usage 이벤트 emit 지점 (done 직전 한 번만)
-rg -n "writeSSE.*event.*'usage'|writeSSE.*event:\s*\"usage\"" apps/api/src/sse/
+rg -n "writeSSE.*event.*'usage'|writeSSE.*event:\s*\"usage\"" <api-app>/src/sse/
 
 # 2. X-App-Usage 헤더
-rg -n "X-App-Usage" apps/api/src/routes/
+rg -n "X-App-Usage" <api-app>/src/routes/
 
 # 3. provider 별 정규화 함수
 for p in anthropic openai openrouter google; do
-  rg -n "normalize${p^}" apps/api/src/usage/
+  rg -n "normalize${p^}" <api-app>/src/usage/
 done
 
 # 4. llm_usage 테이블 insert 지점 (1 LLM 호출 = 1 insert)
-rg -n "db\.insert\(llmUsage\)" apps/api/src/
+rg -n "db\.insert\(llmUsage\)" <api-app>/src/
 
 # 5. usage 정보가 다른 SSE 이벤트 payload 에 혼입 (VIOLATION)
-rg -n "input_tokens|output_tokens|inputTokens|outputTokens" apps/api/src/sse/ | rg -v "'usage'|\"usage\"|UsageRecord"
+rg -n "input_tokens|output_tokens|inputTokens|outputTokens" <api-app>/src/sse/ | rg -v "'usage'|\"usage\"|UsageRecord"
 
 # 6. KV quota 키 패턴
-rg -n "quota:" apps/api/src/usage/
+rg -n "quota:" <api-app>/src/usage/
 
-# 7. Cron Triggers 등록 확인
-grep -A 3 "\[triggers\]" apps/api/wrangler.toml
+# 7. runtime cron trigger 등록 확인 (runtime-specific — instance 측 project-local skill 참조)
 ```
 
 ## 리포트 템플릿
@@ -378,7 +368,7 @@ grep -A 3 "\[triggers\]" apps/api/wrangler.toml
 
 ### DB insert
 - [OK/FAIL] 1 LLM 호출 = 1 `llm_usage` row insert
-- [OK/FAIL] `p-retry` 적용 (Neon 일시 장애 대응)
+- [OK/FAIL] `p-retry` 적용 (DB 일시 장애 대응)
 
 ### Quota
 - [OK/FAIL] pre-call KV check
@@ -396,7 +386,7 @@ grep -A 3 "\[triggers\]" apps/api/wrangler.toml
 - `sse-lifecycle` invariant — done / error 종료 보장
 - `provider-layer` workflow — provider 응답 구조
 - `provider-catalog-sync` workflow — 모델 pricing
-- `database` workflow — Drizzle / Neon HTTP / `numeric(18,8)`
+- `database` workflow — Drizzle / Postgres HTTP / `numeric(18,8)`
 - 데이터 거버넌스 invariant (instance 측 project-local skill) — append-only / retention
 - `ts-agent-rules` workflow — AsyncLocalStorage `requestId` / `userId`
 
@@ -406,7 +396,7 @@ grep -A 3 "\[triggers\]" apps/api/wrangler.toml
 - [ ] provider 별 usage 파싱 확인
 - [ ] 헤더 / payload 분리 확인
 - [ ] `decimal.js` 적용 검증 (Number 직접 곱셈 0건)
-- [ ] Cron Triggers 등록 확인
+- [ ] runtime cron trigger 등록 확인
 - [ ] `llm_usage` Drizzle migration 적용 확인
 
 ## 구현 중 막히면
@@ -415,7 +405,7 @@ grep -A 3 "\[triggers\]" apps/api/wrangler.toml
 - provider 정규화 함수 없음 → `provider-scaffold` workflow §test 시나리오 추가
 - 비용 계산 정밀도 어긋남 → `Decimal` 사용 / DB `numeric(18,8)` / 모든 IO string
 - KV 키 충돌 (`quota:*`) → 다른 KV 키와 prefix 분리 (`quota:` 전용 namespace)
-- Cron 안 돔 → `wrangler.toml [triggers]` 확인 + `wrangler tail --format pretty` 로 scheduled trigger 관찰
+- Cron 안 돔 → runtime cron 설정 확인 + runtime live tail 로 scheduled trigger 관찰 (runtime-specific — instance 측 project-local skill 참조)
 
 ## Cross-ref
 
