@@ -10,7 +10,7 @@ metadata:
 # architecture-invariants (overview / meta)
 
 > 본 skill = TS 백엔드의 **18 invariant** 카탈로그 + 라우팅 가이드. 각 invariant 의 원칙·금지·grep 패턴은 개별 invariant SKILL.md 가 정본 — 본 파일은 *어디서 어떤 invariant 를 봐야 하는지* 만 안내한다.
-> Cited from: Python 측 14 invariant 카탈로그 (legacy). TS 측 = media-job-lifecycle / app-domain-boundary / rate-limit-policy / structured-log-schema / cors-policy 추가 → 18 invariant. 도메인 boundary invariant 는 `app-domain-boundary` 로 rename (메모리 룰 — 도메인 중립 식별자). Runtime-specific invariant (workers-compat 등) 는 별도 runtime plugin 으로 이전.
+> Cited from: Python 측 14 invariant 카탈로그 (legacy). TS 측 = media-job-lifecycle / app-domain-boundary / rate-limit-policy / structured-log-schema / cors-policy 추가 → 18 invariant. 도메인 boundary invariant 는 `app-domain-boundary` 로 rename (메모리 룰 — 도메인 중립 식별자). Runtime-specific invariant 은 별도 runtime plugin 으로 이전 (instance 측 project-local skill 참조).
 
 ## 이 skill 은 언제 invoke 되는가
 

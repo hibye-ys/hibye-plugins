@@ -44,7 +44,7 @@ grep -E "^LOG_LEVEL" apps/api/.dev.vars 2>/dev/null || echo "no LOG_LEVEL in .de
 wrangler dev --log-level debug
 ```
 
-> **`.dev.vars` 파일은 직접 수정 가능** — Workers 환경변수 확인은 `wrangler types`로. `process.env` 접근은 Workers에서 동작하지 않음 — 항상 `c.env.<KEY>` 사용. `verify-workers-compat` invariant 참조.
+> **`.dev.vars` 파일은 직접 수정 가능** — Workers 환경변수 확인은 `wrangler types`로. `process.env` 접근은 Workers에서 동작하지 않음 — 항상 `c.env.<KEY>` 사용. runtime 호환성은 instance 측 project-local skill 참조.
 
 기본 `LOG_LEVEL` 미설정이면 디버그 정보 부족 — Stage 전환, tool_use delta, provider retry 같은 중요한 흐름이 찍히지 않는다.
 
@@ -127,10 +127,10 @@ grep "$REQUEST_ID" /tmp/wrangler-dev.log | grep -oE '"event":"[a-z_]+"'
 | context window exceeded / 토큰 폭증 | Context Assembly | `context-assembly` skill |
 | SSE stream 끊김 / `done` 이벤트 누락 | SSE Streaming | `sse-streaming` skill |
 | 429 / 529 / provider retry 폭주 | Provider Layer | `provider-layer` skill |
-| `c.env undefined` / 시크릿 누락 | Workers 환경변수 | `auth` skill + `verify-workers-compat` invariant |
+| `c.env undefined` / 시크릿 누락 | Workers 환경변수 | `auth` skill + runtime 호환성 (instance 측 project-local skill) |
 | MCP tool not registered / MCP server disconnected | MCP Integration | `mcp-integration` skill |
 | spawn depth exceeded / 무한 agent 재귀 | Sub-agent | `sub-agent` skill + `spawn-limits` invariant |
-| Vitest mock/fixture 누수 | Test 인프라 | `workers-compat` invariant |
+| Vitest mock/fixture 누수 | Test 인프라 | runtime 호환성 invariant (instance 측 project-local skill 참조) |
 
 ## Hono + Workers 특화 단서
 
@@ -167,7 +167,7 @@ Workers는 CPU time 50ms/요청 (default). 무거운 동기 계산이 있으면 
 
 ### process.env 접근
 
-`process.env.X`는 Workers에서 `undefined` 반환. `c.env.X` 사용. `verify-workers-compat` invariant 위반.
+`process.env.X`는 Workers에서 `undefined` 반환. `c.env.X` 사용. runtime 호환성 위반 (instance 측 project-local skill 참조).
 
 ## 자주 보는 증상별 first move
 

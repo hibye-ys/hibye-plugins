@@ -285,4 +285,4 @@ git diff apps/api/catalog/
 - `provider-layer` (Provider interface / model resolution — 카탈로그 변경 시 영향)
 - `provider-retry-matrix` (PROVIDER_REGISTRY / FUZZY_MAP / ENV_DEFAULT_MODEL 정본)
 - `usage-tracking` (pricing 변경 시 비용 계산 / 일일 한도 영향)
-- `verify-workers-compat` (sync 스크립트는 Node, 런타임은 Workers)
+- runtime 호환성 (instance 측 project-local skill — sync 스크립트는 Node, 런타임은 Workers)

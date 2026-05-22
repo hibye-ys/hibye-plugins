@@ -86,7 +86,7 @@
 | [`compaction-thresholds-audit`](skills/compaction-thresholds-audit/SKILL.md) | compaction 코드 변경 후. compaction-thresholds invariant (CompactAt%, EmergencyCompactAt% 등) 상수 import 검증. |
 | [`data-audit`](skills/data-audit/SKILL.md) | schema 변경 후 또는 새 migration 추가 후 invoke. Drizzle schema 의 FK 컬럼에 인덱스 정의가 함께 있는지 / migration 파일 순서가 정렬되어 있는지 / RLS policy 누락을 grep 으로 검증. data-layer + database invariant 와 짝. |
 | [`dependency-scanning`](skills/dependency-scanning/SKILL.md) | 의존성 lockfile 변경 후 또는 배포 전 invoke. npm/pnpm audit 으로 high/critical CVE 를 검출. |
-| [`full-architecture-audit`](skills/full-architecture-audit/SKILL.md) | 대규모 리팩토링 후 또는 정기 점검 시 invoke. 24 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. pre-deploy-check 의 6-step 체인 안에서도 호출됨. |
+| [`full-architecture-audit`](skills/full-architecture-audit/SKILL.md) | 대규모 리팩토링 후 또는 정기 점검 시 invoke. 24 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. deploy 전 체크의 6-step 체인 안에서도 호출됨 (instance 측 project-local skill 참조). |
 | [`http-error-sentinels-audit`](skills/http-error-sentinels-audit/SKILL.md) | route handler 또는 error path 수정 후. http-error-sentinels invariant 의 status ↔ sentinel 매핑 따르는지. |
 | [`input-safety-audit`](skills/input-safety-audit/SKILL.md) | route handler 추가/수정 후. input-safety-gate-ordering invariant (auth → schema → rate-limit → handler) 위반 검출. |
 | [`loop-audit`](skills/loop-audit/SKILL.md) | agent loop / run executor 코드 변경 후 invoke. apps/api/src/agents/ + src/runs/ 안 while(true) 가 break / abort signal / turn 카운터 같은 종료 조건 없이 도는 경우를 검출. Workers CPU time 초과 / 사용자 abort 무시 / 무한 비용 누출 방지. |

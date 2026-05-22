@@ -27,7 +27,7 @@ metadata:
 ## 원칙
 
 - **단일 변환** — provider 의 `convertTo()` / `convertFrom()` 단일 지점에서만 변환. 호출자는 내부 `Message` / `ContentBlock` 만 (`provider-layer` workflow §타입 경계)
-- **Workers compat** — `fetch` API + `AbortSignal` 만 사용. `http` / `https` / `node-fetch` ✕ (`verify-workers-compat` invariant)
+- **runtime compat** — `fetch` API + `AbortSignal` 만 사용. `http` / `https` / `node-fetch` ✕ (runtime-specific — instance 측 project-local skill 참조)
 - **Secrets = Workers Secrets** — `c.env.<NAME>` 만. `process.env` ✕ (`security-runtime` workflow)
 - **테스트 의무** — 7 시나리오 (정상 / streaming / 429 / timeout / 5xx / auth / circuit breaker)
 - **카탈로그 yaml 등록 후 sync 실행** — `provider-catalog-sync` workflow
@@ -346,4 +346,4 @@ curl -s http://localhost:8787/models | jq .   # 신규 모델 노출 확인
 - `security-runtime` (`process.env` ✕)
 - `test-scaffold` (테스트 패턴)
 - `red-green-fix` (TDD)
-- `verify-workers-compat` (`fetch` / `AbortSignal` 만)
+- runtime 호환성 (instance 측 project-local skill — `fetch` / `AbortSignal` 만)

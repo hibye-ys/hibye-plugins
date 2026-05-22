@@ -114,4 +114,4 @@ app.post('/proxy', async (c) => {
 - 의존성 CVE → `dependency-scanning`
 - input schema 검증 (zod) → `input-safety-audit`
 - auth middleware 누락 → `api-audit`
-- D1 사용 → `d1-forbidden-audit`
+- D1 사용 검출 → instance 측 project-local audit 참조

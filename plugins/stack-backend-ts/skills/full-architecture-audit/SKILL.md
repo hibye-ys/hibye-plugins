@@ -1,6 +1,6 @@
 ---
 name: full-architecture-audit
-description: 대규모 리팩토링 후 또는 정기 점검 시 invoke. 24 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. pre-deploy-check 의 6-step 체인 안에서도 호출됨.
+description: 대규모 리팩토링 후 또는 정기 점검 시 invoke. 24 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. deploy 전 체크의 6-step 체인 안에서도 호출됨 (instance 측 project-local skill 참조).
 metadata:
   role: audit
   scope: project
@@ -78,6 +78,6 @@ import { getCurrentUser } from '@/services/user'  // ← cycle
 
 ## audit 이 커버하지 않는 것
 
-- *runtime* 정합성 (배포 직후 health / SSE 동작) → `runtime-verify`
+- *runtime* 정합성 (배포 직후 health / SSE 동작) → runtime 검증 (instance 측 project-local skill 참조)
 - 의존성 CVE / Workers 호환성 → `dependency-scanning`
 - secret / SSRF / injection → `security-audit-check`

@@ -130,7 +130,7 @@ import { ToolRegistry } from './tools/registry.ts'
 
 ## Runtime / framework 특화
 
-본 plugin 은 framework / runtime 무관. 시크릿 접근 방식 (`process.env` vs `c.env` 등), config 파일 (`wrangler.toml` / `Dockerfile` 등), CPU/메모리 한계, streaming 구현 (`waitUntil` 등) 등 *runtime-specific* 사항은 별도 runtime plugin 에 위치한다 (예: Cloudflare Workers 조합 plugin 의 `workers-compat` / `update-config-runtime` 등).
+본 plugin 은 framework / runtime 무관. 시크릿 접근 방식 (`process.env` vs `c.env` 등), config 파일 (`wrangler.toml` / `Dockerfile` 등), CPU/메모리 한계, streaming 구현 (`waitUntil` 등) 등 *runtime-specific* 사항은 별도 runtime plugin 에 위치한다 (instance 측 project-local skill 참조).
 
 새 backend project 를 부트스트랩 할 때:
 1. 본 plugin (`stack-backend-ts`) = 디렉토리/계층/invariant 표준

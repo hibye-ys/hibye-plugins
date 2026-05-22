@@ -48,7 +48,7 @@ LSP 서버는 **Workers 비호환** (long-lived WebSocket + lsprotocol JSON-RPC)
 - 옵션 B: Workers 의 `apps/api/` 와 동거하되 `wrangler.toml` 의 별도 service binding 으로 분리 (Cloudflare Containers 도래 후)
 - **현재 권장 = A** (Workers 의 SSE / fetch 와 LSP JSON-RPC 는 lifetime 모델이 다름)
 
-`verify-workers-compat` invariant 에서 `lsp/` 경로는 **별도 빌드 타겟** 으로 분리.
+runtime 호환성 invariant (instance 측 project-local skill 참조) 에서 `lsp/` 경로는 **별도 빌드 타겟** 으로 분리.
 
 ## vscode-languageserver scaffolding
 
@@ -230,7 +230,7 @@ export class LSPManager {
 
   /** 옵션 A (Node 배포) 전용 — Workers 환경에선 호출 ✕. */
   private _startCleanup(): void {
-    // eslint-disable-next-line no-restricted-globals -- 옵션 A 가정 (verify-workers-compat 에서 lsp/ 경로 별도 빌드 타겟 제외)
+    // eslint-disable-next-line no-restricted-globals -- 옵션 A 가정 (runtime 호환성 invariant 에서 lsp/ 경로 별도 빌드 타겟 제외 — instance 측 project-local skill)
     this._cleanupTimer = setInterval(() => this.cleanupStaleInstances(), 60_000)
   }
 
@@ -598,7 +598,7 @@ LSP request → LSPManager → entity cache 필터 (빠름, agent 불필요)
 - [ ] LSPBridge.runDiagnostics 가 hard rule (즉시) + soft rule (debounced) 분리
 - [ ] agent 호출 시 `maxTurns: 1` + `AbortSignal.timeout(10_000)` hard timeout
 - [ ] vitest 스켈레톤 1개 이상 (mock DataReader → completion item shape 검증)
-- [ ] Workers 비호환 — 별도 Node 빌드 타겟으로 분리 (`verify-workers-compat` invariant)
+- [ ] Workers 비호환 — 별도 Node 빌드 타겟으로 분리 (runtime 호환성 invariant — instance 측 project-local skill)
 
 ## 구현 중 막히면
 
@@ -620,7 +620,7 @@ LSP request → LSPManager → entity cache 필터 (빠름, agent 불필요)
 
 - `sse-streaming` — LSP 와 SSE 의 차이 (LSP = JSON-RPC long-lived, SSE = stream HTTP)
 - `ts-agent-rules` — TS interface DI / AsyncLocalStorage 10 필드
-- `verify-workers-compat` — `lsp/` 경로 별도 빌드 타겟
+- runtime 호환성 invariant (instance 측 project-local skill) — `lsp/` 경로 별도 빌드 타겟
 - `single-writer` — `invalidateEntityCache()` 호출 시점
 
 ## Placeholder 해석

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# audit-all.sh — apps/api/ 에 audit 21 일괄 실행. pre-deploy-check 의 Step 3.
+# audit-all.sh — apps/api/ 에 audit 21 일괄 실행. deploy 전 체크 (instance 측 project-local skill) 의 Step 3.
 # 각 audit 의 grep 패턴 = 해당 SKILL.md 본문 발췌.
 #
 # NOTE: 이 batch script 는 *문턱 검사* 만 — 빠른 fail-fast. 각 audit 의 *전체* 패턴 (block-level, multi-pattern)
@@ -306,7 +306,7 @@ dependency_scanning_check() {
   [[ ! -d src ]] && { echo "SKIP [dependency-scanning]: src/ 없음"; return; }
   local m
   m=$(rg -nP "from\s+['\"](?:fs|net|tls|child_process|cluster|dgram|dns|http|https|os|path|stream|tty|vm)['\"]" \
-       src/ 2>/dev/null | grep -v "node:" | grep -v "// workers-compat-ok" | wc -l | tr -d ' ')
+       src/ 2>/dev/null | grep -v "node:" | grep -v "// runtime-compat-ok" | wc -l | tr -d ' ')
   if [[ $m -gt 0 ]]; then
     echo "VIOLATION [dependency-scanning]: $m Node built-in import (node: prefix 누락)"
     VIOLATIONS=$((VIOLATIONS + m))

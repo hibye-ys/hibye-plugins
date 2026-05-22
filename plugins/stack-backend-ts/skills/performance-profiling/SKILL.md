@@ -202,4 +202,4 @@ Hit rate 급락은 대부분 system prompt cache key 무효화. 확인 순서:
 - `sse-streaming` — TTFB 측정 (첫 SSE 이벤트 기준)
 - `compaction-thresholds` — 시나리오 D 의 175K 토큰 기준
 - `provider-retry-matrix` — provider 별 retry 폭증 시 회귀 원인
-- `verify-workers-compat` — Workers 빌드 / Node 빌드 분리
+- runtime 빌드 분리 (instance 측 project-local skill 참조)

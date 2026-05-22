@@ -103,7 +103,7 @@ export function estimateTokens(messages: Message[]): number {
 // }
 ```
 
-> Workers 환경에서 `js-tiktoken` 은 WASM 바이너리 포함 → `verify-workers-compat` invariant 확인. 미검증 시 근사 카운터(`chars / 4`) 사용.
+> Workers 등 일부 런타임에서 `js-tiktoken` 은 WASM 바이너리 포함 → runtime 호환성 검증 (instance 측 project-local skill 참조). 미검증 시 근사 카운터(`chars / 4`) 사용.
 
 ## AssembledContext 타입
 
@@ -196,7 +196,7 @@ function assembleMessages(opts: {
 - [ ] `assembleMessages` 의 truncate 가 memory 구간 보존하고 history 부터 drop
 - [ ] system prompt 안에 timestamp / turn_count / random 등 동적 값 없음
 - [ ] `token-budget-constants` invariant 의 상수와 일치
-- [ ] Workers 환경에서 `js-tiktoken` WASM 사용 시 `verify-workers-compat` 확인
+- [ ] runtime 환경에서 `js-tiktoken` WASM 사용 시 호환성 확인 (instance 측 project-local skill 참조)
 
 ## 구현 중 막히면
 

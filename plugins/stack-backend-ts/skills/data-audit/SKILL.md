@@ -94,6 +94,6 @@ create policy messages_tenant_isolation on messages
 
 ## audit 이 커버하지 않는 것
 
-- Cloudflare D1 사용 검출 → `d1-forbidden-audit`
+- Cloudflare D1 사용 검출 → instance 측 project-local audit 참조
 - Workers 호환 driver (neon-http 등) 검증 → `dependency-scanning`
 - query 성능 (slow query) → 별도 runtime profiling

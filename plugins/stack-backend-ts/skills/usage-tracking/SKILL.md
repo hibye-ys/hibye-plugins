@@ -397,7 +397,7 @@ grep -A 3 "\[triggers\]" apps/api/wrangler.toml
 - `provider-layer` workflow — provider 응답 구조
 - `provider-catalog-sync` workflow — 모델 pricing
 - `database` workflow — Drizzle / Neon HTTP / `numeric(18,8)`
-- `data-governance` invariant — append-only / retention
+- 데이터 거버넌스 invariant (instance 측 project-local skill) — append-only / retention
 - `ts-agent-rules` workflow — AsyncLocalStorage `requestId` / `userId`
 
 ## 검증 체크리스트

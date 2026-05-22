@@ -198,7 +198,7 @@ await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`media_jobs_cap:${c
 src/storage/
   ports.ts         # SessionPort / SessionHistoryPort / MediaJobPort interface
   provider.ts      # 구현체 선택 + DI 주입 (c.env.DB_ENABLED 기준)
-  r2-writer.ts     # R2StorageWriter (단일 writer — data-governance.md 참조)
+  r2-writer.ts     # R2StorageWriter (단일 writer — 데이터 거버넌스 instance 측 project-local skill 참조)
 
 src/db/
   client.ts        # createDb(databaseUrl)

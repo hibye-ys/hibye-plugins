@@ -42,7 +42,7 @@ metadata:
 ## 시크릿 접근 원칙
 
 - 시크릿은 **런타임 환경** 에서 주입받음 — 코드 / 설정 파일에 평문 금지.
-- 시크릿 접근은 runtime context 의 환경 객체를 통해서만 (process env 또는 framework binding — 런타임에 맞게 선택). [[verify-workers-compat]] 참조.
+- 시크릿 접근은 runtime context 의 환경 객체를 통해서만 (process env 또는 framework binding — 런타임에 맞게 선택. runtime-specific — instance 측 project-local skill 참조).
 - 시작 시점 (혹은 첫 요청 시점) 에 **필수 시크릿 누락 검증**:
   - 누락된 시크릿 발견 → `ConfigurationError` throw → 500 응답 (`code: "configuration_error"`).
   - 로그에 누락된 key 이름은 기록하되, 응답에는 일반화된 메시지만.
@@ -92,7 +92,7 @@ SessionPort {
 ## 검증 체크리스트
 
 - [ ] `authMiddleware` 가 JWT + API key 두 경로 처리
-- [ ] 모든 시크릿이 runtime env 객체 경유 접근 (직접 글로벌 접근 금지 — [[verify-workers-compat]] 참조)
+- [ ] 모든 시크릿이 runtime env 객체 경유 접근 (직접 글로벌 접근 금지 — runtime-specific, instance 측 project-local skill 참조)
 - [ ] `assertRequiredSecrets()` 로 시작 시점 누락 시크릿 검출
 - [ ] rate limit middleware 가 [[rate-limit-policy]] invariant 상수 참조
 - [ ] 세션 스토어가 `SessionPort` interface 구현 (backend 교체 가능)

@@ -46,5 +46,5 @@ pnpm audit --fix                # 자동 해결 시도
 ## audit 이 커버하지 않는 것
 
 - 패키지 license 검증 → 별도 license audit
-- bundle size 폭증 → `pre-deploy-check` 의 wrangler dry-run 단계
-- runtime 동작 (의존성이 실제 동작하는가) → `runtime-verify`
+- bundle size 폭증 → deploy 전 체크의 wrangler dry-run 단계 (instance 측 project-local skill 참조)
+- runtime 동작 (의존성이 실제 동작하는가) → runtime 검증 (instance 측 project-local skill 참조)

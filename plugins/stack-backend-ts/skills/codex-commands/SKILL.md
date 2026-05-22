@@ -37,13 +37,13 @@ Claude Code `.claude/commands/` ↔ Codex `.codex-plugin/commands/` 동등 매�
 | `/help` | 본 map + reference 치트시트 노출 |
 | `/agent-debug` | `debug-session` |
 | `/agent-test` | `testing-infra` + command reference 의 vitest 플래그 |
-| `/agent-verify` | `runtime-verify` (audit) |
+| `/agent-verify` | runtime 검증 audit (instance 측 project-local skill) |
 | `/audit-all` | `app-domain-boundary-audit` + 13 audit batch (scripts/audit-all.sh) |
 | `/incident` | `incident-triage` (workflow — 09d 대상, 미존재 시 reference 만) |
 | `/new-agent` | `new-agent` skill |
 | `/new-run` | `new-run` skill |
 | `/new-tool` | command reference + `tool-system` skill |
-| `/pre-deploy` | `pre-deploy-check` skill |
+| `/pre-deploy` | deploy 전 체크 skill (instance 측 project-local skill) |
 | `/spec-diff` | command reference + spec-diff-auditor reference (agents/) |
 | `/sse-trace` | command reference + 로컬 SSE curl trace (서버 실행 중일 때) |
 | `/test-coverage` | command reference + `test-cleanup` / `test-scaffold` |

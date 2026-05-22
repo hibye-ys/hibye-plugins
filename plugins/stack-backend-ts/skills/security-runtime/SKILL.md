@@ -21,7 +21,7 @@ metadata:
 
 ## 이 skill 은 언제 invoke 되지 않는가
 
-- 빠른 pre-merge 체크 → `pre-deploy-check` workflow
+- 빠른 pre-merge 체크 → deploy 전 체크 (instance 측 project-local skill 참조)
 - 의존성 CVE 감사 → 별도 `pnpm audit` / Snyk 워크플로
 - 코드 구현 작업 → 해당 서브시스템 workflow
 
@@ -232,7 +232,7 @@ rg -n "emitAuditEvent|auditLog\.(write|insert)" apps/api/src/routes/auth/ apps/a
 rg -n "auditLog.*R2|writeAudit.*R2" apps/api/src/
 ```
 
-> `data-governance` invariant — audit log 는 6 event taxonomy 고정, append-only, 7년 retention. 인증/권한 변경은 별도 R2 immutable prefix (Object Lock).
+> 데이터 거버넌스 invariant (instance 측 project-local skill 참조) — audit log 는 6 event taxonomy 고정, append-only, 7년 retention. 인증/권한 변경은 별도 R2 immutable prefix (Object Lock).
 
 ## 통합 보안 보고서 템플릿
 
@@ -312,7 +312,7 @@ rg -n "auditLog.*R2|writeAudit.*R2" apps/api/src/
 - `error-handling` workflow — 4 예외 / 4 패턴 (정본)
 - `http-error-sentinels` invariant — sentinel 매핑
 - `auth` workflow — JWT / Workers Secrets / KV 세션
-- `data-governance` invariant — audit log 6 event taxonomy
+- 데이터 거버넌스 invariant (instance 측 project-local skill 참조) — audit log 6 event taxonomy
 - `ts-agent-rules` workflow — AsyncLocalStorage 10 필드 (requestId / userId)
 
 ## 검증 체크리스트
@@ -330,13 +330,13 @@ rg -n "auditLog.*R2|writeAudit.*R2" apps/api/src/
 - rate limit 미구현 → KV sliding window 패턴 (위 §2) 적용
 - CORS 미설정 → 개발 환경이라도 경고
 - `wrangler secret` 미사용 → `.dev.vars` → `wrangler secret put` 마이그
-- `process.env` 사용 발견 → `verify-workers-compat` invariant + `c.env.<NAME>` 마이그
+- `process.env` 사용 발견 → runtime 호환성 (instance 측 project-local skill 참조) + `c.env.<NAME>` 마이그
 
 ## Cross-ref
 
 - `error-handling` (정본 — 예외 4종 정의)
 - `input-safety-gate-ordering` (V3 게이트 순서)
 - `auth` (시크릿 / JWT / KV 세션)
-- `data-governance` (audit log)
-- `verify-workers-compat` (`process.env` ✕)
+- 데이터 거버넌스 (audit log — instance 측 project-local skill)
+- runtime 호환성 (instance 측 project-local skill — `process.env` ✕)
 - `ts-agent-rules` (AsyncLocalStorage / 영향도 표 정본)

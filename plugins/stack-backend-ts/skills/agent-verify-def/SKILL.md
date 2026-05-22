@@ -80,5 +80,5 @@ export default agent
 
 ## audit 이 커버하지 않는 것
 
-- 런타임 검증 (실제 step 실행 시 동작 정합) → `runtime-verify` 가 담당
+- 런타임 검증 (실제 step 실행 시 동작 정합) → runtime 검증 (instance 측 project-local skill 참조)
 - registry import 누락 (정의는 있는데 registry 에 등록 안 됨) → 별도 통합 테스트

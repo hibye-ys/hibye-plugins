@@ -95,10 +95,8 @@ esac
 # 제외:
 #   - frontmatter source 라인 (`source: stack-backend-python/...` legacy ref)
 #   - metadata.source 키 자체
-#   - 본질적으로 금지어를 *언급* 해야 하는 audit/룰 skill 디렉토리:
-#       d1-forbidden-audit/  — D1 검출 audit (D1 단어 필수)
+#   - 본질적으로 금지어를 *언급* 해야 하는 룰 skill 디렉토리:
 #       database/            — DB 룰 (D1 금지 명시)
-#       data-governance/     — 데이터 거버넌스 룰 (D1 binding 금지 명시)
 EXIT=0
 while IFS= read -r pattern; do
   [[ -z "$pattern" || "$pattern" =~ ^# ]] && continue
@@ -106,9 +104,7 @@ while IFS= read -r pattern; do
   matches=$(rg -nP --pcre2 "${RG_GLOB_ARGS[@]}" "$pattern" "$TARGET_DIR" 2>/dev/null \
     | grep -v "source:\s*stack-backend-python/" \
     | grep -v "metadata.source" \
-    | grep -v "/d1-forbidden-audit/" \
     | grep -v "/database/" \
-    | grep -v "/data-governance/" \
     || true)
 
   if [ -n "$matches" ]; then

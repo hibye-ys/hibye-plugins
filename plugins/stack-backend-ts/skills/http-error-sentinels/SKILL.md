@@ -68,7 +68,7 @@ metadata:
 - 사용자가 deletion 신청 후 7-day grace 동안 모든 write 가 차단됨
 - `assertUserActive(userId)` 함수가 라우트 진입 시 검사
 - 차단 시 `ResourceError(code="user_data_pending_deletion")` throw → 410 응답
-- 사용자가 cancel 안 하면 7일 후 영구 삭제 (data-governance 영역)
+- 사용자가 cancel 안 하면 7일 후 영구 삭제 (데이터 거버넌스 영역 — instance 측 project-local skill 참조)
 
 ## scrubText — secrets + PII 제거
 

@@ -151,7 +151,7 @@ runName, agent, model, turnCount, spawnDepth
 
 - **키워드**: "DB 에러", "data 저장 안 됨", "엔티티 변경 반영 안 됨", "session 사라짐"
 - **1차 도구**:
-  1. `single-writer` invariant + `data-governance` — WriteCoordinator, StoragePort, 단일 writer
+  1. `single-writer` invariant + 데이터 거버넌스 (instance 측 project-local skill) — WriteCoordinator, StoragePort, 단일 writer
   2. raw SQL 확인 (Drizzle):
      ```typescript
      await db.execute(sql`
