@@ -1,37 +1,36 @@
 ---
 name: ts-agent-rules
-description: apps/api TS 백엔드 작업 시 자동 로드. 16 invariant + 22+8 workflow + 13 audit 의 라우팅 + 자주 묶이는 룰 묶음 + core-infrastructure 흡수 보충 (타입 경계 / interface DI / Stateless / AsyncLocalStorage 10 필드 / 영향도 표). python-agent-rules 의 TS 동등 — 메모리 룰 rename.
+description: TS 백엔드 작업 시 자동 로드. 18 invariant + 39 workflow + 21 audit 의 라우팅 + 자주 묶이는 룰 묶음 + core-infrastructure 흡수 보충 (타입 경계 / interface DI / Stateless / AsyncLocalStorage 10 필드 / 영향도 표). python-agent-rules 의 TS 동등 — 메모리 룰 rename.
 metadata:
   role: workflow
   scope: apps/api
   source: stack-backend-python/skills/python-agent-rules
 ---
 
-**적용된 §4.4 매트릭스 행**: 모든 매트릭스 — 본 카탈로그는 어느 룰 SKILL.md 로 분기할지 안내. 개별 매트릭스 행은 각 룰 SKILL.md 안에. (`pydantic` → `zod`, `pyright` → `tsc --noEmit` / `vtsls`, `typing.Protocol` → `interface`, `ABC` → `interface`, `ContextVar` → `AsyncLocalStorage`, `structlog.contextvars` → 구조화 로깅 helper, `dataclass` → interface, `os.environ` → `c.env.<NAME>` (Hono Bindings), `asyncio` → `Promise` + `AbortController`)
+**적용된 §4.4 매트릭스 행**: 모든 매트릭스 — 본 카탈로그는 어느 룰 SKILL.md 로 분기할지 안내. 개별 매트릭스 행은 각 룰 SKILL.md 안에. (`pydantic` → `zod`, `pyright` → `tsc --noEmit` / `vtsls`, `typing.Protocol` → `interface`, `ABC` → `interface`, `ContextVar` → `AsyncLocalStorage`, `structlog.contextvars` → 구조화 로깅 helper, `dataclass` → interface, `os.environ` → env 어댑터 (framework/runtime 무관), `asyncio` → `Promise` + `AbortController`)
 
 # ts-agent-rules — TS 백엔드 공통 룰 카탈로그
 
-> 본 skill = apps/api TS 백엔드의 *룰 카탈로그* — 어디서 어떤 룰을 invoke 하는지 + core-infrastructure 의 Python 특화 원칙 중 TS 측에 분산 흡수되지 못한 잔여분을 직접 정의한다.
+> 본 skill = TS 백엔드의 *룰 카탈로그* — 어디서 어떤 룰을 invoke 하는지 + core-infrastructure 의 Python 특화 원칙 중 TS 측에 분산 흡수되지 못한 잔여분을 직접 정의한다.
 > Cited from: Python 측 `python-agent-rules` (rename per 메모리 룰 — `python-` 도메인 prefix → `ts-`).
 
 ## 이 skill 은 언제 invoke 되는가
 
-- 세션 시작 시 자동 로드 (`apps/api/` 컨텍스트)
+- 세션 시작 시 자동 로드 (TS 백엔드 컨텍스트)
 - "이게 어느 룰에 해당하지?" 의문 시
 - 새 영역 (route / provider / tool / sub-agent / 미디어 등) 작업 시작 시
 - code review — 변경된 영역에 걸리는 룰 묶음 확인
 - "Python 측에는 이 룰이 있는데 TS 측에서는?" 매핑 필요 시
 
-## 카탈로그 구조 (50 SKILL.md)
+## 카탈로그 구조 (78 SKILL.md)
 
-`plugins/stack-backend-ts-hono/skills/` 아래에 분류별 SKILL.md 가 있다 — `metadata.role` 로 구분:
+`plugins/stack-backend-ts/skills/` 아래에 분류별 SKILL.md 가 있다 — `metadata.role` 로 구분:
 
 | role | 개수 | 역할 |
 |---|---|---|
-| invariant | 16 (architecture-invariants 메타 포함) | 지속 강제 — 위반 시 큰 비용 |
-| workflow | 22+8 | 작업 절차 + 구현 가이드 |
-| audit | 13 | grep 기반 점검 (5 = Python 1:1 변환 + 8 = TS-only 신규) |
-| 기타 | 1 (`verify-workers-compat`) | M1 보존 |
+| invariant | 18 (architecture-invariants 메타 포함) | 지속 강제 — 위반 시 큰 비용 |
+| workflow | 39 | 작업 절차 + 구현 가이드 |
+| audit | 21 | grep 기반 점검 (Python 1:1 변환 + TS-only 신규 합산) |
 
 본 SKILL.md 가 다루지 않는 것 = 개별 룰 본문 (각 SKILL.md 가 정본). 본 카탈로그는 **인덱스 + 자주 묶이는 룰 묶음 + core-infrastructure 잔여분 흡수** 만.
 
@@ -49,7 +48,7 @@ metadata:
 | 미디어 처리 | media-pipeline-patterns + media-job-lifecycle (R2 어댑터) |
 | 사용자 입력 처리 | input-safety-gate-ordering + input-safety-audit + http-error-sentinels |
 | 도메인 영역 분리 검증 | app-domain-boundary + app-domain-boundary-audit |
-| 배포 전 | pre-deploy-check + scripts/audit-all.sh (13 audit 전체) |
+| 배포 전 | scripts/audit-all.sh (21 audit 전체) |
 
 ## core-infrastructure 흡수 보충
 
@@ -101,32 +100,33 @@ class OpenRouterProvider implements ProviderProtocol { ... }
 
 `@runtime_checkable` 동등은 TS 에 없음 — runtime 검사 필요 시 zod schema 또는 type guard 함수로 처리.
 
-### 3. Stateless 서비스 — Workers global state ✕
+### 3. Stateless 서비스 — module-level mutable state ✕
 
 - `src/services/*` 는 요청 간 mutable state ✕
-- 상태가 필요하면 (1) 요청 인자로 전달, (2) 외부 저장소 (R2 / KV / D1 대체 = Cloudflare Hyperdrive 등) 위임, (3) TTL 명시 Cache 주입
-- **Workers global state ✕** — module-level `let counter = 0` 같은 mutable 변수는 Worker isolate 간 공유되지 않고 (요청별 isolate 재사용 보장 ✕), 동일 isolate 안에서도 race 위험 → 항상 stateless
-- Hono `c.env` / `c.get` / `c.set` 은 *요청 범위* 만 — global 로 새지 않음
+- 상태가 필요하면 (1) 요청 인자로 전달, (2) 외부 저장소 (Postgres / Redis / object storage 등) 위임, (3) TTL 명시 Cache 주입
+- **모듈 전역 mutable state ✕** — module-level `let counter = 0` 같은 mutable 변수는 (a) serverless / isolate runtime 에서 인스턴스 재사용 보장 ✕, (b) 동일 process 안에서도 동시 요청 race 위험 → 항상 stateless
+- 요청 컨텍스트는 framework 가 제공하는 *요청 범위* 객체로만 (Hono `c.env/c.get/c.set`, Express `req.locals`, Fastify `request.context` 등) — global 로 새지 않음
 
 ```typescript
 // ❌ module-level mutable
 let requestCount = 0
-export function handler(c) {
-  requestCount++  // ❌ Workers isolate race + 누수
-  return c.json({ count: requestCount })
+export function handler(ctx) {
+  requestCount++  // ❌ 인스턴스 race + 누수
+  return ctx.json({ count: requestCount })
 }
 
 // ✅ stateless — 외부 저장소 또는 요청 컨텍스트
-export async function handler(c) {
-  const count = await c.env.KV_COUNTER.get('total')
-  await c.env.KV_COUNTER.put('total', String(Number(count ?? 0) + 1))
-  return c.json({ count: Number(count ?? 0) + 1 })
+export async function handler(ctx) {
+  const store = ctx.env.COUNTER_STORE  // KV/Redis/etc adapter
+  const count = Number(await store.get('total') ?? 0) + 1
+  await store.put('total', String(count))
+  return ctx.json({ count })
 }
 ```
 
 ### 4. AsyncLocalStorage 10 필드 (Python ContextVar 대응)
 
-Node.js `AsyncLocalStorage` (Workers 도 지원) 를 ContextVar 대응으로 사용. 10 필드 고정:
+Node.js `AsyncLocalStorage` (대부분 TS 런타임 지원) 를 ContextVar 대응으로 사용. 10 필드 고정:
 
 ```typescript
 // src/observability/contextvars.ts
@@ -226,11 +226,11 @@ prompt cache 무효화는 세션 전체 토큰 비용 수 배 상승. 아래 불
 | 제외 항목 | 이유 |
 |---|---|
 | Memory 3-Tier (session / long-term / episodic) | tool-use 기반 (Anthropic Memory Tool) + 단일 영속층 (Session 포트) 와 직접 충돌 |
-| 자체 connection pool 클래스 | Cloudflare Hyperdrive (Postgres 등) 가 pool 관리. 별도 pool 도입 ✕ |
+| 자체 connection pool 클래스 | 런타임/플랫폼 제공 pool (Hyperdrive / pgbouncer / 라이브러리 내장) 사용. 별도 pool 도입 ✕ |
 | LangChain / LangGraph 추상화 | 직접 provider SDK 호출 (`src/providers/<name>.ts`) — chain abstraction 비용 ✕ |
 | 500/300줄 등 문서 길이 강제 제한 | 단일 집중 문서 철학 (build plan + 설계 doc) 유지 |
 | Next.js / RSC / Server Actions | 메모리 룰 + spec §1.2 절대 금지 (분리 방향 충돌) |
-| BYOK (사용자 자기 키 가져오기) | OpenRouter 게이트웨이로 일원화 — spec §1.2 절대 금지 |
+| BYOK (사용자 자기 키 가져오기) | 게이트웨이 (OpenRouter 등) 로 일원화 — spec §1.2 절대 금지 |
 
 이 6 항목이 코드에 들어가려는 신호 (예: 새 `memory/` 디렉토리, `Pool` 클래스, `langchain` import, `next/*` import) 가 발견되면 즉시 사용자 확인.
 
@@ -243,7 +243,7 @@ prompt cache 무효화는 세션 전체 토큰 비용 수 배 상승. 아래 불
 | L1 구현 | `agent-loop`, `tool-system`, `provider-layer`, `context-assembly`, `sse-streaming` 등 | 특정 파일/모듈을 작성할 때 로드. 서브시스템별 계약 + 불변식 |
 | L2 정책 (본 skill) | `ts-agent-rules` | TS / 에이전트 공통 룰. 어느 파일을 작성하든 참고 |
 | L2 index | `backend-overview` | "어디에 무엇이 있는지" thin index |
-| L2 메타 | `architecture-invariants` | 16 invariant 카탈로그 + 라우팅 |
+| L2 메타 | `architecture-invariants` | 18 invariant 카탈로그 + 라우팅 |
 
 **로딩 순서 권장**:
 1. 세션 시작 시: `backend-overview` (어디에 무엇이 있는지) + `architecture-invariants` (어느 invariant 가 어디 적용) + 본 `ts-agent-rules` (어떻게 작성)
@@ -256,18 +256,18 @@ prompt cache 무효화는 세션 전체 토큰 비용 수 배 상승. 아래 불
 
 - **"이 패턴이 룰에 맞는지 모르겠다"** → 본 카탈로그의 "금지 사항" + 해당 영역의 invariant 먼저 확인
 - **"Python 측에는 있는 룰이 TS 측에 없다"** → port-map.md 의 누락 행 확인. 진짜 누락이면 사용자 보고
-- **module-level state 도입 시도** → Workers isolate 재사용 불보장 → 항상 stateless 또는 외부 저장소
+- **module-level state 도입 시도** → 런타임 인스턴스 재사용 불보장 → 항상 stateless 또는 외부 저장소
 - **외부 SDK 타입 transparently re-export** → 경계 누출. 즉시 내부 타입으로 변환
 - **AsyncLocalStorage 화이트리스트 우회** — `storage.run` 직접 호출 발견 시 `bindLogContext` 로 강제 통일
 
 ## 검증 체크리스트
 
-이 skill 자체는 정적 카탈로그라 lint 의무는 없지만, 카탈로그가 50 SKILL.md 와 동기화돼야 한다:
+이 skill 자체는 정적 카탈로그라 lint 의무는 없지만, 카탈로그가 78 SKILL.md 와 동기화돼야 한다:
 
-- [ ] `plugins/stack-backend-ts-hono/skills/` 안 SKILL.md 개수 = 50 (architecture-invariants + verify-workers-compat 포함)
-- [ ] 16 invariant SKILL.md 가 모두 `architecture-invariants` 카탈로그에 등재
-- [ ] 22+8 workflow SKILL.md 가 모두 `backend-overview` 인덱스에 등재
-- [ ] 13 audit SKILL.md 가 모두 `pre-deploy-check` 의 `scripts/audit-all.sh` 에 등재
+- [ ] `plugins/stack-backend-ts/skills/` 안 SKILL.md 개수 = 78 (architecture-invariants + ts-agent-rules 포함)
+- [ ] 18 invariant SKILL.md 가 모두 `architecture-invariants` 카탈로그에 등재
+- [ ] 39 workflow SKILL.md 가 모두 `backend-overview` 인덱스에 등재
+- [ ] 21 audit SKILL.md 가 모두 `scripts/audit-all.sh` 에 등재
 - [ ] 본 SKILL.md "자주 묶이는 룰 묶음" 표의 모든 룰명이 실제 SKILL.md 디렉토리로 존재
 - [ ] `core-infrastructure 흡수 보충` 6 항목 모두 본문에 명시 (TYPE_CHECKING / interface DI / Stateless / AsyncLocalStorage / 예외 / 캐시)
 

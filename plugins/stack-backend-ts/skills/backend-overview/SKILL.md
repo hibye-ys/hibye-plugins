@@ -1,15 +1,15 @@
 ---
 name: backend-overview
-description: apps/api 백엔드 진입 시 또는 새 모듈 위치 결정 시 invoke. Hono+TS 디렉토리 구조와 모듈 의존성 방향, 주요 진입점 (src/routes/index.ts, src/ai/providers/, src/sse/) 안내. 새 contributor onboarding, "어디에 무엇이 있는지" 분류 필요 시에도 invoke.
+description: TS 백엔드 진입 시 또는 새 모듈 위치 결정 시 invoke. TS 디렉토리 구조와 모듈 의존성 방향, 주요 진입점 (src/routes/, src/ai/providers/, src/sse/) 안내. 새 contributor onboarding, "어디에 무엇이 있는지" 분류 필요 시에도 invoke. framework (Hono / Express / Fastify 등) 무관.
 metadata:
   role: workflow
   scope: apps/api
   source: stack-backend-python/skills/backend-overview + rules/architecture.md + rules/core-infrastructure.md
 ---
 
-**적용된 §4.4 매트릭스 행**: Python 모듈 트리 → TS/Hono 디렉토리 트리, `from app.routes import ...` → `import { app } from './routes/index.ts'`, `backend/` prefix → `src/` prefix, `pydantic BaseModel` → `zod schema / TypeScript interface`, `structlog` → `console + JSON`, `os.getenv` → `c.env`
+**적용된 §4.4 매트릭스 행**: Python 모듈 트리 → TS 디렉토리 트리, `from app.routes import ...` → `import { app } from './routes/index.ts'`, `backend/` prefix → `src/` prefix, `pydantic BaseModel` → `zod schema / TypeScript interface`, `structlog` → 구조화 로깅 helper (`structured-log-schema` 참조), `os.getenv` → env 어댑터 (framework/runtime 무관)
 
-# backend-overview — apps/api 백엔드 thin index
+# backend-overview — TS 백엔드 thin index
 
 ## 이 skill은 언제 invoke 되는가
 
@@ -19,7 +19,7 @@ metadata:
 
 ## 아키텍처 불변식은 어디에
 
-본 skill 은 **"어디에 뭐가 있는지" 위치 인덱스** 만 담당. 아키텍처 불변식 / 단일 작성자 / StoragePort / 도메인 경계 등 **"왜 이렇게 짰나, 어떻게 지켜야 하나"** 는 `stack-backend-ts-hono/skills/` 의 invariant SKILL.md 파일들에 있다.
+본 skill 은 **"어디에 뭐가 있는지" 위치 인덱스** 만 담당. 아키텍처 불변식 / 단일 작성자 / StoragePort / 도메인 경계 등 **"왜 이렇게 짰나, 어떻게 지켜야 하나"** 는 `plugins/stack-backend-ts/skills/` 의 invariant SKILL.md 파일들에 있다.
 
 - 계층 / import 방향 / 단일 작성자 → `single-writer` invariant
 - SSE lifecycle (12 이벤트) → `sse-lifecycle` invariant
@@ -27,7 +27,6 @@ metadata:
 - Token budget 상수 → `token-budget-constants` invariant
 - Tool 정렬 순서 → `tool-sort-order` invariant
 - MCP namespace → `mcp-namespace` invariant
-- Workers compat → `workers-compat` + `verify-workers-compat` invariant
 - Compaction threshold → `compaction-thresholds` invariant
 - Agent loop 불변식 → `agent-loop-invariants` invariant
 - HTTP 에러 sentinel → `http-error-sentinels` invariant
@@ -35,15 +34,21 @@ metadata:
 - Spawn 한계 → `spawn-limits` invariant
 - Input safety gate 순서 → `input-safety-gate-ordering` invariant
 - App domain boundary → `app-domain-boundary` invariant
+- Rate limit 정책 → `rate-limit-policy` invariant
+- 구조화 로그 스키마 → `structured-log-schema` invariant
+- CORS 정책 → `cors-policy` invariant
+- 미디어 job lifecycle → `media-job-lifecycle` invariant
 
-## 디렉토리 구조 (Hono + Workers)
+## 디렉토리 구조 (TS 백엔드 표준 레이아웃)
+
+> framework 무관 — 예: Hono / Express / Fastify / Nest 등. runtime 도 무관 (Node / Workers / Bun / Deno). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`c.env`, `wrangler.toml` 등) 는 별도 runtime/framework plugin (예: Hono + Workers 조합 plugin) 에서 다룬다.
 
 ```
-apps/api/
+<backend-root>/
   src/
-    index.ts              ← Hono app 엔트리 + middleware 등록
+    index.ts              ← app 엔트리 + middleware 등록
     routes/
-      index.ts            ← app.route() 집합
+      index.ts            ← route 집합
       run.ts              ← POST /run/:name — LLM 기반 실행
       sessions.ts         ← 세션 조회/취소
       media.ts            ← 미디어 파이프라인
@@ -71,7 +76,7 @@ apps/api/
     middleware/
       auth.ts             ← JWT / API key 검증
       rate-limit.ts       ← 토큰 버킷
-      request-id.ts       ← X-Request-Id ContextVar
+      request-id.ts       ← request id ContextVar
     storage/
       session.ts          ← SessionPort 추상화
       writer.ts           ← 단일 작성자 (Single Writer)
@@ -79,12 +84,11 @@ apps/api/
       index.ts            ← 공유 내부 타입 (Message, ContentBlock 등)
     utils/
       ids.ts              ← nanoid / hex id 헬퍼
-      env.ts              ← c.env 접근 헬퍼
-  wrangler.toml           ← Workers 설정 (bindings: KV, R2, D1 등)
-  .dev.vars               ← 로컬 시크릿 (gitignore)
+      env.ts              ← env 어댑터 (framework/runtime 추상)
+  <runtime-config>        ← runtime/framework 별도 (wrangler.toml / Dockerfile / fly.toml 등) — runtime plugin 책임
 ```
 
-## 계층 단방향 import (TS/Hono)
+## 계층 단방향 import
 
 ```
 routes → engine / services → providers / tools / storage
@@ -122,18 +126,19 @@ import { ToolRegistry } from './tools/registry.ts'
 | 11 | Auth / Secrets | `src/middleware/auth.ts` | auth |
 | 12 | Error Handling | `src/middleware/error.ts` | error-handling |
 | 13 | Debug | 로그 / 디버그 헬퍼 | debug-session |
-| 14 | Config / Env | `wrangler.toml`, `.dev.vars` | update-config-runtime |
+| 14 | Config / Env | env 어댑터 + runtime config | (runtime plugin) |
 
-## Workers 특화 유의사항
+## Runtime / framework 특화
 
-- 시크릿 = `c.env.SECRET_NAME` (Wrangler bindings). 절대 `process.env` 사용 금지 (Workers 미지원)
-- KV / R2 / D1 bindings = `c.env.KV_NAMESPACE` 형태
-- CPU time 한계 (Workers Free: 10ms, Paid: 50ms / 30s wall-clock). SSE streaming은 `waitUntil` 또는 streaming response
-- Workers compat 위반 체크 → `verify-workers-compat` invariant
+본 plugin 은 framework / runtime 무관. 시크릿 접근 방식 (`process.env` vs `c.env` 등), config 파일 (`wrangler.toml` / `Dockerfile` 등), CPU/메모리 한계, streaming 구현 (`waitUntil` 등) 등 *runtime-specific* 사항은 별도 runtime plugin 에 위치한다 (예: Cloudflare Workers 조합 plugin 의 `workers-compat` / `update-config-runtime` 등).
+
+새 backend project 를 부트스트랩 할 때:
+1. 본 plugin (`stack-backend-ts`) = 디렉토리/계층/invariant 표준
+2. + runtime plugin (Workers / Node-server / Lambda 등) = 시크릿/config/배포
 
 ## 자주 보는 사용 예시
 
 - "어디에 SSE 스트림이 있나" → 위 표 #07 → `sse-streaming` skill
 - "단일 작성자 규칙이 뭐였지" → `single-writer` invariant
 - "새 route 추가" → `api-routing` skill
-- "Workers에서 c.env undefined" → `debug-session` skill (Hono+Workers 특화 단서)
+- "runtime-specific 이슈 (env undefined / 배포 / runtime config)" → runtime plugin 의 `debug-session` 또는 runtime 별 skill 참고
