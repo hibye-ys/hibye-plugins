@@ -4,7 +4,6 @@ description: "apps/api 에서 무언가 깨졌는데 원인을 모를 때 invoke
 metadata:
   role: workflow
   scope: apps/api
-  shadows: core/debug-session
   source: stack-backend-python/skills/debug-session/SKILL.md
 ---
 
@@ -12,9 +11,9 @@ metadata:
 
 # debug-session — Hono + Workers 디버깅 워크플로
 
-## 우선순위
+## 이 skill 의 위치
 
-이 skill 이 로드되어 있으면 `core/debug-session` 보다 *우선 적용*. Hono + Workers 특화 단서 (c.env, wrangler, miniflare, AbortError 등) 포함. `core/debug-session` 에만 있는 기능 (project-agnostic 일반 debug 절차) 필요 시 해당 skill 별도 invoke.
+apps/api (Hono + Workers) 백엔드 디버깅 전용. Hono + Workers 특화 단서 (c.env, wrangler, miniflare, AbortError 등) 포함 5단계 표준화.
 
 ## 이 skill은 언제 invoke 되는가
 

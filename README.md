@@ -6,30 +6,29 @@ Shared agent assets marketplace for Claude Code + Codex.
 
 - M0 spike complete (2026-05-21) — see `docs/superpowers/m0-results.md` in iyaki-rebuild.
 - M1 production bootstrap (2026-05-21~) — `stack-backend-ts-hono` + `surface-web-vite-react` 골격 추가.
+- M2.5 coverage completion (2026-05-22) — Python → TS 1:1 포트 80 SKILL.md (invariant 16 / workflow 40 / audit 24).
+- 2026-05-22 cleanup — `core` + `deprecated-example` plugin 제거 (M0 spike placeholder 잔재). L1 자리는 향후 universal 룰 필요 시 신규 plugin 으로 재구성.
 
 ## Plugins
 
 | 이름 | Layer | 목적 |
 |---|---|---|
-| `core` | L1 | 진입점 + `using-marketplace` bootstrap skill + `debug-session` skill |
-| `stack-backend-ts-hono` | L2 | Hono + Web 표준 (Workers 호환) backend 룰 + `verify-workers-compat` skill |
+| `stack-backend-ts-hono` | L2 | Hono + Web 표준 (Workers 호환) backend 룰 + `verify-workers-compat` skill. 80 SKILL.md (invariant 16 / workflow 40 / audit 24) |
 | `stack-backend-python` | L2 | Python FastAPI AI agent backend 룰 (23) + `_shared` 언어 무관 룰 (14) + 스킬 (45) — ref/iyaki-zip-ai legacy 보존 |
 | `surface-web-vite-react` | L3 | Vite + React + Tailwind v4 토큰 룰 + Pack 시스템 룰 + `verify-token-only-styling` skill |
-| `deprecated-example` | — | M0 #10 deprecation 시그널 검증 fixture |
 
 ## Quick Start (신규 프로젝트)
 
 ```bash
 # 1. 본 셋업 스크립트가 project/.codex/skills/ + ~/.claude/plugins/cache/ 셋업 한 번에
 bash /Users/youngseoklee/Desktop/workplace/hibye-plugins/scripts/setup-project.sh \
-  <project-dir> core stack-backend-ts-hono surface-web-vite-react
+  <project-dir> stack-backend-ts-hono surface-web-vite-react
 
 # 2. Codex: ~/.codex/config.toml 에 [marketplaces.hibye] 추가 (스크립트가 안내 출력)
 #    이미 등록되어 있으면 skip.
 
 # 3. Claude Code: project 안에서
 #    /plugin marketplace add /Users/youngseoklee/Desktop/workplace/hibye-plugins
-#    /plugin install core@hibye-plugins
 #    /plugin install stack-backend-ts-hono@hibye-plugins
 #    /plugin install surface-web-vite-react@hibye-plugins
 ```
