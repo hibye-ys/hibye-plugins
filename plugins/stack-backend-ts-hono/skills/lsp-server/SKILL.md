@@ -1,6 +1,6 @@
 ---
 name: lsp-server
-description: apps/api LSP 서버 (prose 에디터 언어 지능) 최초 작성 / 4-class 구조 (LSPManager / LSPRegistry / LSPInstance / LSPBridge) 추가 / completion·diagnostic·hover·definition 핸들러 수정 시 invoke. "completion 이 안 뜬다", "diagnostic 이 stale 텍스트에 걸려있다", "IDE 클라이언트가 30초 후 disconnect" 디버깅 시에도 invoke.
+description: apps/api LSP 서버 (`<workspace-entity>` 언어 지능 — 예 prose editor / code editor / blog mention) 최초 작성 / 4-class 구조 (LSPManager / LSPRegistry / LSPInstance / LSPBridge) 추가 / completion·diagnostic·hover·definition 핸들러 수정 시 invoke. "completion 이 안 뜬다", "diagnostic 이 stale 텍스트에 걸려있다", "IDE 클라이언트가 30초 후 disconnect" 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: apps/api
@@ -15,7 +15,7 @@ metadata:
 2. MUST implement `invalidateEntityCache()` on document change
 3. MUST implement `cleanupStaleInstances()` with 5-minute threshold
 4. MUST use `AbortSignal.timeout(10_000)` for agent call safety
-5. MUST register `@` as completion trigger character
+5. MUST register instance 별 trigger character (예: `@` for mention, `#` for tag, `[[` for wiki link) on `capabilities.completionProvider.triggerCharacters`
 
 # lsp-server — LSP 서버 구조 청사진
 
@@ -29,13 +29,13 @@ metadata:
 
 ## LSP server 의 정체성
 
-프론트엔드 prose 에디터 (Monaco / CodeMirror) 에 **도메인 텍스트 편집 지능** 을 제공한다.
-코드 편집기의 LSP 와 같은 프로토콜이지만 대상이 **코드 외 도메인 텍스트** (서사, 문서, 구조화 노트 등) 다.
+프론트엔드 `<workspace-entity>` 에디터 (Monaco / CodeMirror — 예 prose-editor mention / code symbol / blog tag / wiki link) 에 **언어 지능** 을 제공한다.
+코드 편집기의 LSP 와 같은 프로토콜이지만 대상이 instance 별 workspace entity (user mention, file reference, tag, symbol, link 등) 다.
 
 4 core capabilities:
 
-1. **Entity Completion** — `@` 입력 시 엔티티 이름 자동완성 (aliases 포함)
-2. **Diagnostics** — 실시간 일관성 경고. Hard Rule (결정론적) + World Rule (결정론적) +
+1. **Entity Completion** — instance 별 trigger character (예: `@` for mention, `#` for tag, `[[` for wiki link) 입력 시 엔티티 이름 자동완성 (aliases 포함)
+2. **Diagnostics** — 실시간 일관성 경고. Hard Rule (결정론적) + Domain Rule (결정론적) +
    Soft Rule (LLM 기반, debounced)
 3. **Hover Info** — 엔티티명 호버 시 요약 카드 (마크다운)
 4. **Go to Definition** — 엔티티 클릭 → canonical URI 위치로 이동
@@ -131,7 +131,11 @@ export function createLSPServer(dataReader: DataReader, bridge: LSPBridge) {
 ```
 
 > `TextDocumentSyncKind.Full` — 변경 시 전체 텍스트 수신. Incremental diff 는
-> prose 에디터에서 이득이 거의 없고 복잡도만 올린다.
+> `<workspace-entity>` 에디터에서 이득이 거의 없고 복잡도만 올린다.
+
+> NOTE: `triggerCharacters: ['@']` 는 mention 패턴 예시. instance 가 tag (`#`) /
+> wiki link (`[[`) 같은 다른 trigger 를 쓰면 해당 character 로 교체. instance 측
+> CLAUDE.md 에 `<workspace-entity>` → trigger 매핑 명시 (Placeholder 해석 섹션 참조).
 
 ## 3-tier 구조
 
@@ -382,6 +386,7 @@ export class LSPInstance {
     const line = lines[position.line]
     if (position.character > line.length) return ''
     let start = position.character
+    // NOTE: '@' = mention trigger 예시. instance 별 trigger character ('#', '[[' 등) 로 교체.
     while (start > 0 && !/\s/.test(line[start - 1]) && line[start - 1] !== '@') start -= 1
     let end = position.character
     while (end < line.length && !/\s/.test(line[end])) end += 1
@@ -424,7 +429,7 @@ export class LSPBridge {
 
   async runDiagnostics(text: string, uri: string): Promise<Diagnostic[]> {
     const diags = await this._checkHardRules(text, uri)
-    diags.push(...(await this._checkWorldRules(text, uri)))
+    diags.push(...(await this._checkDomainRules(text, uri)))
     this._scheduleSoftDiagnostics(text, uri) // debounced, fire-and-forget
     return diags
   }
@@ -465,8 +470,8 @@ export class LSPBridge {
     return diags
   }
 
-  private async _checkWorldRules(_text: string, _uri: string): Promise<Diagnostic[]> {
-    return [] // TODO: world-state consistency checks
+  private async _checkDomainRules(_text: string, _uri: string): Promise<Diagnostic[]> {
+    return [] // TODO: instance 별 domain consistency checks (instance 측 entity 스키마 정의에 따라 구현)
   }
 
   private _scheduleSoftDiagnostics(text: string, uri: string): void {
@@ -501,8 +506,9 @@ export class LSPBridge {
   }
 
   private static _buildDiagnosticPrompt(text: string): string {
+    // NOTE: instance 측 domain 에 맞춰 prompt 교체 (예: prose narrative / code symbol / blog post).
     return (
-      'Analyze the following narrative for inconsistencies. ' +
+      'Analyze the following workspace text for inconsistencies. ' +
       'Report: LINE:<n> SEVERITY:<warning|error> MESSAGE:<desc>\n\n' +
       `---\n${text}\n---`
     )
@@ -607,7 +613,7 @@ LSP request → LSPManager → entity cache 필터 (빠름, agent 불필요)
 - **"IDE 클라이언트가 30초 후 disconnect"** → WebSocket keepalive 누락
   확인. agent 타임아웃 미설정 시 단일 요청 30초 블로킹. 동시성 함정 #3.
 
-- **"entity cache 가 갱신되지 않는다"** → 엔티티 변경 (writer 경로) 후
+- **"entity cache 가 갱신되지 않는다"** → 엔티티 변경 (single-writer 경로) 후
   `LSPRegistry.invalidateEntityCache()` 호출 확인. `single-writer` invariant 참조.
 
 ## Cross-ref
@@ -616,3 +622,15 @@ LSP request → LSPManager → entity cache 필터 (빠름, agent 불필요)
 - `ts-agent-rules` — TS interface DI / AsyncLocalStorage 10 필드
 - `verify-workers-compat` — `lsp/` 경로 별도 빌드 타겟
 - `single-writer` — `invalidateEntityCache()` 호출 시점
+
+## Placeholder 해석
+
+본 workflow 의 `<workspace-entity>` placeholder 는 instance 측에서 해석:
+- iyaki 프로젝트 예: prose-editor 의 character / scenario / persona mention (`@` trigger)
+- code editor 예: function / class / variable symbol (`@` trigger)
+- blog 예: post / category / tag mention (`#` or `[[` trigger)
+- 다른 instance: 자체 CLAUDE.md 에 매핑 명시
+
+instance 별 entity 스키마 (`Entity.name` / `aliases` / `type` / `summary` 외 추가 필드)
+는 instance 측 `./types.ts` 에 정의. 본 skill 의 4-class 구조 / cleanup / timeout / bridge
+패턴은 instance 와 무관하게 동일.
