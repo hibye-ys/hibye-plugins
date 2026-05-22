@@ -18,16 +18,45 @@ metadata:
 
 권장: **forward-only + blue/green 호환 schema 변경** (drop 은 다음 deploy 까지 deprecation).
 
-## Blue/Green 호환 schema 변경 — 6 단계
+## Online migration 관측성
 
-1. **add column nullable** — 신/구 코드 양쪽 동작
-2. **deploy 신코드** — write 양쪽 (이전 + 신규 column)
-3. **backfill** — 기존 row 의 신규 column 채우기 (batch + idempotent)
-4. **constraint 추가** — NOT NULL 등 (이 시점 모든 row 채워짐)
-5. **이전 column read 제거** — 코드만 변경 (DB schema 변화 없음)
-6. **drop 이전 column** — 다음 release cycle (rollback 윈도우 확보)
+Blue/green 또는 expand-contract migration 중 다음 메트릭 / 로그 필수:
+
+- [ ] **Lock timeout 명시**: `SET statement_timeout = '5s'`, `SET lock_timeout = '2s'` — 무한 대기 방지
+- [ ] **Batched backfill 진행률**: `migration_backfill_progress{migration_id, table}` gauge — 배치 마다 increment
+- [ ] **CONCURRENTLY 인덱스 사용**: Postgres 의 경우 `CREATE INDEX CONCURRENTLY` (read 차단 없음). 실패 시 INVALID 상태 cleanup 필요
+- [ ] **Long-running query 알람**: `>30s` 쿼리 감지 시 즉시 알람
+- [ ] **Replication lag 모니터링**: read replica lag > 임계 시 migration pause
+
+## 6 단계 Blue/Green 절차 (expand-contract)
+
+```
+1. Expand: 신규 컬럼 추가 (NULL 허용 또는 default)
+2. Backfill: 배치 UPDATE (`WHERE id BETWEEN ? AND ?`)
+3. Dual-write: 코드가 old + new 둘 다 write
+4. Switch read: 코드가 new 에서 read (fallback to old)
+5. Stop dual-write: new 만 write
+6. Contract: old 컬럼 제거 (별도 release)
+```
+
+각 단계 사이 monitoring window (최소 24h, 트래픽 보고 결정).
 
 같은 패턴이 column rename / type change / table split 에 적용.
+
+## Rollback 가능 조건
+
+- [ ] **Step 1-3**: 즉시 rollback (코드 revert + 신규 컬럼 NULL 유지)
+- [ ] **Step 4-5**: 데이터 일관성 확인 후 rollback (dual-write 재활성)
+- [ ] **Step 6**: 불가 (column drop 후) — backup restore 만 가능
+
+## 차단해야 할 failure mode
+
+| 패턴 | 위험 | 차단 방법 |
+|------|------|-----------|
+| Lock timeout 없는 ALTER TABLE | production traffic 차단 | statement_timeout 강제 |
+| 배치 없는 한 번에 UPDATE | long lock + replication lag 폭증 | LIMIT/BETWEEN 배치 강제 |
+| Step 6 (drop) 를 monitoring 없이 진행 | rollback 불가 상태 진입 | step 6 별도 release + 7일 이상 monitoring |
+| `CREATE INDEX` (non-concurrent) on production | read 차단 | CONCURRENTLY 강제 lint |
 
 ## Rollback 절차 (사고 시)
 
