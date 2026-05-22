@@ -17,10 +17,10 @@ metadata:
 
 ```bash
 # 패턴 1: 0.7 / 0.9 등 threshold 매직 넘버
-grep -rEn '\b(0\.[5-9]|0\.95)\b.*token|token.*\b(0\.[5-9]|0\.95)\b' apps/api/src/
+grep -rEn '\b(0\.[5-9]|0\.95)\b.*token|token.*\b(0\.[5-9]|0\.95)\b' <api-app>/src/
 
 # 패턴 2: invariant 상수 import 안 함
-for f in $(find apps/api/src/context -name '*compaction*' -type f 2>/dev/null); do
+for f in $(find <api-app>/src/context -name '*compaction*' -type f 2>/dev/null); do
   grep -qE 'COMPACT_AT|EMERGENCY_COMPACT_AT' "$f" || echo "no-const: $f"
 done
 ```

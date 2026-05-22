@@ -22,26 +22,26 @@ metadata:
 
 ```bash
 # 패턴 1: Promise.all / allSettled 사용처에 limit 없음
-for f in $(grep -rlE 'Promise\.(all|allSettled)\(' apps/api/src/ai/sub-agents/); do
+for f in $(grep -rlE 'Promise\.(all|allSettled)\(' <api-app>/src/ai/sub-agents/); do
   grep -qE 'limit|MAX_PARALLEL|p-limit' "$f" || echo "no-limit: $f"
 done
 
 # 패턴 2: invariant 상수 import 안 함
-grep -rL 'SPAWN_LIMIT\|MAX_PARALLEL_SUBAGENTS' apps/api/src/ai/sub-agents/
+grep -rL 'SPAWN_LIMIT\|MAX_PARALLEL_SUBAGENTS' <api-app>/src/ai/sub-agents/
 
 # 패턴 3: MAX_SPAWN_DEPTH 상수 정의 누락
-rg -nP 'MAX_SPAWN_DEPTH' apps/api/src/ai/sub-agents/ apps/api/src/tools/spawn.ts 2>/dev/null \
+rg -nP 'MAX_SPAWN_DEPTH' <api-app>/src/ai/sub-agents/ <api-app>/src/tools/spawn.ts 2>/dev/null \
   || echo "no MAX_SPAWN_DEPTH constant defined"
 
 # 패턴 4: spawn 전 depth 가드 호출 누락 (VIOLATION)
 # spawn / fork / createSubAgent 호출하는데 같은 함수 안 checkDepth / SpawnDepthExceeded 없음
-for f in $(grep -rlE '(spawn|fork|createSubAgent)\(' apps/api/src/ai/sub-agents/ apps/api/src/tools/spawn.ts 2>/dev/null); do
+for f in $(grep -rlE '(spawn|fork|createSubAgent)\(' <api-app>/src/ai/sub-agents/ <api-app>/src/tools/spawn.ts 2>/dev/null); do
   grep -qE 'checkDepth|SpawnDepthExceeded|depth\s*>=|depth\s*>' "$f" \
     || echo "depth-guard-missing: $f"
 done
 
 # 패턴 5: parent depth 상속 누락 — 자식 agent context 가 parent.depth + 1 미사용
-rg -nP 'createSubAgent\(|spawnAgent\(' apps/api/src/ai/sub-agents/ 2>/dev/null \
+rg -nP 'createSubAgent\(|spawnAgent\(' <api-app>/src/ai/sub-agents/ 2>/dev/null \
   | rg -v 'depth:\s*(parent|this|ctx)\.depth\s*\+\s*1' \
   || true
 ```

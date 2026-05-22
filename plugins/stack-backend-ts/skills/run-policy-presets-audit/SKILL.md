@@ -17,10 +17,10 @@ metadata:
 
 ```bash
 # 패턴 1: timeout / max_turns 등 매직 넘버
-grep -rEn 'timeout:\s*\d+|max.turns?:\s*\d+|maxTurns:\s*\d+' apps/api/src/ai/
+grep -rEn 'timeout:\s*\d+|max.turns?:\s*\d+|maxTurns:\s*\d+' <api-app>/src/ai/
 
 # 패턴 2: invariant preset 안 import
-grep -rL 'RUN_POLICY\|POLICY_PRESET' apps/api/src/ai/runs/
+grep -rL 'RUN_POLICY\|POLICY_PRESET' <api-app>/src/ai/runs/
 ```
 
 ## 위반 시 조치

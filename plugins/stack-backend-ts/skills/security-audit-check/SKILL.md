@@ -11,32 +11,33 @@ metadata:
 
 ## 검증 대상 invariant
 
-`apps/api/src/` 안 6가지 보안 안티패턴:
+`<api-app>/src/` 안 6가지 보안 안티패턴:
 
 1. **secret 하드코딩** — `sk-...`, `AKIA...`, `ghp_...` 같은 토큰 prefix
-2. **eval / new Function** — 동적 코드 실행 (Workers 환경 + 일반 보안 양쪽 위험)
+2. **eval / new Function** — 동적 코드 실행 (runtime + 일반 보안 양쪽 위험)
 3. **동적 require** — `require(variable)` (Node-only + 코드 인젝션 면)
 4. **SQL injection** — raw template string 안 `${...}` 보간 (Drizzle / neon tagged template 안전 사용 제외)
-5. **SSRF** — `fetch(req.url)` / `fetch(body.url)` 같이 사용자 입력 URL 로 직접 fetch
+5. **SSRF** — 사용자 입력 URL 로 직접 fetch (예: `fetch(req.url)` / `fetch(body.url)` 형태)
 
 ## 실행
 
 ```bash
 # 패턴 1: 하드코딩 secret prefix
-rg -nP "(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]+)" apps/api/src/ 2>/dev/null
+rg -nP "(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]+)" <api-app>/src/ 2>/dev/null
 
 # 패턴 2: eval / new Function
-rg -nP "\beval\(|new\s+Function\(" apps/api/src/ 2>/dev/null
+rg -nP "\beval\(|new\s+Function\(" <api-app>/src/ 2>/dev/null
 
 # 패턴 3: 동적 require
-rg -nP "require\([^'\"\`]+\)" apps/api/src/ 2>/dev/null
+rg -nP "require\([^'\"\`]+\)" <api-app>/src/ 2>/dev/null
 
 # 패턴 4: raw SQL 보간 (sql.identifier / sql.placeholder 안전 케이스 제외)
-rg -nP 'sql\s*`[^`]*\$\{[^}]+\}' apps/api/src/ 2>/dev/null \
+rg -nP 'sql\s*`[^`]*\$\{[^}]+\}' <api-app>/src/ 2>/dev/null \
   | grep -v "sql\.identifier\|sql\.placeholder"
 
-# 패턴 5: SSRF — req.* / body.* / c.req.* 변수를 fetch 인자로
-rg -nP "fetch\(\s*(req\.|body\.|c\.req\.)" apps/api/src/ 2>/dev/null
+# 패턴 5: SSRF — framework request accessor / body 변수를 fetch 인자로
+#   - 구체 grep 정규식은 instance 측 framework 별 accessor 패턴으로 치환
+rg -nP "fetch\(\s*<framework request accessor>\." <api-app>/src/ 2>/dev/null
 ```
 
 ## 통과 기준
@@ -52,10 +53,11 @@ rg -nP "fetch\(\s*(req\.|body\.|c\.req\.)" apps/api/src/ 2>/dev/null
 const OPENROUTER_KEY = 'sk-or-v1-abc123...'
 ```
 
-조치:
+조치 — runtime secret store 에 등록 후 framework env binding 으로 접근:
+
 ```typescript
-// wrangler secret put OPENROUTER_API_KEY 로 등록 후 binding 사용
-const key = c.env.OPENROUTER_API_KEY
+// runtime-specific secret store CLI 로 등록 후 binding 사용 (instance 측 project-local skill 참조)
+// const key = <framework env binding>.OPENROUTER_API_KEY
 ```
 
 ### 패턴 2 위반 — eval / new Function
@@ -67,7 +69,7 @@ const f = new Function('return ' + userInput)
 
 조치:
 - 동적 평가 대신 화이트리스트 dispatch 사용
-- 어쩔 수 없으면 `vm2` (Node) 또는 sandboxed Worker
+- 어쩔 수 없으면 `vm2` (Node) 또는 sandboxed 격리 환경
 
 ### 패턴 3 위반 — 동적 require
 
@@ -95,11 +97,11 @@ const rows2 = await client.query(`SELECT * FROM users WHERE name = '${name}'`)  
 ### 패턴 5 위반 — SSRF
 
 ```typescript
-// 위반
-app.post('/proxy', async (c) => {
-  const { url } = await c.req.json()
-  return await fetch(url)  // ← 사용자 입력 URL 로 직접 fetch
-})
+// 위반 — framework-neutral pseudo
+// <framework route definition>('/proxy', async (ctx) => {
+//   const { url } = await <framework request accessor>(ctx).json()
+//   return await fetch(url)  // ← 사용자 입력 URL 로 직접 fetch
+// })
 ```
 
 조치:
@@ -114,4 +116,4 @@ app.post('/proxy', async (c) => {
 - 의존성 CVE → `dependency-scanning`
 - input schema 검증 (zod) → `input-safety-audit`
 - auth middleware 누락 → `api-audit`
-- D1 사용 검출 → instance 측 project-local audit 참조
+- 금지 DB (instance 별) 사용 검출 → instance 측 project-local audit 참조

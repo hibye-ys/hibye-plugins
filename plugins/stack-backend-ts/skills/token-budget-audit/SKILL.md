@@ -1,6 +1,6 @@
 ---
 name: token-budget-audit
-description: context-assembly 또는 prompt 코드 변경 후. apps/api 안 token-budget-constants 상수 (MAX_HISTORY_TOKENS 등) 우회·하드코딩 검출.
+description: context-assembly 또는 prompt 코드 변경 후. <api-app> 안 token-budget-constants 상수 (MAX_HISTORY_TOKENS 등) 우회·하드코딩 검출.
 metadata:
   role: audit
   scope: project
@@ -17,10 +17,10 @@ metadata:
 
 ```bash
 # 패턴 1: 8000/16000/32000 등 매직 넘버 (token 상수 우회, numeric separator 포함)
-grep -rEn '\b(8_?000|16_?000|32_?000|128_?000)\b' apps/api/src/context/ apps/api/src/ai/
+grep -rEn '\b(8_?000|16_?000|32_?000|128_?000)\b' <api-app>/src/context/ <api-app>/src/ai/
 
 # 패턴 2: invariant 의 상수 import 안 함
-grep -rL 'TOKEN_BUDGET\|MAX_HISTORY_TOKENS' apps/api/src/context/
+grep -rL 'TOKEN_BUDGET\|MAX_HISTORY_TOKENS' <api-app>/src/context/
 ```
 
 ## 위반 시 조치

@@ -11,7 +11,7 @@ metadata:
 
 ## 검증 대상 invariant
 
-`apps/api/src/` 의 4가지 정합성을 한 번에 점검:
+`<api-app>/src/` 의 4가지 정합성을 한 번에 점검:
 
 1. **24 audit 모두 통과** — `scripts/audit-all.sh` 가 0 violation 으로 종료
 2. **디렉토리 구조** — `src/` 직속 디렉토리는 `routes` / `agents` / `runs` / `providers` / `db` / `storage` / `middleware` + `index.ts` 만 허용 (spec §11 4-layer)
@@ -22,18 +22,18 @@ metadata:
 
 ```bash
 # 패턴 1: 24 audit 통합 (scripts/audit-all.sh 가 본 plugin scripts/ 안에 있다고 가정)
-bash plugins/stack-backend-ts/scripts/audit-all.sh apps/api
+bash plugins/stack-backend-ts/scripts/audit-all.sh <api-app>
 
 # 패턴 2: 디렉토리 구조 정합 — 화이트리스트 외 디렉토리 검출
-ls apps/api/src/ 2>/dev/null \
+ls <api-app>/src/ 2>/dev/null \
   | grep -vE "^(routes|agents|runs|providers|db|storage|middleware|index\.ts)$"
 
 # 패턴 3: import cycle — madge (devDependency)
-pnpm exec madge --circular --extensions ts apps/api/src/ 2>/dev/null || \
-  npx madge --circular --extensions ts apps/api/src/
+pnpm exec madge --circular --extensions ts <api-app>/src/ 2>/dev/null || \
+  npx madge --circular --extensions ts <api-app>/src/
 
 # 패턴 4: spec §11 4-layer 위반 — db 에서 routes import (역참조)
-grep -rE "from\s+['\"](?:\.\./)+routes" apps/api/src/db/ apps/api/src/providers/ 2>/dev/null
+grep -rE "from\s+['\"](?:\.\./)+routes" <api-app>/src/db/ <api-app>/src/providers/ 2>/dev/null
 ```
 
 ## 통과 기준
@@ -79,5 +79,5 @@ import { getCurrentUser } from '@/services/user'  // ← cycle
 ## audit 이 커버하지 않는 것
 
 - *runtime* 정합성 (배포 직후 health / SSE 동작) → runtime 검증 (instance 측 project-local skill 참조)
-- 의존성 CVE / Workers 호환성 → `dependency-scanning`
+- 의존성 CVE / runtime 호환성 → `dependency-scanning`
 - secret / SSRF / injection → `security-audit-check`

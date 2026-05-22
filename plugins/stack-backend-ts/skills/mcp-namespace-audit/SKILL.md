@@ -17,15 +17,15 @@ metadata:
 
 ```bash
 # 패턴 1: MCP tool 등록 시 namespace prefix 누락
-grep -rEn 'mcp.*?register|mcpClient\.tool' apps/api/src/mcp/ -A 5
+grep -rEn 'mcp.*?register|mcpClient\.tool' <api-app>/src/mcp/ -A 5
 
 # 패턴 2: namespace 중복 (다른 서버가 같은 prefix)
-grep -rhoE "prefix:\\s*['\"]([^'\"]+)['\"]" apps/api/src/mcp/ \
+grep -rhoE "prefix:\\s*['\"]([^'\"]+)['\"]" <api-app>/src/mcp/ \
   | sed -E "s/^prefix:[[:space:]]*['\"]([^'\"]+)['\"].*/\1/" \
   | sort | uniq -d
 
 # 패턴 3: tool name 이 mcp__<server>__<tool> 형식인지
-grep -rhoEn "name:\\s*['\"]([^'\"]+)['\"]" apps/api/src/mcp/ \
+grep -rhoEn "name:\\s*['\"]([^'\"]+)['\"]" <api-app>/src/mcp/ \
   | sed -E "s/.*name:[[:space:]]*['\"]([^'\"]+)['\"].*/\1/" \
   | while read -r name; do
       echo "$name" | grep -qE '^mcp__[a-z0-9_]+__[a-z0-9_]+$' || echo "wrong-format: $name"

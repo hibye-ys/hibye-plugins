@@ -81,7 +81,7 @@
 | Skill | Description |
 |-------|-------------|
 | [`agent-verify-def`](skills/agent-verify-def/SKILL.md) | 새 agent 정의 추가 후 또는 배포 전 invoke. <api-app>/src/agents/*.ts 의 default export 가 AgentDef 인터페이스 필수 필드 (name / version / step / modelMix) 를 모두 채우는지 + name 중복 ✕ 를 grep 으로 검증. |
-| [`api-audit`](skills/api-audit/SKILL.md) | 새 Hono route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 zValidator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크. |
+| [`api-audit`](skills/api-audit/SKILL.md) | 새 framework route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 zValidator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크. |
 | [`app-domain-boundary-audit`](skills/app-domain-boundary-audit/SKILL.md) | 모듈 추가/이동 후. app-domain-boundary invariant — 코어 (provider/sse/storage 등 generic) 디렉토리에 도메인-specific 어휘 누출 검출 (구체 어휘는 `scripts/forbidden-terms.txt` 정의). |
 | [`compaction-thresholds-audit`](skills/compaction-thresholds-audit/SKILL.md) | compaction 코드 변경 후. compaction-thresholds invariant (CompactAt%, EmergencyCompactAt% 등) 상수 import 검증. |
 | [`data-audit`](skills/data-audit/SKILL.md) | schema 변경 후 또는 새 migration 추가 후 invoke. Drizzle schema 의 FK 컬럼에 인덱스 정의가 함께 있는지 / migration 파일 순서가 정렬되어 있는지 / RLS policy 누락을 grep 으로 검증. data-layer + database invariant 와 짝. |
@@ -89,17 +89,17 @@
 | [`full-architecture-audit`](skills/full-architecture-audit/SKILL.md) | 대규모 리팩토링 후 또는 정기 점검 시 invoke. 24 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. deploy 전 체크의 6-step 체인 안에서도 호출됨 (instance 측 project-local skill 참조). |
 | [`http-error-sentinels-audit`](skills/http-error-sentinels-audit/SKILL.md) | route handler 또는 error path 수정 후. http-error-sentinels invariant 의 status ↔ sentinel 매핑 따르는지. |
 | [`input-safety-audit`](skills/input-safety-audit/SKILL.md) | route handler 추가/수정 후. input-safety-gate-ordering invariant (auth → schema → rate-limit → handler) 위반 검출. |
-| [`loop-audit`](skills/loop-audit/SKILL.md) | agent loop / run executor 코드 변경 후 invoke. apps/api/src/agents/ + src/runs/ 안 while(true) 가 break / abort signal / turn 카운터 같은 종료 조건 없이 도는 경우를 검출. Workers CPU time 초과 / 사용자 abort 무시 / 무한 비용 누출 방지. |
+| [`loop-audit`](skills/loop-audit/SKILL.md) | agent loop / run executor 코드 변경 후 invoke. <api-app>/src/agents/ + src/runs/ 안 while(true) 가 break / abort signal / turn 카운터 같은 종료 조건 없이 도는 경우를 검출. runtime CPU time 초과 / 사용자 abort 무시 / 무한 비용 누출 방지. |
 | [`mcp-namespace-audit`](skills/mcp-namespace-audit/SKILL.md) | MCP 서버 추가 후. namespace prefix 규칙 위반·충돌 검출. |
-| [`provider-retry-audit`](skills/provider-retry-audit/SKILL.md) | 배포 전 또는 새 LLM provider 추가 후 invoke. apps/api/src/ai/providers/**/*.ts 안 retry 로직이 provider-retry-matrix invariant (재시도 가능 / 즉시 fatal 구분) 따르는지 grep 검증. |
+| [`provider-retry-audit`](skills/provider-retry-audit/SKILL.md) | 배포 전 또는 새 LLM provider 추가 후 invoke. <api-app>/src/ai/providers/**/*.ts 안 retry 로직이 provider-retry-matrix invariant (재시도 가능 / 즉시 fatal 구분) 따르는지 grep 검증. |
 | [`rule-linting`](skills/rule-linting/SKILL.md) | 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope / source) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증. |
 | [`run-policy-presets-audit`](skills/run-policy-presets-audit/SKILL.md) | AI run / job 설정 코드 변경 후. run-policy-presets invariant 의 timeout / max-turn / retry preset 우회 검출. |
 | [`security-audit-check`](skills/security-audit-check/SKILL.md) | 배포 전 또는 외부 입력 처리 코드 변경 후 invoke. secret 하드코딩 / eval / new Function / 동적 require / SQL injection / SSRF 6가지 패턴을 grep 으로 일괄 검출. |
-| [`session-audit`](skills/session-audit/SKILL.md) | KV / session storage 코드 변경 후 invoke. KV.put 호출이 expirationTtl 없음 / c.env.KV 직접 접근 (storage adapter 우회) 두 패턴을 검출. KV 잔존 방지 + storage 경계 보존. |
-| [`single-writer-audit`](skills/single-writer-audit/SKILL.md) | 동시 쓰기 위험 코드 변경 후. apps/api 안 동일 리소스 (DB row, KV key, R2 object) 에 lock/transaction 없이 다중 writer 접근하는 패턴 grep. |
+| [`session-audit`](skills/session-audit/SKILL.md) | KV / session storage 코드 변경 후 invoke. KV.put 호출이 expirationTtl 없음 / framework env binding 의 KV 직접 접근 (storage adapter 우회) 두 패턴을 검출. KV 잔존 방지 + storage 경계 보존. |
+| [`single-writer-audit`](skills/single-writer-audit/SKILL.md) | 동시 쓰기 위험 코드 변경 후. <api-app> 안 동일 리소스 (DB row, KV key, object storage object) 에 lock/transaction 없이 다중 writer 접근하는 패턴 grep. |
 | [`spawn-limits-audit`](skills/spawn-limits-audit/SKILL.md) | sub-agent / parallel call 코드 변경 후. spawn-limits invariant 의 max-parallel 상수 + MAX_SPAWN_DEPTH depth 가드 우회 검출. |
-| [`sse-lifecycle-audit`](skills/sse-lifecycle-audit/SKILL.md) | SSE 라우트 추가/수정 후 invoke. apps/api/src/sse/**/*.ts 안 4-state (open/heartbeat/drain/close) 라이프사이클 + stream.onAbort 처리 검증. |
-| [`token-budget-audit`](skills/token-budget-audit/SKILL.md) | context-assembly 또는 prompt 코드 변경 후. apps/api 안 token-budget-constants 상수 (MAX_HISTORY_TOKENS 등) 우회·하드코딩 검출. |
+| [`sse-lifecycle-audit`](skills/sse-lifecycle-audit/SKILL.md) | SSE 라우트 추가/수정 후 invoke. <api-app>/src/sse/**/*.ts 안 4-state (open/heartbeat/drain/close) 라이프사이클 + abort signal 처리 검증. |
+| [`token-budget-audit`](skills/token-budget-audit/SKILL.md) | context-assembly 또는 prompt 코드 변경 후. <api-app> 안 token-budget-constants 상수 (MAX_HISTORY_TOKENS 등) 우회·하드코딩 검출. |
 | [`tool-sort-order-audit`](skills/tool-sort-order-audit/SKILL.md) | tool 등록 코드 변경 후. tools/registry.ts 안 tool 정렬 순서가 invariant tool-sort-order 따르는지. |
 
 ## 검증 명령 요약

@@ -11,17 +11,17 @@ metadata:
 
 ## 검증 대상 invariant
 
-`apps/api/src/db/schema/*.ts` + `apps/api/drizzle/*.sql` 의 세 가지 정합성:
+`<api-app>/src/db/schema/*.ts` + `<api-app>/drizzle/*.sql` 의 세 가지 정합성:
 
 1. **FK 인덱스** — `references(...)` 가 붙은 컬럼은 같은 파일 안에 `index(...)` 로 인덱싱되어야 함 (FK lookup 성능 + cascade 안전)
-2. **migration 순서** — `apps/api/drizzle/*.sql` 파일명이 사전식 정렬과 일치해야 함 (timestamp prefix 정합)
+2. **migration 순서** — `<api-app>/drizzle/*.sql` 파일명이 사전식 정렬과 일치해야 함 (timestamp prefix 정합)
 3. **RLS policy** — Postgres row-level security 가 필요한 테이블에 `policy` 정의 (선택적 — 멀티테넌트 스키마만)
 
 ## 실행
 
 ```bash
 # 패턴 1: FK 컬럼이 인덱스 없음 — file-level loop + sed extract (PCRE2 lookahead 회피)
-for f in apps/api/src/db/schema/*.ts; do
+for f in <api-app>/src/db/schema/*.ts; do
   [[ -f "$f" ]] || continue
   # references(...) 가 있는 라인에서 직전 컬럼명 추출
   grep -nE "references\(" "$f" | while IFS=: read -r lineno content; do
@@ -34,14 +34,14 @@ for f in apps/api/src/db/schema/*.ts; do
 done
 
 # 패턴 2: migration 순서 정합 — ls 정렬 vs 자연 정렬
-ls apps/api/drizzle/*.sql 2>/dev/null | sort -c 2>&1 \
+ls <api-app>/drizzle/*.sql 2>/dev/null | sort -c 2>&1 \
   && echo "migrations sorted OK" \
   || echo "migrations OUT OF ORDER"
 
 # 패턴 3: RLS 누락 — schema 에 *_tenantId 컬럼 있는데 RLS policy 파일 없음
-grep -lE "tenantId|orgId|workspaceId" apps/api/src/db/schema/*.ts 2>/dev/null | while read f; do
+grep -lE "tenantId|orgId|workspaceId" <api-app>/src/db/schema/*.ts 2>/dev/null | while read f; do
   table=$(basename "$f" .ts)
-  grep -rqE "create policy.*${table}" apps/api/drizzle/ 2>/dev/null \
+  grep -rqE "create policy.*${table}" <api-app>/drizzle/ 2>/dev/null \
     || echo "$f: tenant-scoped table '$table' missing RLS policy"
 done
 ```
@@ -77,13 +77,13 @@ export const messages = pgTable('messages', {
 
 ### 패턴 2 위반 — migration 순서 어긋남
 
-- `apps/api/drizzle/` 의 파일명 prefix (timestamp 또는 sequential number) 가 사전식 정렬과 불일치
+- `<api-app>/drizzle/` 의 파일명 prefix (timestamp 또는 sequential number) 가 사전식 정렬과 불일치
 - 조치: `drizzle-kit generate` 으로 새로 생성하거나 수동으로 prefix 정정 (단, 이미 적용된 migration 은 rename ✕ — 새 migration 으로 보정)
 
 ### 패턴 3 위반 — RLS policy 누락
 
 ```sql
--- apps/api/drizzle/0003_messages_rls.sql
+-- <api-app>/drizzle/0003_messages_rls.sql
 alter table messages enable row level security;
 
 create policy messages_tenant_isolation on messages
@@ -94,6 +94,6 @@ create policy messages_tenant_isolation on messages
 
 ## audit 이 커버하지 않는 것
 
-- Cloudflare D1 사용 검출 → instance 측 project-local audit 참조
-- Workers 호환 driver (neon-http 등) 검증 → `dependency-scanning`
+- 금지 DB / driver 검출 (instance 별) → instance 측 project-local audit 참조
+- runtime 호환 driver 검증 → `dependency-scanning`
 - query 성능 (slow query) → 별도 runtime profiling
