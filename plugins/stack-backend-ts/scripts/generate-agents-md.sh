@@ -11,6 +11,7 @@
 #   generate-agents-md.sh           # AGENTS.md in-place 갱신
 #   generate-agents-md.sh --check   # stdout 출력 (CI drift 검증용)
 set -euo pipefail
+(( BASH_VERSINFO[0] >= 4 )) || { echo "error: bash 4+ required (got ${BASH_VERSION:-unknown}). On macOS install via 'brew install bash'." >&2; exit 2; }
 
 MODE="write"
 [ "${1:-}" = "--check" ] && MODE="check"
