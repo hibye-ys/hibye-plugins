@@ -15,6 +15,10 @@ metadata:
 
 (slug: `media-job-lifecycle` — workflow 의 `media-pipeline-patterns` 와 구분)
 
+> **Storage 추상화 용어**
+> - **object storage**: 바이너리를 보관하는 외부 객체 저장소. 예: Cloudflare R2, AWS S3, GCS. Instance 측에서 구체 binding/SDK 선택.
+> - **key-value cache**: 작고 빠른 KV 저장소. 예: Workers KV, Redis, Upstash.
+
 ## 검증 대상 invariant 4건
 
 ### Invariant 1: 상태 전이 monotone — 역행 금지
@@ -47,10 +51,10 @@ pending (= queued) → processing (= running) → succeeded (= completed) | fail
 - 강제 종료 = `AbortController.abort()` cascade 도 가능하지만 **외부 SDK 호출 중간에는 강제 중단 불가** — best-effort 정책
 - terminal set 에 포함됨 (`TERMINAL_JOB_STATUSES`) — 일단 `canceled` 면 추가 전이 ✕
 
-## TypeScript 표현 (apps/api)
+## TypeScript 표현 (src/media)
 
 ```typescript
-// src/services/media/types.ts
+// src/media/types.ts
 export type MediaJobStatus =
   | 'pending'
   | 'processing'
@@ -60,7 +64,7 @@ export type MediaJobStatus =
   | 'dlq';
 
 export interface MediaResult {
-  resultPath?: string;                                  // R2 key
+  resultPath?: string;                                  // object storage key
   resultMetadata?: Record<string, unknown>;
 }
 
@@ -173,21 +177,30 @@ export async function cancelJob(db: Database, jobId: string): Promise<void> {
 }
 ```
 
-## 핵심 상수 (언어 무관)
+## 핵심 상수 (언어 무관 — 권장 기본값)
 
-| 상수 | 값 | 의미 |
-|------|----|------|
+| 상수 | 권장값 | 의미 |
+|------|--------|------|
 | `STALE_MS` | 1_800_000 (30분) | claim 후 이 시간 지나면 stale 로 판정 + reaper 복원 |
 | `MAX_ATTEMPTS` | 5 | retry 예산 (분류된 retryable 에러) |
 | `MAX_UNKNOWN_ATTEMPTS` | 3 | 분류 안 된 에러의 retry 예산 |
 | Backoff 시퀀스 | `10s → 40s → 160s → 640s → 2560s` | exponential ± 25% jitter |
-| `CATEGORY_CAPS` | `{ image: 100, audio: 200, video: 50 }` | queued 상태 row 개수 상한. 초과 시 429 + `Retry-After: 60` |
-| `CATEGORY_CONCURRENCY` | `{ image: 2, audio: 3, video: 1 }` | per-category worker pool 크기 |
+| `CATEGORY_CAPS` | `{ image: 100, audio: 200, video: 50 }` | queued 상태 row 개수 상한. 초과 시 429 + `Retry-After: 60`. **권장 기본값** — instance 별로 부하 / SLA 에 따라 override 가능, 본 invariant 의 *권장값* 이며 절대 상한 아님 |
+| `CATEGORY_CONCURRENCY` | `{ image: 2, audio: 3, video: 1 }` | per-category worker pool 크기. **권장 기본값** — instance 별로 부하 / SLA 에 따라 override 가능, 본 invariant 의 *권장값* 이며 절대 상한 아님 |
+
+## Instance 별 override
+
+본 invariant 의 핵심 상수 (`STALE_MS` / `MAX_ATTEMPTS` / `CATEGORY_CAPS` / `CATEGORY_CONCURRENCY`) 의 *권장값* 은 본 plugin 에 명시. Instance 별로 부하 / SLA 에 따라 다른 값 사용 가능 — 변경 시 본 invariant 참조 + instance 측 코드에 *명시적 override* 표시 (commit 메시지 + 상수 정의 옆 주석).
+
+단, 다음은 **override 금지** — invariant 의 구조적 보장:
+- 6-state 자체 (pending/processing/succeeded/failed/canceled/dlq) — 상태 추가 / 제거 ✕
+- 4 Invariants (monotone / idempotency / terminal immutable / soft cancel) — 의미 약화 ✕
+- terminal set (`TERMINAL_JOB_STATUSES`) 멤버 변경 ✕
 
 ## Stale-lease reaper (Invariant 1 예외)
 
 - 모든 claim 은 `workerId` + `claimedAt` 을 row 에 기록 (dequeue SQL 이 atomic 하게 증가)
-- 부팅 시 + 주기적 (Cron Trigger `*/15 * * * *`) 으로 `resetStaleLeases(cutoff = now - STALE_MS)` 실행 — `claimedAt < cutoff` 인 `running` (= `processing`) row 를 `queued` (= `pending`) 로 복원 (`attemptCount` 보존, `workerId` / `claimedAt` 초기화)
+- 부팅 시 + 주기적 (스케줄러 — 예: cron `*/15 * * * *`) 으로 `resetStaleLeases(cutoff = now - STALE_MS)` 실행 — `claimedAt < cutoff` 인 `running` (= `processing`) row 를 `queued` (= `pending`) 로 복원 (`attemptCount` 보존, `workerId` / `claimedAt` 초기화)
 - 본 invariant 1 의 monotone 규칙의 **유일한 예외** — orphan 복구이지 정상 흐름의 역행이 아님
 - Handler 는 idempotent 해야 함 (재시작 시 max 1회 추가 실행) — Invariant 2 의 idempotency key 와 일관
 
@@ -213,7 +226,7 @@ export async function cancelJob(db: Database, jobId: string): Promise<void> {
 - 동일 `jobId` 로 신규 row 중복 생성 — Invariant 2
 - terminal 후 `result` / `error` mutate — Invariant 3
 - `canceled` 강제 즉시 종료 (`AbortController.abort()` 외 — 외부 SDK 중간에는 ✕) — Invariant 4
-- 결과물을 HTTP body 로 inline 반환 (반드시 R2 key / signed URL)
+- 결과물을 HTTP body 로 inline 반환 (반드시 object storage key / signed URL)
 - `WriteCoordinator` 우회한 직접 바이너리 쓰기 (single writer 위반)
 - DB 모드에서 transaction 우회한 raw SQL / 직접 execute
 - 호출자가 concrete 구현체 import (오직 `MediaJobPort` interface 만 참조)
