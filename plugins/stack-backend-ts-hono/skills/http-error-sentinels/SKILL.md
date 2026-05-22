@@ -7,12 +7,8 @@ metadata:
   source: stack-backend-python/_shared/http-error-sentinels.md
 ---
 
-**적용된 §4.4 매트릭스 행**: 에러 (HTTPException(FastAPI) → HTTPException(hono/http-exception), `throw new HTTPException(status, { message })`), 전역 예외 핸들러 (@app.exception_handler → app.onError)
-
 > Language-neutral invariants — HTTP error code sentinels, error envelope shape, leak-safe 404, scrub_text.
-> 정본 (single source of truth) for both Python and TS implementations.
-> Cited from: `python_agent_rules/api-routing-patterns.md`, `ts_agent_rules/api-routing-patterns.md`,
->             `python_agent_rules/error-handling.md`, `ts_agent_rules/error-handling.md`.
+> 정본 (single source of truth) — 프레임워크 무관.
 
 # HTTP Error Sentinels — 언어 무관 불변식
 
@@ -29,44 +25,13 @@ metadata:
 ```
 
 - 클라이언트 파서 계약 — shape 변경 금지
-- `errorBody(code, message, details?)` helper 가 단일 source. 라우트 코드는 이 helper 만 사용
+- `errorBody(code, message, details?)` helper 가 단일 source. 라우트 코드는 이 helper 만 사용 (framework-neutral pseudo-signature)
 
-## Hono 에러 핸들링 패턴
+## 에러 발신 / 전역 핸들러 원칙 (프레임워크 무관)
 
-```ts
-import { HTTPException } from "hono/http-exception";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
-
-// helper — 라우트 outer-scope c 없이도 호출 가능, type-safe
-// HTTPException message: 는 string 전용 → errorBody() 객체를 직접 전달하면 타입 오류.
-// Hono 의 의도된 API: res: 에 Response 객체를 담아 envelope 보장.
-function throwSentinelError(
-  code: SentinelCode,
-  status: ContentfulStatusCode,
-  detail: string
-): never {
-  const body = errorBody(code, scrubText(detail));
-  throw new HTTPException(status, {
-    res: new Response(JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    }),
-  });
-}
-
-// 라우트에서 사용
-throwSentinelError("validation_error", 422, err.message);
-
-// 전역 핸들러 (app.onError — @app.exception_handler 대응)
-app.onError((err, c) => {
-  if (err instanceof HTTPException) {
-    // throwSentinelError 경유 시 err.res 에 올바른 envelope 가 담겨 있음 — 그대로 반환
-    return err.getResponse();
-  }
-  // 알 수 없는 에러
-  return c.json(errorBody("internal_error", "unexpected"), 500);
-});
-```
+- **Route-edge 발신**: 라우트는 sentinel `code` + HTTP `status` + scrubbed `message` 를 envelope 로 wrap 하여 반환. 직접 status code + body 를 구성하든, 프레임워크 예외 객체로 throw 하든, 결과는 envelope shape 와 동일해야 함.
+- **전역 핸들러**: 알 수 없는 에러는 `internal_error` / 500 / `"internal server error"` 로 통일. 내부 메시지 / 스택 트레이스 노출 금지.
+- **단일 source**: envelope 생성은 `errorBody()` helper 만 사용 — route 별로 인라인 JSON 작성 금지.
 
 ## 내부 예외 → HTTP 매핑 (글로벌 exception handlers)
 
@@ -95,8 +60,8 @@ app.onError((err, c) => {
 리소스 소유권 불일치 시 **403 금지** — 존재/미존재/권한없음 을 **모두 동일한 404** 로 응답.
 
 - 이유: 존재 여부를 권한으로 추론 불가하게 (enumeration 공격 차단)
-- 적용 예: `routes/sessions.ts::getSession`, `routes/media.ts::assertOwnerOrWildcard`
-- 패턴: `if (obj.userId !== caller && !hasScope(scopes, "*")) return notFound(c)`
+- 적용 예: sessions getter, media owner assertion
+- 패턴: `if (obj.userId !== caller && !hasScope(scopes, "*")) return notFound()`
 
 ## Tombstone (user_data_pending_deletion) 410 처리
 
