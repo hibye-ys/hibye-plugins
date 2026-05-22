@@ -1,200 +1,85 @@
 ---
 name: api-routing
-description: apps/api 에 새 Hono route / middleware / 전역 onError 핸들러 추가 시 invoke. route 그룹화 + middleware 순서 + auth middleware 패턴, HTTPException (hono/http-exception) 변환, CORS expose_headers 규약 안내.
+description: apps/api 에 새 HTTP route / middleware / 전역 에러 핸들러 추가 시 invoke. route 그룹화 + middleware 순서 + auth middleware 패턴, HTTP 에러 sentinel 변환, CORS expose_headers 규약 안내.
 metadata:
   role: workflow
   scope: apps/api
   source: stack-backend-python/rules/api-routing-patterns.md
 ---
 
-**적용된 §4.4 매트릭스 행**: `FastAPI @router.get("/x")` → `app.get("/x", (c) => c.json({...}))`, `Depends(get_session)` → `app.use("/*", sessionMiddleware)` + `c.get("session")`, middleware 순서 = `app.use` 호출 순서 (Hono FIFO), `app.include_router(router)` → `app.route("/api", apiRouter)`, `@app.exception_handler(*)` → `app.onError((err, c) => ...)`, `HTTPException(404, "not found")` (FastAPI) → `throw new HTTPException(404, { message: "not found" })` (hono/http-exception), pydantic 요청 스키마 → zod + `c.req.json()` + `.parse()`
-
 # api-routing — API 라우팅 규약
 
 ## 이 skill은 언제 invoke 되는가
 
-- `src/routes/` 에 새 Hono route 추가
+- `src/routes/` 에 새 HTTP route 추가
 - middleware 순서 결정
-- 전역 `app.onError` 핸들러 등록
+- 전역 에러 핸들러 등록
 - CORS `exposeHeaders` 변경
 - "route 가 안 매칭된다", "middleware 가 잘못된 순서로 실행된다" 디버깅
 
 ## 최상위 prefix 규약
 
-```typescript
-// src/routes/index.ts
-import { Hono } from 'hono'
+API 최상위 경로 (router prefix) 는 도메인 단위로 분리한다.
 
-const routes = new Hono<{ Bindings: Env }>()
-
-routes.route('/health', healthRouter)     // 인증 제외
-routes.route('/run', runRouter)           // POST /run/:name — LLM 기반 실행
-routes.route('/sessions', sessionsRouter) // 세션 조회/취소
-routes.route('/media', mediaRouter)       // 미디어 파이프라인
-
-export default routes
-```
+| prefix | 책임 | 인증 |
+|---|---|---|
+| `/health` | liveness/readiness 체크 | 제외 |
+| `/run` | LLM 기반 실행 (POST `/run/:name`) | 필요 |
+| `/sessions` | 세션 조회/취소 | 필요 |
+| `/media` | 미디어 파이프라인 | 필요 |
 
 - 중첩 prefix 금지 (`/ai/run/foo` 같은 구조 사용 안 함)
 - 새 최상위 prefix 추가는 설계 문서 검토 후
 
-## Hono App + Middleware 등록
+## Middleware 등록 순서 원칙
 
-```typescript
-// src/index.ts
-import { Hono } from 'hono'
-import { cors } from 'hono/cors'
-import { HTTPException } from 'hono/http-exception'
-import routes from './routes/index.ts'
-import { authMiddleware } from './middleware/auth.ts'
-import { rateLimitMiddleware } from './middleware/rate-limit.ts'
-import { requestIdMiddleware } from './middleware/request-id.ts'
+Middleware 는 **요청 진입 순서 = 등록 순서** (FIFO) 로 동작하는 프레임워크를 가정한다. 등록 순서는 다음을 따른다 — 앞 → 뒤:
 
-export type Env = {
-  Bindings: {
-    AUTH_SECRET: string
-    OPENROUTER_API_KEY: string
-    // ... other bindings
-  }
-}
+1. **requestId** — 모든 로그·trace 의 root. 가장 먼저 붙여야 하위 미들웨어 로그에 ID 포함.
+2. **rateLimit** — *auth 전* (IP-based, anonymous DDoS 보호). auth 비용 소모 전 차단. 인증 후 per-user 제한은 route handler 또는 별도 미들웨어에서 처리.
+3. **cors** — preflight 처리 (auth·parse 전). OPTIONS 요청에 auth 불필요.
+4. **authMiddleware** — JWT/api-key 검증 → request context 에 `auth` 주입. 보호 경로 (`/run/*`, `/sessions/*`, `/media/*`) 에만 적용.
+5. **schema validation** — route 수준 (auth 통과 후 body parse). zod 등 사용.
+6. **route handler** — 도메인 로직은 직접 호출 금지 (engine 경유).
 
-const app = new Hono<Env>()
+> 등록 순서 ≠ 실행 순서 인 프레임워크 (예: FastAPI `add_middleware` 의 LIFO wrap) 를 사용할 경우 본 가이드를 그대로 적용하지 말 것.
 
-// Middleware 등록 순서 = 실행 순서 (Hono FIFO — FastAPI 와 달리 add 순서가 곧 실행 순서)
-//
-// **순서 의도 (앞 → 뒤):**
-// 1. requestId    — 모든 로그·trace 의 root. 가장 먼저 붙여야 하위 미들웨어 로그에 ID 포함
-// 2. rateLimit    — *auth 전* (IP-based, anonymous DDoS 보호). auth 비용 소모 전 차단.
-//                   인증 후 per-user 제한은 route handler 또는 별도 미들웨어에서 처리.
-// 3. cors         — preflight 처리 (auth·parse 전). OPTIONS 요청에 auth 불필요.
-// 4. authMiddleware — JWT/api-key 검증 → c.set('userId', ...). 보호 경로에만 적용.
-// 5. zod validation — route 수준 (authMiddleware 통과 후 body parse)
-app.use('*', requestIdMiddleware)       // 1. X-Request-Id
-app.use('*', rateLimitMiddleware)       // 2. Rate limit (auth 전 — IP-based DDoS 보호)
-app.use('*', cors({                     // 3. CORS
-  origin: ['https://app.example.com'],
-  exposeHeaders: [
-    'X-App-Session-Id',
-    'X-App-Agent',
-    'X-App-Model',
-    'X-Request-Id',
-  ],
-}))
-app.use('/run/*', authMiddleware)       // 4. 인증 (health 제외)
-app.use('/sessions/*', authMiddleware)
-app.use('/media/*', authMiddleware)
+## Route 구현 원칙
 
-// 전역 에러 핸들러
-app.onError((err, c) => {
-  if (err instanceof HTTPException) {
-    return err.getResponse()
-  }
-  console.error('unhandled_error', { err: String(err), path: c.req.path })
-  return c.json(
-    { error: { code: 'internal_error', message: 'internal server error' } },
-    500
-  )
-})
-
-app.route('/', routes)
-
-export default app
-```
-
-## Route 구현 패턴
-
-```typescript
-// src/routes/run.ts
-import { Hono } from 'hono'
-import { zValidator } from '@hono/zod-validator'
-import { z } from 'zod'
-import { HTTPException } from 'hono/http-exception'
-import { streamSSE } from 'hono/streaming'
-
-const RunRequestSchema = z.object({
-  message: z.string().min(1),
-  session_id: z.string().optional(),
-  context_hint: z.string().max(2000).optional(),
-})
-
-const runRouter = new Hono<{ Bindings: Env }>()
-
-runRouter.post('/:name',
-  zValidator('json', RunRequestSchema),
-  async (c) => {
-    const runName = c.req.param('name')
-    const body = c.req.valid('json')
-    const auth = c.get('auth')  // authMiddleware 주입
-
-    // route 는 thin layer — 도메인 로직은 engine/ 경유
-    const policy = getRunPolicy(runName)
-    if (!policy) throw new HTTPException(404, { message: `run '${runName}' not found` })
-
-    if (policy.sse) {
-      return streamSSE(c, async (stream) => {
-        // ... SSE 핸들러 (sse-streaming skill 참조)
-      })
-    }
-
-    // non-SSE: 단일 JSON 응답
-    const result = await runAgentLoopSync({ runName, ...body, env: c.env })
-    return c.json({ events: result })
-  }
-)
-
-export default runRouter
-```
+- Route 는 **thin layer** — HTTP 파라미터 파싱, 스키마 검증, 응답 포맷 결정만 담당.
+- 도메인 로직은 `src/engine/` 또는 `src/ai/` 경유.
+- 요청 body 는 zod 등 스키마로 검증 → 검증 실패 시 422.
+- run 이름 미존재 → 404 `HTTPException` 류 sentinel throw.
+- SSE 응답 경로는 별도 streaming handler 위임 ([[sse-streaming]] / [[sse-lifecycle]] 참조).
+- non-SSE 경로는 단일 JSON 응답.
 
 ## Route 그룹화
 
-```typescript
-// src/routes/index.ts — app.route() 로 그룹화
-app.route('/api/v1', v1Routes)   // prefix 추가 시
-// 또는 중첩 Hono 인스턴스
-const api = new Hono()
-api.route('/run', runRouter)
-api.route('/sessions', sessionsRouter)
-app.route('/api', api)
-```
+- 동일 prefix 의 라우트는 별도 router 로 그룹화 후 최상위 app 에 mount.
+- 버전 prefix (`/api/v1`) 추가는 호환 정책에 맞춰 결정.
+- 두 단계 이상 중첩 (`/api/v1/run`) 은 허용하되 세 단계 이상은 금지.
 
 ## Leak-safe 404
 
-소유권 불일치 시 403 금지 — 존재/미존재/권한없음 을 모두 404 로 응답. 존재 여부를 권한으로 추론 불가.
+소유권 불일치 시 403 금지 — **존재/미존재/권한없음 을 모두 404 로 응답**. 존재 여부를 권한으로 추론 불가하도록.
 
-```typescript
-// 리소스 소유자 확인
-if (resource.userId !== auth.userId && !auth.scopes.includes('*')) {
-  throw new HTTPException(404, { message: 'resource not found' })  // 403 아님
-}
-```
+- 리소스 소유자 ≠ 요청자 + scope 미포함 → 404 `resource not found`
+- 인증 실패 → 401 (의도된 인증 요구)
+- 권한 부족 → 404 (403 사용 금지)
 
 ## HTTP 에러 변환
 
-```typescript
-// src/middleware/error.ts
-import { HTTPException } from 'hono/http-exception'
-import { ZodError } from 'zod'
+전역 에러 핸들러는 다음 sentinel → HTTP 상태 매핑을 보장한다 ([[http-error-sentinels]] invariant 참조):
 
-app.onError((err, c) => {
-  if (err instanceof HTTPException) {
-    return err.getResponse()
-  }
-  if (err instanceof ZodError) {
-    return c.json(
-      { error: { code: 'validation_error', message: err.message } },
-      422
-    )
-  }
-  // ConfigurationError, InternalError 등 → 상세 숨김
-  console.error('app_error', { err: String(err), path: c.req.path })
-  return c.json(
-    { error: { code: 'internal_error', message: 'internal server error' } },
-    500
-  )
-})
-```
+| 에러 종류 | HTTP | 응답 envelope |
+|---|---|---|
+| `HTTPException` (라이브러리 자체) | 그대로 통과 | 그대로 |
+| 스키마 검증 실패 (`ZodError` 등) | 422 | `{ error: { code: "validation_error", message } }` |
+| `ConfigurationError` | 500 | `{ error: { code: "configuration_error", message: "service misconfigured" } }` |
+| `InternalError` / 기타 unhandled | 500 | `{ error: { code: "internal_error", message: "internal server error" } }` |
 
-에러 JSON 포맷 고정: `{ error: { code: string, message: string, details?: unknown } }`
+- 500 응답은 상세 메시지를 클라이언트에 노출하지 않음 (로그에만 기록).
+- 에러 JSON 포맷 **고정**: `{ error: { code: string, message: string, details?: unknown } }`.
 
 ## CORS `exposeHeaders` 규약
 
@@ -207,26 +92,13 @@ app.onError((err, c) => {
 | `X-App-Model` | 해석된 모델 |
 | `X-Request-Id` | 디버깅 / 서버 로그 correlation |
 
-`exposeHeaders` 목록 변경은 FE contract breaking — 프론트엔드 코드 동시 검토 필수.
-
-## middleware 순서 주의
-
-Hono middleware 는 **FIFO** — `app.use` 호출 순서가 곧 실행 순서. FastAPI 의 `add_middleware` (LIFO wrap) 와 반대.
-
-```typescript
-// Hono FIFO 예시
-app.use('*', A)  // 먼저 실행
-app.use('*', B)  // 나중 실행
-
-// 요청: A → B → route handler
-// 응답: route handler → B.next → A.next
-```
+`exposeHeaders` 목록 변경은 **FE contract breaking** — 프론트엔드 코드 동시 검토 필수.
 
 ## Routes 계층 원칙
 
 | 책임 | 위치 |
 |---|---|
-| HTTP 파라미터 파싱 / zod 검증 | `src/routes/*.ts` |
+| HTTP 파라미터 파싱 / 스키마 검증 | `src/routes/*.ts` |
 | 인증 / request_id 주입 | `src/middleware/` |
 | SSE / JSON 응답 포맷 결정 | `src/routes/*.ts` |
 | 도메인 로직 | ❌ 금지 — `src/engine/` 또는 `src/ai/` 경유 |
@@ -236,10 +108,11 @@ app.use('*', B)  // 나중 실행
 ## 검증 체크리스트
 
 - [ ] 모든 보호 엔드포인트에 `authMiddleware` 적용 (health 제외)
-- [ ] `app.onError` 전역 핸들러 등록
+- [ ] 전역 에러 핸들러 등록 — sentinel → HTTP 매핑 보장
 - [ ] 에러 JSON 포맷 고정 (`{ error: { code, message } }`)
 - [ ] CORS `exposeHeaders` 에 X-App-* 4종 포함
-- [ ] zod schema 로 요청 body 검증 (`zValidator`)
+- [ ] 스키마 검증으로 요청 body 검증
 - [ ] 리소스 소유권 불일치 → 404 (403 아님)
 - [ ] routes 에 도메인 로직 없음 (thin layer)
-- [ ] `http-error-sentinels` invariant 의 envelope shape 준수
+- [ ] [[http-error-sentinels]] invariant 의 envelope shape 준수
+- [ ] middleware 등록 순서: requestId → rateLimit → cors → auth → schema → handler
