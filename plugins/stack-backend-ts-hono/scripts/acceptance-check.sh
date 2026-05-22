@@ -26,14 +26,25 @@ for skill_dir in "$SKILLS_DIR"/*/; do
   grep -qE "^\s*source:\s*\S" "$md" || { echo "FAIL $skill: missing source"; FAIL=$((FAIL+1)); }
 done
 
-# 6. 캐시 심볼릭 링크
-CACHE_LINK="$HOME/.claude/plugins/cache/hibye-plugins/stack-backend-ts-hono/1.0.0"
-if [ -L "$CACHE_LINK" ] && [ -d "$CACHE_LINK" ]; then
-  :
-elif [ -d "$CACHE_LINK" ]; then
-  :  # 실제 디렉토리도 OK
+# 6. 캐시 심볼릭 링크 — plugin.json version 동적 + fallback path tolerant
+PLUGIN_JSON="$(dirname "$0")/../.claude-plugin/plugin.json"
+if command -v jq >/dev/null 2>&1 && [ -f "$PLUGIN_JSON" ]; then
+  VERSION="$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null || echo "")"
 else
-  echo "WARN: cache link missing: $CACHE_LINK"
+  VERSION=""
+fi
+CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/stack-backend-ts-hono"
+# 우선순위: (1) plugin.json version path  (2) plugin root 자체 (full symlink)  (3) 1.0.0 (legacy)
+CACHE_OK=0
+for candidate in "$CACHE_BASE/$VERSION" "$CACHE_BASE" "$CACHE_BASE/1.0.0"; do
+  [ -z "$candidate" ] || [ "$candidate" = "$CACHE_BASE/" ] && continue
+  if [ -L "$candidate" ] || [ -d "$candidate" ]; then
+    CACHE_OK=1
+    break
+  fi
+done
+if [ $CACHE_OK -eq 0 ]; then
+  echo "WARN: cache link missing under $CACHE_BASE (checked: \$VERSION='$VERSION', root, 1.0.0)"
 fi
 
 # 7. forbidden scan

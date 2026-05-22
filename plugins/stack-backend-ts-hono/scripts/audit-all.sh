@@ -164,13 +164,14 @@ agent_verify_def_check() {
 agent_verify_def_check
 
 # 15. api-audit — POST/PUT/PATCH 안 zValidator 누락 + protected path auth 누락
+# BSD awk 호환: `\s` → `[[:space:]]`
 api_audit_check() {
   [[ ! -d src/routes ]] && { echo "SKIP [api-audit]: src/routes/ 없음"; return; }
   local count=0
   for f in $(find src/routes -type f -name '*.ts' 2>/dev/null); do
     awk '/app\.(post|put|patch)\(/{flag=1; start=NR}
          flag && /zValidator/{flag=0}
-         flag && /\)\s*$/{print FILENAME":"start": missing zValidator"; flag=0; count++}
+         flag && /\)[[:space:]]*$/{print FILENAME":"start": missing zValidator"; flag=0; count++}
          END {exit count>0?1:0}' "$f" 2>/dev/null
     [[ $? -ne 0 ]] && count=$((count+1))
   done
@@ -246,28 +247,15 @@ infra_audit_check() {
 infra_audit_check
 
 # 19. loop-audit — while(true) 안 break/abort/turn 종료 조건
+# BSD awk 호환: `\s` → `[[:space:]]` (macOS awk 가 PCRE 미지원)
 loop_audit_check() {
   local count=0
-  for f in $(find src/agents src/runs -type f -name '*.ts' 2>/dev/null); do
-    awk '/while\s*\(\s*true\s*\)/{flag=1; start=NR; brace_depth=0}
+  # 단일 패스 — 출력 캡처 후 표시 + 집계 (이중 awk 제거)
+  local output
+  output=$(for f in $(find src/agents src/runs -type f -name '*.ts' 2>/dev/null); do
+    awk '/while[[:space:]]*\([[:space:]]*true[[:space:]]*\)/{flag=1; start=NR; brace_depth=0}
          flag && /\{/{brace_depth++}
-         flag && /(break|abort|signal\.aborted|turn\s*[>=])/{flag=0}
-         flag && /\}/{
-           brace_depth--
-           if (brace_depth <= 0) {
-             print FILENAME":"start": unsafe while(true)"
-             flag=0
-           }
-         }' "$f" 2>/dev/null | while read line; do
-      [[ -n "$line" ]] && echo "VIOLATION [loop-audit]: $line"
-    done
-  done
-  # AWK 안 count 외부 전파 불가 → 출력 grep 으로 재집계
-  local violations
-  violations=$(for f in $(find src/agents src/runs -type f -name '*.ts' 2>/dev/null); do
-    awk '/while\s*\(\s*true\s*\)/{flag=1; start=NR; brace_depth=0}
-         flag && /\{/{brace_depth++}
-         flag && /(break|abort|signal\.aborted|turn\s*[>=])/{flag=0}
+         flag && /(break|abort|signal\.aborted|turn[[:space:]]*[>=])/{flag=0}
          flag && /\}/{
            brace_depth--
            if (brace_depth <= 0) {
@@ -275,9 +263,15 @@ loop_audit_check() {
              flag=0
            }
          }' "$f" 2>/dev/null
-  done | wc -l | tr -d ' ')
-  VIOLATIONS=$((VIOLATIONS + violations))
-  [[ $violations -eq 0 ]] && echo "PASS [loop-audit]"
+  done)
+  if [[ -n "$output" ]]; then
+    while IFS= read -r line; do
+      echo "VIOLATION [loop-audit]: $line: unsafe while(true)"
+      count=$((count+1))
+    done <<< "$output"
+  fi
+  VIOLATIONS=$((VIOLATIONS + count))
+  [[ $count -eq 0 ]] && echo "PASS [loop-audit]"
 }
 loop_audit_check
 
@@ -285,12 +279,17 @@ loop_audit_check
 session_audit_check() {
   [[ ! -d src ]] && { echo "SKIP [session-audit]: src/ 없음"; return; }
   local count=0
-  # TTL 누락 (간이 — KV 토큰 포함 파일에서 .put 라인 다음 5줄에 expirationTtl 없음)
-  rg -nP "\.put\(" src/ 2>/dev/null | grep -E "(KV|kv)" | while IFS=: read -r file ln rest; do
-    [[ -z "$file" ]] && continue
-    awk -v ln="$ln" 'NR>=ln && NR<=ln+5 {print}' "$file" | grep -q "expirationTtl" \
-      || echo "VIOLATION [session-audit]: $file:$ln missing expirationTtl"
-  done
+  # TTL 누락 — pipe-subshell 회피 위해 출력 캡처 후 본 셸 loop
+  local ttl_candidates
+  ttl_candidates=$(rg -nP "\.put\(" src/ 2>/dev/null | grep -E "(KV|kv)" || true)
+  if [[ -n "$ttl_candidates" ]]; then
+    while IFS=: read -r file ln rest; do
+      [[ -z "$file" ]] && continue
+      awk -v ln="$ln" 'NR>=ln && NR<=ln+5 {print}' "$file" | grep -q "expirationTtl" && continue
+      echo "VIOLATION [session-audit]: $file:$ln missing expirationTtl"
+      count=$((count+1))
+    done <<< "$ttl_candidates"
+  fi
   # c.env.KV 우회
   local bypass
   bypass=$(rg -nP "c\.env\.\w*KV\w*\." src/ 2>/dev/null | grep -v "src/storage/" | wc -l | tr -d ' ')

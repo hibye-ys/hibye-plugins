@@ -23,11 +23,12 @@ Workers CPU time 제한 + 사용자 abort + 비용 폭주 방지 — 세 가지 
 
 ```bash
 # file-level awk block scan — while(true) 안 종료 조건 키워드 검색
+# macOS BSD awk 호환: `\s` → `[[:space:]]` (PCRE 미지원)
 for f in apps/api/src/agents/**/*.ts apps/api/src/runs/**/*.ts; do
   [[ -f "$f" ]] || continue
-  awk '/while\s*\(\s*true\s*\)/{flag=1; start=NR; brace_depth=0}
+  awk '/while[[:space:]]*\([[:space:]]*true[[:space:]]*\)/{flag=1; start=NR; brace_depth=0}
        flag && /\{/{brace_depth++}
-       flag && /(break|abort|signal\.aborted|turn\s*[>=])/{flag=0}
+       flag && /(break|abort|signal\.aborted|turn[[:space:]]*[>=])/{flag=0}
        flag && /\}/{
          brace_depth--
          if (brace_depth <= 0) {

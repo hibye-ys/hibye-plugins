@@ -68,6 +68,17 @@ for glob in "${EXCLUDE_GLOBS[@]}"; do
   RG_GLOB_ARGS+=("--glob" "!${glob}")
 done
 
+# self-exclude — forbidden-terms.txt 자기 자신이 TARGET_DIR 안에 있으면 스캔에서 제외
+# (자기 패턴 정의 라인이 자기 자신과 매치하는 self-match 방지)
+FORBIDDEN_ABS="$(cd "$(dirname "$FORBIDDEN_FILE")" && pwd)/$(basename "$FORBIDDEN_FILE")"
+TARGET_ABS="$(cd "$TARGET_DIR" 2>/dev/null && pwd)" || TARGET_ABS="$TARGET_DIR"
+case "$FORBIDDEN_ABS" in
+  "$TARGET_ABS"/*)
+    SELF_REL="${FORBIDDEN_ABS#$TARGET_ABS/}"
+    RG_GLOB_ARGS+=("--glob" "!${SELF_REL}")
+    ;;
+esac
+
 # scan — legacy ref / metadata.source / audit 본질 디렉토리 제외
 # 제외:
 #   - frontmatter source 라인 (`source: stack-backend-python/...` legacy ref)

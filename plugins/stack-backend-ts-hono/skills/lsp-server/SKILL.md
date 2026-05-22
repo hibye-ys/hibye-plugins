@@ -166,6 +166,9 @@ const STALE_INSTANCE_MAX_AGE_SEC = 300
 export class LSPManager {
   private static _instance: LSPManager | null = null
   private readonly _registries = new Map<string, LSPRegistry>()
+  // NOTE: setInterval = 옵션 A (별도 Node 배포) 가정. Workers 동거 (옵션 B) 시
+  //       이 필드는 사용 ✕ — Cron Trigger 또는 요청 hook 로 cleanupStaleInstances() 직접 호출.
+  //       동시성 함정 #4 + "환경별 cleanup 트리거" 표 참조.
   private _cleanupTimer: ReturnType<typeof setInterval> | null = null
 
   private constructor(
@@ -221,7 +224,9 @@ export class LSPManager {
     for (const reg of this._registries.values()) reg.evictOlderThan(cutoff)
   }
 
+  /** 옵션 A (Node 배포) 전용 — Workers 환경에선 호출 ✕. */
   private _startCleanup(): void {
+    // eslint-disable-next-line no-restricted-globals -- 옵션 A 가정 (verify-workers-compat 에서 lsp/ 경로 별도 빌드 타겟 제외)
     this._cleanupTimer = setInterval(() => this.cleanupStaleInstances(), 60_000)
   }
 
@@ -555,6 +560,27 @@ LSP request → LSPManager → entity cache 필터 (빠름, agent 불필요)
 4. **Workers 환경에서 setInterval 금지**
    `cleanupStaleInstances` 의 `setInterval` 은 **Node 전용**. Workers 동거 시
    Cron Triggers 또는 요청 hook 으로 대체. → 위 "Workers vs Node 배포 형태" 참조.
+
+   **환경별 cleanup 트리거 매트릭스**:
+
+   | 환경 | 트리거 | 호출 시점 |
+   |------|--------|-----------|
+   | 옵션 A — Node (Fly.io / Railway) | `setInterval(60_000)` | `LSPManager.getInstance()` 시 `_startCleanup()` |
+   | 옵션 B — Workers (Cron Triggers) | `wrangler.toml` `[triggers] crons = ["*/1 * * * *"]` + `scheduled()` 핸들러 | scheduled event 마다 `manager.cleanupStaleInstances()` |
+   | 옵션 B — Workers (요청 hook) | `app.use('*', async (c, next) => { await next(); if (Math.random() < 0.01) manager.cleanupStaleInstances() })` | 요청 100건당 1번 |
+
+   Workers 변형 예시 (옵션 B + Cron):
+
+   ```typescript
+   // apps/api/src/lsp/scheduled.ts — Workers Cron handler
+   export const scheduled: ExportedHandlerScheduledHandler<Env> = async (_event, env, ctx) => {
+     const manager = LSPManager.getInstance({ dataReader: env.dataReader, bridge: env.bridge })
+     ctx.waitUntil(Promise.resolve(manager.cleanupStaleInstances()))
+   }
+   ```
+
+   `LSPManager.getInstance()` 에 `autoStartCleanup: boolean` 옵션 추가하여
+   옵션 A = `true` (default), 옵션 B = `false` (Cron 외부 트리거) 분기.
 
 ## 검증 체크리스트
 
