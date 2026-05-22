@@ -1,6 +1,6 @@
 ---
 name: commit-rules
-description: apps/api 변경 사항 commit 작성 시 invoke. Conventional Commits 7 접두사 + scope 카탈로그 (stack-backend-ts-hono / apps/api / sub-area) + 제목 / 본문 / Co-Authored-By 트레일러 규약 안내.
+description: apps/api 변경 사항 commit 작성 시 invoke. Conventional Commits 7 접두사 + scope 카탈로그 (stack-backend-ts / apps/api / sub-area) + 제목 / 본문 / Co-Authored-By 트레일러 규약 안내.
 metadata:
   role: workflow
   scope: apps/api
@@ -10,12 +10,12 @@ metadata:
 > source: `stack-backend-python/rules/commit-rules.md`
 > Conventional Commits 원본 규약 + TS / Hono 스택 scope 카탈로그.
 
-# commit-rules — Conventional Commits 규약 (apps/api / stack-backend-ts-hono)
+# commit-rules — Conventional Commits 규약 (apps/api / stack-backend-ts)
 
 ## 이 skill은 언제 invoke 되는가
 
 - `apps/api/` 변경 commit 작성 시
-- `plugins/stack-backend-ts-hono/` (rules / skills) 변경 commit 작성 시
+- `plugins/stack-backend-ts/` (rules / skills) 변경 commit 작성 시
 - "왜 commit 메시지가 reject 되지?" 디버깅 (lint hook)
 
 ## 7 접두사
@@ -38,7 +38,7 @@ scope 는 변경 파일의 **최상위 의미 단위**. 모노레포 / 플러그
 
 | Scope | 의미 |
 |-------|------|
-| `stack-backend-ts-hono` | `plugins/stack-backend-ts-hono/` rules + skills 변경 |
+| `stack-backend-ts` | `plugins/stack-backend-ts/` rules + skills 변경 |
 | `stack-backend-python` | `plugins/stack-backend-python/` rules + skills 변경 |
 | `apps/api` | `apps/api/**` 광범위 변경 (sub-area 결정 어려울 때) |
 | `apps/web` | `apps/web/**` |
@@ -65,7 +65,7 @@ apps/api/src/
 ### 영역 결정 우선순위
 
 1. 변경이 한 **sub-area** 안에 닫혀 있으면 → sub-area scope (`provider`, `loop`, `sse` 등)
-2. 한 **plugin** 안에서 여러 rule / skill 동시 변경 → plugin scope (`stack-backend-ts-hono`)
+2. 한 **plugin** 안에서 여러 rule / skill 동시 변경 → plugin scope (`stack-backend-ts`)
 3. 영역 cross-cutting → `apps/api` 또는 모노레포 루트 scope 생략
 
 ## 형식 규칙
@@ -89,7 +89,7 @@ feat(provider): add openrouter streaming retry
 Wraps OpenRouter fetch in p-retry with 429 / 5xx exponential
 backoff. Needed because cold-start cluster restarts occasionally
 return transient 503 — default fetch had no retry path.
-Refs: plugins/stack-backend-ts-hono/skills/provider-layer/SKILL.md
+Refs: plugins/stack-backend-ts/skills/provider-layer/SKILL.md
       §재시도 매트릭스
 ```
 

@@ -22,7 +22,7 @@ metadata:
 
 ```bash
 # 패턴 1: 24 audit 통합 (scripts/audit-all.sh 가 본 plugin scripts/ 안에 있다고 가정)
-bash plugins/stack-backend-ts-hono/scripts/audit-all.sh apps/api
+bash plugins/stack-backend-ts/scripts/audit-all.sh apps/api
 
 # 패턴 2: 디렉토리 구조 정합 — 화이트리스트 외 디렉토리 검출
 ls apps/api/src/ 2>/dev/null \

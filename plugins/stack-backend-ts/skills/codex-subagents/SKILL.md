@@ -1,6 +1,6 @@
 ---
 name: codex-subagents
-description: Codex 환경에서 stack-backend-ts-hono plugin 의 subagent 정의/호출 시 invoke. `.codex-plugin/agents/` 카탈로그 + Claude Code 의 Agent tool contract 호환. Codex 가 named agent 를 직접 로드하지 못해 reference md 로 mirror.
+description: Codex 환경에서 stack-backend-ts plugin 의 subagent 정의/호출 시 invoke. `.codex-plugin/agents/` 카탈로그 + Claude Code 의 Agent tool contract 호환. Codex 가 named agent 를 직접 로드하지 못해 reference md 로 mirror.
 metadata:
   role: workflow
   scope: apps/api
@@ -11,7 +11,7 @@ metadata:
 
 # codex-subagents — Codex sub-agent adapter
 
-> 본 skill = Codex 환경에서 stack-backend-ts-hono plugin 의 sub-agent catalog adapter. Codex 는 Claude Code 의 named agent 를 자동 로드하지 못하므로, agent prompt 를 `references/agents/<agent-name>.md` 에 저장하고 dispatch 시 읽어들인다.
+> 본 skill = Codex 환경에서 stack-backend-ts plugin 의 sub-agent catalog adapter. Codex 는 Claude Code 의 named agent 를 자동 로드하지 못하므로, agent prompt 를 `references/agents/<agent-name>.md` 에 저장하고 dispatch 시 읽어들인다.
 
 ## 이 skill 은 언제 invoke 되는가
 
@@ -149,7 +149,7 @@ spawn 후 결과는 부모 (현재 Codex 세션) 로 돌아오며, agent 의 출
 - [ ] 본 SKILL.md Agent Catalog 의 모든 행에 대응 `.codex-plugin/agents/<name>.md` 존재
 - [ ] Claude Code `.claude/agents/<name>.md` 도 동일 frontmatter (mirror drift ✕)
 - [ ] 모든 marker 에 `scope:` 명시 (read-only / write)
-- [ ] `depends_on:` 의 모든 skill 이 `plugins/stack-backend-ts-hono/skills/` 안에 실재
+- [ ] `depends_on:` 의 모든 skill 이 `plugins/stack-backend-ts/skills/` 안에 실재
 - [ ] auditor 류 marker 의 `allowed-tools:` 에 Write/Edit 없음 (read-only 강제)
 - [ ] spawn 시 부모 sub-agent depth + 1 ≤ MAX_SPAWN_DEPTH (spawn-limits invariant)
 

@@ -1,4 +1,4 @@
-# stack-backend-ts-hono
+# stack-backend-ts
 
 `apps/api` 같은 *Hono + TypeScript* 백엔드 작업 시 적용. Cloudflare Workers 호환 룰 처음부터 강제.
 
@@ -1663,7 +1663,7 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 
 > Language-neutral invariants — Media job lifecycle, retry classification, stale-lease reaper, tenant ownership.
 > 정본 (single source of truth) for Python harness, TS / Hono harness, 그리고 미래 Rust harness.
-> Cited from: `stack-backend-python/rules/_shared/media-job-lifecycle.md`, `stack-backend-python/rules/media-pipeline-patterns.md`, `stack-backend-ts-hono/skills/media-pipeline-patterns/SKILL.md`.
+> Cited from: `stack-backend-python/rules/_shared/media-job-lifecycle.md`, `stack-backend-python/rules/media-pipeline-patterns.md`, `stack-backend-ts/skills/media-pipeline-patterns/SKILL.md`.
 
 # Media Job Lifecycle — 언어 무관 불변식
 
@@ -1971,7 +1971,7 @@ export async function cancelJob(db: Database, jobId: string): Promise<void> {
 
 ## 검증 체크리스트
 
-- [ ] 본 SKILL.md 카탈로그 행 수 = `ls plugins/stack-backend-ts-hono/skills/ | rg -c '^(workers-compat|single-writer|provider-retry-matrix|token-budget-constants|sse-lifecycle|compaction-thresholds|http-error-sentinels|input-safety-gate-ordering|mcp-namespace|run-policy-presets|spawn-limits|tool-sort-order|agent-loop-invariants|app-domain-boundary|media-job-lifecycle)$'` = 15 (본 skill 제외)
+- [ ] 본 SKILL.md 카탈로그 행 수 = `ls plugins/stack-backend-ts/skills/ | rg -c '^(workers-compat|single-writer|provider-retry-matrix|token-budget-constants|sse-lifecycle|compaction-thresholds|http-error-sentinels|input-safety-gate-ordering|mcp-namespace|run-policy-presets|spawn-limits|tool-sort-order|agent-loop-invariants|app-domain-boundary|media-job-lifecycle)$'` = 15 (본 skill 제외)
 - [ ] 적용 매핑 표 = 작업 영역마다 *모든* 관련 invariant 명시 (누락 ✕)
 - [ ] 신규 invariant 추가 시 — 카탈로그 + 적용 매핑 동시 갱신
 - [ ] 모든 카탈로그 행에 frontmatter `name` 일치하는 SKILL.md 존재

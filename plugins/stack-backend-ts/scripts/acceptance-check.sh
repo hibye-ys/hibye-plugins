@@ -33,7 +33,7 @@ if command -v jq >/dev/null 2>&1 && [ -f "$PLUGIN_JSON" ]; then
 else
   VERSION=""
 fi
-CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/stack-backend-ts-hono"
+CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/stack-backend-ts"
 # 우선순위: (1) plugin.json version path  (2) plugin root 자체 (full symlink)  (3) 1.0.0 (legacy)
 CACHE_OK=0
 for candidate in "$CACHE_BASE/$VERSION" "$CACHE_BASE" "$CACHE_BASE/1.0.0"; do

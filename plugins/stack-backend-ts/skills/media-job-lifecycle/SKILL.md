@@ -9,7 +9,7 @@ metadata:
 
 > Language-neutral invariants — Media job lifecycle, retry classification, stale-lease reaper, tenant ownership.
 > 정본 (single source of truth) for Python harness, TS / Hono harness, 그리고 미래 Rust harness.
-> Cited from: `stack-backend-python/rules/_shared/media-job-lifecycle.md`, `stack-backend-python/rules/media-pipeline-patterns.md`, `stack-backend-ts-hono/skills/media-pipeline-patterns/SKILL.md`.
+> Cited from: `stack-backend-python/rules/_shared/media-job-lifecycle.md`, `stack-backend-python/rules/media-pipeline-patterns.md`, `stack-backend-ts/skills/media-pipeline-patterns/SKILL.md`.
 
 # Media Job Lifecycle — 언어 무관 불변식
 

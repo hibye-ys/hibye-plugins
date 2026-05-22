@@ -5,7 +5,7 @@
 #   forbidden-scan.sh [target-dir]
 #   forbidden-scan.sh [target-dir] --exclude PATTERN [--exclude PATTERN ...]
 #
-# 기본 target = plugins/stack-backend-ts-hono/skills/
+# 기본 target = plugins/stack-backend-ts/skills/
 # 기본 정본 forbidden-terms = scripts/forbidden-terms.txt (자기 옆)
 #
 # 환경 변수:
