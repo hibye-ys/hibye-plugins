@@ -16,8 +16,9 @@ Hono route 는 *thin layer* — 입력 검증 + 인증 + 핸들러 호출만. �
 1. **mutation (POST/PUT/PATCH)** 은 반드시 `zValidator` 미들웨어로 body schema 검증
 2. **보호 path** (`src/routes/protected/`) 는 반드시 `authMiddleware` 적용
 3. 핸들러는 `c.json(...)` 명시 응답 (raw `Response` 직접 반환 ✕)
+4. **middleware 등록 순서**: [[api-routing]] invariant 의 순서표 (`requestId → rateLimit → cors → auth → schema → handler`) 와 일치. 본 audit 는 순서를 자체 정의하지 않음 — SoT 는 `api-routing` 단일.
 
-> 자세한 layer 순서 — `input-safety-gate-ordering` invariant 참조 (auth → schema → rate-limit → handler).
+> 본 audit 는 middleware *순서* 를 자체 정의하지 않는다. 순서 정본은 [[api-routing]] 의 "Middleware 등록 순서 원칙" 섹션. 입력측 안전 게이트 (jailbreak / moderation 등) 의 *내부* 순서는 [[input-safety-gate-ordering]] invariant 참조 — middleware registration 순서와는 다른 개념.
 
 ## 실행
 
