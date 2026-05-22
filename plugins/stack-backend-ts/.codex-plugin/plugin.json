@@ -1,0 +1,14 @@
+{
+  "name": "stack-backend-ts",
+  "version": "0.0.1",
+  "description": "TypeScript backend rules — AI agent + general backend, framework/runtime neutral.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Stack: Backend TS",
+    "shortDescription": "AI agent + general TS backend rules — framework/runtime neutral.",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "category": "Coding",
+    "brandColor": "#FF6F00",
+    "composerIcon": "./assets/icon.svg"
+  }
+}

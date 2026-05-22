@@ -5,10 +5,10 @@
   "owner": { "name": "hibye-ys" },
   "plugins": [
     {
-      "name": "stack-backend-ts-hono",
-      "description": "Hono + Web 표준 (Workers 호환) backend rules for TypeScript projects.",
+      "name": "stack-backend-ts",
+      "description": "TypeScript backend rules — AI agent + general backend, framework/runtime neutral (domain-coupled via <domain> placeholder).",
       "category": "development",
-      "source": "./plugins/stack-backend-ts-hono",
+      "source": "./plugins/stack-backend-ts",
       "version": "0.0.1"
     },
     {
