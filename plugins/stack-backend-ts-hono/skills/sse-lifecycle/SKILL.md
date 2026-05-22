@@ -7,10 +7,8 @@ metadata:
   source: stack-backend-python/_shared/sse-lifecycle.md
 ---
 
-**적용된 §4.4 매트릭스 행**: 스트리밍 (async generator → ReadableStream), SSE (EventSourceResponse(sse-starlette) → streamSSE(hono/streaming)), 큐·태스크 (asyncio.Queue → c.executionCtx.waitUntil), 프로세스 분리 (subprocess → Workers ✕)
-
 > **정본** — App backend SSE 이벤트 lifecycle / 12 이벤트 집합 / 종료 보장 제약.
-> 언어 무관 (Python / TS 공통). 양쪽 `*_agent_rules/sse-streaming-patterns.md`,
+> 언어/프레임워크 무관 (Python / TS 공통). 양쪽 `*_agent_rules/sse-streaming-patterns.md`,
 > `*_agent_rules/core-infrastructure.md`, 그리고 `frontend-contract.md` 에서 본 파일을
 > 단일 source of truth 로 참조한다.
 
@@ -47,22 +45,13 @@ session → agent → (text | thinking | tool_call | tool_result | action | noti
 4. **SSE payload 에 session-wide 불변 메타 (token 수, 비용, model, session_id) 혼합 금지.**
    별도 `usage` 이벤트 또는 HTTP 헤더 (`X-App-*`) 로만 전달.
 
-## Hono SSE 구현 패턴
+## 백그라운드 태스크 / 프로세스 분리
 
-```ts
-import { streamSSE } from 'hono/streaming';
+본 lifecycle 은 in-stream 이벤트 순서만 정의한다. 스트림 응답 이후에도 살아남아야 하는 부수 작업 (예: 로깅 flush, 비동기 DB 커밋, 백그라운드 spawn 알림) 은 런타임 특화 메커니즘으로 처리한다:
 
-app.get('/stream', (c) => {
-  return streamSSE(c, async (stream) => {
-    await stream.writeSSE({ data: JSON.stringify({ type: 'session', ... }), event: 'session' });
-    // ... 본문 이벤트 emit ...
-    await stream.writeSSE({ data: JSON.stringify({ type: 'usage', ... }), event: 'usage' });
-    await stream.writeSSE({ data: JSON.stringify({ type: 'done' }), event: 'done' });
-  });
-});
-```
+> 백그라운드 태스크 스케줄링은 런타임 특화 (Node `setImmediate` / Workers `waitUntil` / Bun 등 — instance 측에서 정의)
 
-백그라운드 태스크: `c.executionCtx.waitUntil(promise)` (Workers 호환). subprocess 분리는 Workers 환경에서 불가.
+별도 OS 프로세스 분리 (subprocess) 는 일부 런타임에서 지원되지 않으므로 instance 측에서 런타임 가용성을 확인하고 폴백 경로를 명시할 것.
 
 ## 이벤트 카테고리
 
