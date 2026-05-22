@@ -56,7 +56,7 @@ Project-side activation = `project/.codex/skills/<plugin>/ -> <marketplace>/plug
 
 대상 프로젝트에서 신규 plugin 2개가 인지되는지 확인:
 
-1. **Claude Code**: fresh 세션 → install 후 `<system-reminder>` 의 available skills 목록에 `verify-workers-compat` + `verify-token-only-styling` 보이는지 확인.
+1. **Claude Code**: fresh 세션 → install 후 `<system-reminder>` 의 available skills 목록에 `verify-workers-compat` + `semantic-a11y` + `token-only-styling` 보이는지 확인.
 2. **Codex**: `cd <project>` → 활성 skill 목록에 `stack-backend-ts-hono:verify-workers-compat` + `frontend-react-web:semantic-a11y` + `frontend-react-web:token-only-styling` 보이는지 확인.
 3. **상시 룰 인지**: "이 디렉토리에서 Workers 호환 룰 알려줘" 또는 "토큰 룰 알려줘" 메시지 — `Buffer`/`fs`/`c.env.X` 또는 `bg-card`/`@theme` 같은 어휘 응답에 등장하는지.
 
