@@ -48,13 +48,16 @@ vercel 미install 시 — 성능 / Web Vitals / Next cache 룰 공백.
 ## Skill 카탈로그
 
 > Phase 1 = semantic-a11y + token-only-styling (vercel-style 패턴 정립).
-> Phase 2 — Batch 1 추가 (a11y-dialog-pattern / security-dom-sinks / electron-renderer-isolation). 나머지 Batch 2-6 진행 중.
+> Phase 2 — Batch 1 (a11y-dialog-pattern / security-dom-sinks / electron-renderer-isolation) + Batch 2 (client-boundary / render-purity / hydration-determinism) 완료. Batch 3-6 진행 중.
 
 @./skills/semantic-a11y/SKILL.md
 @./skills/token-only-styling/SKILL.md
 @./skills/a11y-dialog-pattern/SKILL.md
 @./skills/security-dom-sinks/SKILL.md
 @./skills/electron-renderer-isolation/SKILL.md
+@./skills/client-boundary/SKILL.md
+@./skills/render-purity/SKILL.md
+@./skills/hydration-determinism/SKILL.md
 
 ## 관련 자료
 
