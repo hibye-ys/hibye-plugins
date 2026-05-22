@@ -4,7 +4,6 @@ description: Template-driven test file generation for `<api-app>/src/`. Creates 
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/test-scaffold
 allowed-tools: Read, Write, Edit, Bash
 ---
 

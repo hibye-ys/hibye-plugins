@@ -4,7 +4,6 @@ description: "<api-app> 에서 무언가 깨졌는데 원인을 모를 때 invok
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/debug-session/SKILL.md
 ---
 
 **적용된 §4.4 매트릭스 행**: `LOG_LEVEL=DEBUG uvicorn ...` → runtime-specific dev server log-level flag, `pytest --lf -x --tb=short` → `vitest run --reporter=verbose` / `vitest run <file> -t <name>`, `logs/ai_backend.log` (파일 경로) → runtime live tail stderr + `console.error/warn` JSON 라인, framework POST `/run/<name>` 요청 로그 → runtime dev server 요청 로그 + `X-Request-Id` 헤더, `python -c "import os..."` 환경변수 확인 → runtime types regen + local secret file 확인, `asyncio.CancelledError` 패턴 → AbortError + `signal.aborted` 체크

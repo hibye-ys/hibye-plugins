@@ -4,7 +4,6 @@ description: <api-app> 런타임 보안 감사 + 통합 보고서 작성 시 inv
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/security-runtime
 ---
 
 **적용된 §4.4 매트릭스 행**: `pydantic BaseModel.parse_obj` → `zSchema.parse(input)` (모든 입력 → 게이트), Python ASGI CORS middleware → framework CORS middleware (예: `cors({ origin, ... })`), `slowapi` / Python rate-limiter → KV + sliding window 또는 framework rate-limiter, `python-jose` JWT → framework JWT 또는 `jose` (npm), Python secret manager SDK / `.env` → runtime secret store (`<framework env binding>.<NAME>`), Python CSRF middleware → framework CSRF + double-submit cookie, audit log (Postgres trigger) → Drizzle insert + object storage immutable retention, `os.getenv` → `<framework env binding>.<NAME>`, `pip-audit` / `safety` → `npm audit` / `pnpm audit`

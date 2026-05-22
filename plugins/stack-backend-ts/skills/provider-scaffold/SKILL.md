@@ -4,7 +4,6 @@ description: <api-app> 에 새 LLM provider (Anthropic / OpenAI / Google / OpenR
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/provider-scaffold
 ---
 
 **적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` → `fetch(url, init)` (runtime fetch + AbortSignal), `pydantic Response` → `zod` schema (`Z.parse(await response.json())`), `tenacity` → `p-retry` 또는 수동 exponential backoff, `typing.Protocol` → TS `interface` (`Provider` — 정본 = `provider-layer` workflow), `dataclass ProviderConfig` → TS `interface` / `zod`, `os.getenv("PROVIDER_KEY")` → `<framework env binding>.<PROVIDER>_API_KEY` (runtime Bindings), `pytest` provider test → `vitest`, `pyyaml` 카탈로그 → `yaml` (npm), Python `register` decorator side effect → `registerProviderClass(name, factory)` 명시 호출 (runtime 빌드 안정성)

@@ -4,7 +4,6 @@ description: MCP 도구 네이밍 (`mcp__<server>__<tool>`), 연결 5-state life
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/mcp-namespace.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). MCP 클라이언트 import: Python `mcp` SDK → `@modelcontextprotocol/sdk` (TS)

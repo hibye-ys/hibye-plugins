@@ -4,7 +4,6 @@ description: agent loop / run executor 코드 변경 후 invoke. <api-app>/src/a
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/loop-audit
 ---
 
 # loop-audit — 무한 loop 안전성 audit

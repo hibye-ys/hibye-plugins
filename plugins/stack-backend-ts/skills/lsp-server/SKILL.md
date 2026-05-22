@@ -4,7 +4,6 @@ description: <api-app> LSP 서버 (`<workspace-entity>` 언어 지능 — 예 pr
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/lsp-server
 ---
 
 **적용된 §4.4 매트릭스 행**: `pygls LanguageServer` → `vscode-languageserver` (npm) `createConnection()`, `pydantic` / `dataclass` → `zod` schema / TS `interface`, `asyncio.wait_for(timeout=10)` → `AbortSignal.timeout(10_000)`, `asyncio.create_task` → `(async () => { ... })()` (fire-and-forget Promise), `asyncio.CancelledError` → `AbortError` (signal aborted), `lsprotocol.types` → `vscode-languageserver-types`, `logger = logging.getLogger(__name__)` → `console.warn(JSON.stringify(...))` (구조화), `os.getenv` → `<framework env binding>.<NAME>` (LSP 가 동거할 때) 또는 `process.env` (별도 Node 프로세스), `from __future__ import annotations` → 불필요 (TS), `lazy load entities` → 모듈 레벨 `let cachedEntities: ... | null = null`

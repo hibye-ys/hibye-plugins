@@ -4,7 +4,6 @@ description: TS 백엔드 진입 시 또는 새 모듈 위치 결정 시 invoke.
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/backend-overview + rules/architecture.md + rules/core-infrastructure.md
 ---
 
 **적용된 §4.4 매트릭스 행**: Python 모듈 트리 → TS 디렉토리 트리, `from app.routes import ...` → `import { app } from './routes/index.ts'`, `backend/` prefix → `src/` prefix, `pydantic BaseModel` → `zod schema / TypeScript interface`, `structlog` → 구조화 로깅 helper (`structured-log-schema` 참조), `os.getenv` → env 어댑터 (framework/runtime 무관)

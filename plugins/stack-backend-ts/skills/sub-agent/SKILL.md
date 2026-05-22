@@ -4,7 +4,6 @@ description: src/tools/spawn.ts 또는 src/engine/subagent.ts 최초 작성·수
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/sub-agent-spawn/SKILL.md
 ---
 
 **적용된 §4.4 매트릭스 행**: `pydantic BaseModel` / `ToolInput` → TypeScript interface + zod, `asyncio.create_task` → runtime background task helper (예: `ctx.waitUntil(Promise)`) 또는 `Promise` (process 기반 runtime 호환), `asyncio.timeout(n)` → `AbortSignal.timeout(n * 1000)` + `Promise.race`, `logger.warning(...)` → `console.warn(JSON.stringify({...}))`, `await asyncio.gather(...)` → `await Promise.allSettled(...)`, `asyncio.CancelledError` → AbortError, `os.environ` → `<framework env binding>` / runtime-specific bindings, Python dataclass/BaseModel → TypeScript interface

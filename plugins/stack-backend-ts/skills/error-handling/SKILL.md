@@ -4,7 +4,6 @@ description: <api-app> 에서 에러 sentinel 매핑 / 전역 에러 핸들러 /
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/error-handling.md
 ---
 
 # error-handling — 에러 처리 표준

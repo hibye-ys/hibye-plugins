@@ -4,7 +4,6 @@ description: TS 백엔드 DB 선택 / ORM 선택 / runtime 호환성 / StoragePo
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/database-patterns.md
 ---
 
 # database — TS DB 선택 가이드 + Port 추상

@@ -4,7 +4,6 @@ description: context-assembly 또는 prompt 코드 변경 후. <api-app> 안 tok
 metadata:
   role: audit
   scope: project
-  source: (신규)
   pair_invariant: token-budget-constants
 ---
 

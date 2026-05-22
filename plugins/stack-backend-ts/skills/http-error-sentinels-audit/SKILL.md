@@ -4,7 +4,6 @@ description: route handler 또는 error path 수정 후. http-error-sentinels in
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/api-audit (error 부분)
   pair_invariant: http-error-sentinels
 ---
 

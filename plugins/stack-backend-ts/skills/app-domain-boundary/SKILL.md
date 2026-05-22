@@ -4,7 +4,6 @@ description: 앱 도메인 경계 invariant — AI 백엔드 (`ai_backend.*`) �
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/external-domain-boundary.md (generalized)
 ---
 
 **적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). 본문 안 도메인 식별자는 `app_*` / `domain_*` 로 일반화 (legacy prefix 잔존 금지).
@@ -105,6 +104,6 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 - iyaki 프로젝트 예: `<domain>` = `iyaki`, `<DOMAIN>` = `IYAKI`, `<domain entity>` = "scenario / novel / character / persona / block / episode / category / note / graph_edge" 등
 - blog 프로젝트 예: `<domain>` = `blog`, `<DOMAIN>` = `BLOG`, `<domain entity>` = "post / category / comment / tag"
 - commerce 프로젝트 예: `<domain>` = `commerce`, `<DOMAIN>` = `COMMERCE`, `<domain entity>` = "order / product / cart / item / customer"
-- 다른 instance: 자체 CLAUDE.md 에 매핑 명시 (Python plugin 의 패턴 참조 — `stack-backend-python/skills/data-audit/SKILL.md` §8)
+- 다른 instance: 자체 CLAUDE.md 에 매핑 명시 — 도메인별 사례는 instance 측 project-local skill 로 둔다
 
 (legacy 출처 경로는 frontmatter `source` 참조)

@@ -4,7 +4,6 @@ description: RunPolicy 16 필드 defaults, cross-field 불변, 정책 해석 순
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/run-policy-presets.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 거의 ✕ (constants table). 본문 안 Python config 클래스 → TS `const` + zod 검증 형태로 적용.

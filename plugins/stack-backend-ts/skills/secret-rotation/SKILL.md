@@ -4,7 +4,6 @@ description: secret 회전 workflow — env / secret store 회전 6단계, dual-
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-ts/skills/secret-rotation
 ---
 
 # Secret Rotation — Workflow

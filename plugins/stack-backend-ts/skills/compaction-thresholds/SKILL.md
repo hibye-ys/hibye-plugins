@@ -4,7 +4,6 @@ description: Compaction 4-stage escalation 순서, 핵심 상수, post-compact �
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/compaction-thresholds.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 토큰 카운트 (간접 — 토큰 측정은 js-tiktoken 사용). 본문 자체는 language-neutral.

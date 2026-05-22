@@ -4,7 +4,6 @@ description: AI run / job 설정 코드 변경 후. run-policy-presets invariant
 metadata:
   role: audit
   scope: project
-  source: (신규)
   pair_invariant: run-policy-presets
 ---
 

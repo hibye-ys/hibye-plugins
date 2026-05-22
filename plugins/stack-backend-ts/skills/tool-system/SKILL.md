@@ -4,7 +4,6 @@ description: <api-app> 에 새 LLM tool 추가 / ToolRegistry 수정 / tool conc
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/tool-system + rules/tool-system-patterns.md
 ---
 
 **적용된 §4.4 매트릭스 행**: `pydantic BaseModel` + `extra="forbid"` → `z.object({...}).strict()` / TypeScript interface, `typing.Protocol` + `@runtime_checkable` → TypeScript `interface`, `asyncio.gather(..., return_exceptions=True)` → `Promise.allSettled([...])`, `asyncio.Event` → `AbortController` / Promise signal, `@dataclass(slots=True)` → TypeScript `interface` / class, `ToolRegistry` singleton → `Map<string, ToolHandler>` + module-level instance, `pydantic.create_model` → dynamic zod schema, `zod-to-json-schema` 로 JSON Schema 변환

@@ -4,7 +4,6 @@ description: Tool API 배열 정렬 순서 (built-in → MCP, 각 그룹 알파�
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/tool-sort-order.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 거의 ✕. Python tool 등록 예시 → TS `Map<string, ToolHandler>` 또는 array 형태로 치환.

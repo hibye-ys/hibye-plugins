@@ -4,7 +4,6 @@ description: DB migration rollback workflow — forward-only vs reversible 결�
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-ts/skills/migration-rollback
 ---
 
 # Migration Rollback — Workflow

@@ -4,7 +4,6 @@ description: 구조화 로그 invariant — 10 trace 필드 (request_id / trace_
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-ts/skills/structured-log-schema
 ---
 
 # Structured Log Schema — 언어 무관 불변식

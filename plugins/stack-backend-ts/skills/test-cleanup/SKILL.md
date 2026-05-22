@@ -4,7 +4,6 @@ description: Checklist + grep patterns for detecting stale, orphaned, or redunda
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/test-cleanup
 allowed-tools: Read, Bash
 ---
 

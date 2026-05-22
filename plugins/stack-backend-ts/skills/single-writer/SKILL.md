@@ -4,7 +4,6 @@ description: Single-writer pattern invariant — 동일 자원의 쓰기 경로�
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/single-writer.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 동시성 (asyncio.gather → Promise.all/allSettled), Lock (asyncio.Lock → async-mutex `new Mutex()` 또는 advisory SQL lock `pg_advisory_xact_lock`)

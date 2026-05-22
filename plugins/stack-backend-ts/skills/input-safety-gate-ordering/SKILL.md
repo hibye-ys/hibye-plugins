@@ -4,7 +4,6 @@ description: Input safety gate V3 순서 (cheapest-first), two-port jailbreak, m
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/input-safety-gate-ordering.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 스키마 (pydantic → zod, `z.object({...})`), 검증 (pydantic validator → `z.refine`), 의존성 주입 (Depends → `<framework context store>`), 미들웨어 (Python framework middleware → `<framework middleware registration>`)

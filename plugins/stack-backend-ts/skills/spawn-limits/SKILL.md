@@ -4,7 +4,6 @@ description: Sub-agent spawn 상한 (`MAX_SPAWN_DEPTH=3`), 3 mode, coordinator/w
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/spawn-limits.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 동시성 (asyncio.gather → Promise.all), 프로세스 분리 (runtime-specific background task helper — 한계 명시), 큐 (BackgroundTasks → Promise + runtime background task 동등 패턴). Runtime 제약 (CPU 시간 / background task 길이) 은 instance 측 project-local skill 참조. `p-limit` 라이브러리 권장.

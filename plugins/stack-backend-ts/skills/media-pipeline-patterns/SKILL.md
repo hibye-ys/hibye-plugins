@@ -4,7 +4,6 @@ description: 미디어 (이미지 / 오디오 / 비디오) 파이프라인 추�
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/media-pipeline-patterns.md
 ---
 
 > **Runtime/Storage 추상화 (이 skill 의 핵심 용어)**
@@ -21,7 +20,6 @@ metadata:
 - env: 글로벌 env helper → **`<framework env binding>.<NAME>`** (framework context)
 - 로깅: 구조화 로거 → **pino** (Node) / **`console.log(JSON.stringify({...}))`** (edge runtime)
 
-> source: `stack-backend-python/rules/media-pipeline-patterns.md`
 > **정본 invariant**: `media-job-lifecycle` skill (6-state / stale-lease reaper / IDOR fix / backpressure / retry classification — 언어 무관). 본 skill 은 TS framework 적용 지점만.
 > 관련: `single-writer` (바이너리 WriteCoordinator), `error-handling` (4 패턴), `api-routing` (routes/media.ts)
 

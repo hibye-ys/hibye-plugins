@@ -4,7 +4,6 @@ description: <api-app> 에서 MCP 서버 연결 / namespace 결정 / tool 자동
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/mcp-integration + rules/mcp-patterns.md
 ---
 
 **적용된 §4.4 매트릭스 행**: Python MCP SDK (`mcp`) → `@modelcontextprotocol/sdk` (TS), `asyncio.wait_for(..., timeout=30)` → `AbortSignal.timeout(30_000)` + `Promise.race`, `pydantic BaseModel` + `create_model` → zod dynamic schema (`z.object({})`), `structlog.warning` → `console.warn`, `asyncio.CancelledError` → AbortError, `os.environ` → `<framework env binding>` / runtime-specific bindings

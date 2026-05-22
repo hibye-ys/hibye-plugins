@@ -1,23 +1,23 @@
 ---
 name: rule-linting
-description: 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope / source) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증.
+description: 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증.
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/rule-linting
 ---
 
 # rule-linting — plugin skill frontmatter audit
 
 ## 검증 대상 invariant
 
-본 plugin (`stack-backend-ts`) 의 모든 `skills/*/SKILL.md` 는 다음 frontmatter v3.3 규약을 따라야 한다:
+본 plugin (`stack-backend-ts`) 의 모든 `skills/*/SKILL.md` 는 다음 frontmatter v3.4 규약을 따라야 한다:
 
 - `name: <kebab-case>` — 디렉토리명과 일치
 - `description: <한국어 한 문장>` — 비어 있지 않음
 - `metadata.role: invariant | workflow | audit` — 3종 중 하나
 - `metadata.scope: project` — 본 plugin 의 scope
-- `metadata.source: <...>` — 원본 출처 (포팅 추적성)
+
+> NOTE: `metadata.source` 필드는 v3.4 부터 **제거** — frontmatter 에 외부 plugin lineage 두지 않음. 포팅 추적성은 git log + 본문 §"source / 분리 출처" 메모 (선택) 로.
 
 ## 실행
 
@@ -38,14 +38,14 @@ for f in plugins/stack-backend-ts/skills/*/SKILL.md; do
   # scope: project
   grep -qE "^\s*scope:\s*project\$" "$f" || echo "$f: invalid scope"
 
-  # source: present (값은 자유)
-  grep -qE "^\s*source:" "$f" || echo "$f: missing source"
+  # source: 제거됨 — v3.4 부터 frontmatter source 필드 두지 않음
+  grep -qE "^\s*source:" "$f" && echo "$f: stale 'source:' field — remove (v3.4 정책)"
 done
 ```
 
 ## 통과 기준
 
-- 출력 **0줄** (모든 SKILL.md 가 5가지 frontmatter 정합)
+- 출력 **0줄** (모든 SKILL.md 가 4가지 frontmatter 정합 + stale source 없음)
 
 ## 위반 시 조치
 
@@ -69,12 +69,9 @@ description 은 *언제 invoke 하는지* + *무엇을 검증하는지* 가 한 
 
 본 plugin 의 모든 SKILL.md 는 `project` scope. 다른 scope 가 필요하면 별도 plugin 으로 분리.
 
-### missing source
+### stale source field
 
-포팅 추적성을 위해 원본 명시:
-- `stack-backend-python/skills/<source-name>` (직접 포팅)
-- `(신규 — spec §<n> enforce)` (신규)
-- `(분리 — <원본>)` (한 skill 에서 분리)
+v3.4 부터 frontmatter `source:` 필드는 제거. 발견 시 해당 라인을 통째로 삭제. 외부 lineage 는 git log 로 추적, 본문 §"source / 분리 출처" 메모는 선택 사항 (의미 있는 경우만 한 줄).
 
 ---
 

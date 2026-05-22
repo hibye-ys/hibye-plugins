@@ -4,7 +4,6 @@ description: <api-app> 의 provider 모델 카탈로그 (bundled snapshot + FUZZ
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/provider-catalog-sync
 ---
 
 **적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` / `httpx.get` → `fetch(url, init)` (sync 스크립트는 Node), `pyyaml` (`yaml.safe_load` / `yaml.safe_dump`) → **`yaml` (npm)** (`parse` / `stringify`), `difflib.unified_diff` → **`diff` (npm)** (`createTwoFilesPatch` / `createPatch`), `pydantic` 모델 → `zod` schema (`Z.parse`), `pytest` → `vitest` (테스트), `json.dump` (snapshot file) → `await writeFile(path, JSON.stringify(data, null, 2))`, `os.getenv("OPENROUTER_API_KEY")` → `process.env.OPENROUTER_API_KEY` (스크립트는 Node), `tenacity` → `p-retry` (네트워크 fetch 재시도), Python `WebFetch` (skill tool) → **Claude Code WebFetch tool** (동일 — 본 skill 실행 시 WebFetch 호출)

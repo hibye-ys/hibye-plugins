@@ -92,7 +92,7 @@
 | [`loop-audit`](skills/loop-audit/SKILL.md) | agent loop / run executor 코드 변경 후 invoke. <api-app>/src/agents/ + src/runs/ 안 while(true) 가 break / abort signal / turn 카운터 같은 종료 조건 없이 도는 경우를 검출. runtime CPU time 초과 / 사용자 abort 무시 / 무한 비용 누출 방지. |
 | [`mcp-namespace-audit`](skills/mcp-namespace-audit/SKILL.md) | MCP 서버 추가 후. namespace prefix 규칙 위반·충돌 검출. |
 | [`provider-retry-audit`](skills/provider-retry-audit/SKILL.md) | 배포 전 또는 새 LLM provider 추가 후 invoke. <api-app>/src/ai/providers/**/*.ts 안 retry 로직이 provider-retry-matrix invariant (재시도 가능 / 즉시 fatal 구분) 따르는지 grep 검증. |
-| [`rule-linting`](skills/rule-linting/SKILL.md) | 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope / source) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증. |
+| [`rule-linting`](skills/rule-linting/SKILL.md) | 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증. |
 | [`run-policy-presets-audit`](skills/run-policy-presets-audit/SKILL.md) | AI run / job 설정 코드 변경 후. run-policy-presets invariant 의 timeout / max-turn / retry preset 우회 검출. |
 | [`security-audit-check`](skills/security-audit-check/SKILL.md) | 배포 전 또는 외부 입력 처리 코드 변경 후 invoke. secret 하드코딩 / eval / new Function / 동적 require / SQL injection / SSRF 6가지 패턴을 grep 으로 일괄 검출. |
 | [`session-audit`](skills/session-audit/SKILL.md) | KV / session storage 코드 변경 후 invoke. KV.put 호출이 expirationTtl 없음 / framework env binding 의 KV 직접 접근 (storage adapter 우회) 두 패턴을 검출. KV 잔존 방지 + storage 경계 보존. |

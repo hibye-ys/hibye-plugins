@@ -4,7 +4,6 @@ description: <api-app> 에서 agentic loop (provider → tool calls → 결과 f
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/agent-loop + rules/agent-loop-patterns.md
 ---
 
 **적용된 §4.4 매트릭스 행**: `asyncio.run` → `await` (top-level), `while True:` → `while (true) { ... }`, max-turn 카운터 → `let turn = 0; while (turn++ < MAX_TURNS)`, `asyncio.gather(..., return_exceptions=True)` → `Promise.allSettled([...])`, `@dataclass class LoopState` → TypeScript interface/class, `AsyncIterator` → `AsyncIterable<Event>`, `async for event in stream:` → `for await (const event of stream)`, `asyncio.CancelledError` → `AbortController` signal / `stream.onAbort`

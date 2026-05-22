@@ -4,7 +4,6 @@ description: route handler 추가/수정 후. input-safety-gate-ordering invaria
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/prompt-audit (safety 부분)
   pair_invariant: input-safety-gate-ordering
 ---
 

@@ -4,7 +4,6 @@ description: tool 등록 코드 변경 후. tools/registry.ts 안 tool 정렬 �
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/tool-audit (sort 부분)
   pair_invariant: tool-sort-order
 ---
 

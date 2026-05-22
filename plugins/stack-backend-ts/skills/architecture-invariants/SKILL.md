@@ -4,7 +4,6 @@ description: TS 백엔드 작업 시 자동 로드. 18 invariant 의 overview + 
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/skills/architecture-invariants
 ---
 
 # architecture-invariants (overview / meta)

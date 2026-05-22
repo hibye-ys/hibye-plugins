@@ -4,7 +4,6 @@ description: <api-app> 에서 컨텍스트 조립 (system prompt + history + ret
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/context-assembly + rules/context-assembly-patterns.md
 ---
 
 **적용된 §4.4 매트릭스 행**: `tiktoken` → `js-tiktoken` (runtime 호환 시) 또는 근사 카운터 (`chars / 4`), `pydantic BaseModel` → TypeScript interface + zod, `@dataclass(slots=True)` → TypeScript interface / readonly object, `provider.count_tokens(out)` → `countTokens(messages)` (Provider interface), `functools.lru_cache` → `new Map<string, unknown>()` 또는 module-level cache, single writer = `src/context/assemble.ts` 단일 진입점, `os.getenv` → `<framework env binding>`

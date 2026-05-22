@@ -4,7 +4,6 @@ description: 배포 후 incident 1차 진단 dispatch. 사용자 증상 ("느림
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/incident-triage
 ---
 
 **적용된 §4.4 매트릭스 행**: `loguru` / `structlog` → `pino` (Node) 또는 `console.log(JSON.stringify(...))` (edge runtime + log aggregator 적재), `structlog.contextvars` ContextVar 10 필드 → `AsyncLocalStorage<RequestContext>` 10 필드, `prometheus` 메트릭 → 런타임별 analytics 또는 **Sentry**, alerting `pagerduty` / `opsgenie` → **PagerDuty** / **Sentry Issue Alert**, `os.getenv` → `<framework env binding>.<NAME>`, 라이브 로그 tail → runtime live tail / `pino-tail` (Node), DB raw SQL → Drizzle `db.execute(sql\`...\`)`

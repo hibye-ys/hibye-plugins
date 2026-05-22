@@ -4,7 +4,6 @@ description: 대규모 리팩토링 후 또는 정기 점검 시 invoke. 21 audi
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/full-architecture-audit
 ---
 
 # full-architecture-audit — 통합 architecture audit

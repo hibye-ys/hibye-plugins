@@ -4,7 +4,6 @@ description: TS 백엔드 작업 시 자동 로드. 18 invariant + 39 workflow +
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/python-agent-rules
 ---
 
 **적용된 §4.4 매트릭스 행**: 모든 매트릭스 — 본 카탈로그는 어느 룰 SKILL.md 로 분기할지 안내. 개별 매트릭스 행은 각 룰 SKILL.md 안에. (`pydantic` → `zod`, `pyright` → `tsc --noEmit` / `vtsls`, `typing.Protocol` → `interface`, `ABC` → `interface`, `ContextVar` → `AsyncLocalStorage`, `structlog.contextvars` → 구조화 로깅 helper, `dataclass` → interface, `os.environ` → env 어댑터 (framework/runtime 무관), `asyncio` → `Promise` + `AbortController`)

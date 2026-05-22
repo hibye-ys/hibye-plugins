@@ -4,7 +4,6 @@ description: sub-agent / parallel call 코드 변경 후. spawn-limits invariant
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/subagent-audit/SKILL.md (depth grep 흡수)
   pair_invariant: spawn-limits
 ---
 

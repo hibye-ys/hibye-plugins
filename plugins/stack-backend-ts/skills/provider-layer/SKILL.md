@@ -4,7 +4,6 @@ description: <api-app> 에 새 LLM provider 추가 / 기존 provider retry/timeo
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/provider-layer + rules/ai-provider-patterns.md
 ---
 
 **적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` → `fetch(url, init)`, `tenacity` → `p-retry` 또는 수동 `for/try/catch/backoff`, `pydantic BaseModel` → `z.object({...})` / `TypeScript interface`, `typing.Protocol` → `TypeScript interface`, `@functools.cache` → `let cachedResult: ... | null = null` (모듈 레벨 변수), `asyncio.sleep` → `await new Promise(r => setTimeout(r, ms))`, `asyncio.create_task` → `(async () => { ... })()` / Promise (fire-and-forget), `asyncio.CancelledError` → `AbortController` signal check, `os.getenv` → `<framework env binding>.<KEY>`

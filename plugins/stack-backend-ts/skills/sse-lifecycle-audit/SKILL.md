@@ -4,7 +4,6 @@ description: SSE 라우트 추가/수정 후 invoke. <api-app>/src/sse/**/*.ts �
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/stream-audit
   pair_invariant: sse-lifecycle
 ---
 

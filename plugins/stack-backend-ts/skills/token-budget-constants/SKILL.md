@@ -4,7 +4,6 @@ description: Token budget 6 영역, 3-layer system prompt, attachment 수집 순
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/token-budget-constants.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 토큰 카운트 (tiktoken → js-tiktoken)

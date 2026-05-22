@@ -4,7 +4,6 @@ description: Provider 추상화, retry/fallback 매트릭스, circuit breaker, m
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/provider-retry-matrix.md
 ---
 
 **적용된 §4.4 매트릭스 행**: HTTP 클라이언트 (httpx.AsyncClient → fetch), Retry (tenacity → p-retry 또는 수동 exponential backoff), 환경변수 (os.getenv → `<framework env binding>`), 에러 (Python framework HTTP exception → `<framework HTTP error class>`)

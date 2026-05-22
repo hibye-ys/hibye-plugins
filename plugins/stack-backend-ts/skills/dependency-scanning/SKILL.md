@@ -4,7 +4,6 @@ description: 의존성 lockfile 변경 후 또는 배포 전 invoke. npm/pnpm au
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/dependency-scanning
 ---
 
 # dependency-scanning — 의존성 안전성 audit (CVE)

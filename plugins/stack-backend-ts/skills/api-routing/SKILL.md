@@ -4,7 +4,6 @@ description: <api-app> 에 새 HTTP route / middleware / 전역 에러 핸들러
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/api-routing-patterns.md
 ---
 
 # api-routing — API 라우팅 규약

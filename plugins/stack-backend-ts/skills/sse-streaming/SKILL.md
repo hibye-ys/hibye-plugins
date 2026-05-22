@@ -4,7 +4,6 @@ description: TS 백엔드 SSE 응답 핸들러 추가 / 기존 SSE 핸들러 수
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/sse-streaming + rules/sse-streaming-patterns.md
 ---
 
 # sse-streaming — SSE 응답 청사진

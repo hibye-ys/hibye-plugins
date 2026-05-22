@@ -4,7 +4,6 @@ description: schema 변경 후 또는 새 migration 추가 후 invoke. Drizzle s
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/data-audit
 ---
 
 # data-audit — Drizzle schema / migration audit

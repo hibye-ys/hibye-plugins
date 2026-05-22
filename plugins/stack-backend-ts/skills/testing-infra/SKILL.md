@@ -4,7 +4,6 @@ description: <api-app> 테스트 인프라 셋업 시 invoke. Vitest 설정 + <f
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/testing-infra
 allowed-tools: Read, Write, Edit, Bash
 ---
 

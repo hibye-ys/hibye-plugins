@@ -4,7 +4,6 @@ description: 새 framework route 추가 후 또는 배포 전 invoke. POST/PUT/P
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/api-audit
 ---
 
 # api-audit — framework route thin-layer audit

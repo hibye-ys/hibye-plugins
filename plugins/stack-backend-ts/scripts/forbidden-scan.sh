@@ -128,9 +128,8 @@ case "$FORBIDDEN_ABS" in
     ;;
 esac
 
-# scan — legacy ref / metadata.source / audit 본질 디렉토리 제외
+# scan — metadata.source / audit 본질 디렉토리 제외
 # 제외:
-#   - frontmatter source 라인 (`source: stack-backend-python/...` legacy ref)
 #   - metadata.source 키 자체
 #   - 본질적으로 금지어를 *언급* 해야 하는 룰 skill 디렉토리:
 #       database/            — DB 룰 (D1 금지 명시)
@@ -139,7 +138,6 @@ while IFS= read -r pattern; do
   [[ -z "$pattern" || "$pattern" =~ ^# ]] && continue
 
   matches=$(rg -nP --pcre2 "${RG_GLOB_ARGS[@]}" "$pattern" "$TARGET_DIR" 2>/dev/null \
-    | grep -v "source:\s*stack-backend-python/" \
     | grep -v "metadata.source" \
     | grep -v "/database/" \
     || true)

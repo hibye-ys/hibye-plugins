@@ -4,7 +4,6 @@ description: <api-app> 의 LLM 호출 usage 이벤트 정합성 / 토큰·비용
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/usage-tracking
 ---
 
 **적용된 §4.4 매트릭스 행**: `pydantic UsageRecord` → `zod UsageRecordSchema` (`z.object`), `asyncpg insert` → **Drizzle `db.insert(llmUsage).values(...)`**, `decimal.Decimal` (정확 금액) → **string** (일부 runtime `BigDecimal` 미지원 — DB 측 `numeric(18,8)` 컬럼), `os.getenv` → `<framework env binding>.<NAME>`, `structlog` → `console.log(JSON.stringify(...))`, Python `tenacity` (insert retry) → `p-retry`, Python `apscheduler` 일일 집계 → runtime cron trigger (runtime-specific — instance 측 project-local skill 참조), `httpx` provider 응답 파싱 → `Response.json()` + zod parse

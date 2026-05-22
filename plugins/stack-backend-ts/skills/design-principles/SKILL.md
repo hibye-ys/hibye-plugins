@@ -4,7 +4,6 @@ description: <api-app> 설계 결정 시 7가지 핵심 원칙 (Safe Defaults / 
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/design-principles.md
 ---
 
 **적용된 §4.4 매트릭스 행**:
@@ -15,7 +14,6 @@ metadata:
 - `asyncio.CancelledError` → **`AbortController.signal`**
 - `contextvars` → **`AsyncLocalStorage`** (Node) / request-scoped framework context
 
-> source: `stack-backend-python/rules/design-principles.md`
 > *원칙* (YAGNI / DRY / SoC / cohesion / loose coupling) 그대로, 예시 코드만 TS 화.
 
 # design-principles — 7가지 핵심 설계 원칙 (<api-app> TS)

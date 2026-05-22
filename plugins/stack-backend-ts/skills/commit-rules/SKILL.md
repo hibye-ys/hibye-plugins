@@ -4,10 +4,8 @@ description: <api-app> 변경 사항 commit 작성 시 invoke. Conventional Comm
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/commit-rules.md
 ---
 
-> source: `stack-backend-python/rules/commit-rules.md`
 > Conventional Commits 원본 규약 + TS 스택 scope 카탈로그.
 
 # commit-rules — Conventional Commits 규약 (<api-app> / stack-backend-ts)
@@ -39,7 +37,6 @@ scope 는 변경 파일의 **최상위 의미 단위**. 모노레포 / 플러그
 | Scope | 의미 |
 |-------|------|
 | `stack-backend-ts` | `plugins/stack-backend-ts/` rules + skills 변경 |
-| `stack-backend-python` | `plugins/stack-backend-python/` rules + skills 변경 |
 | `<api-app>` | `<api-app>/**` 광범위 변경 (sub-area 결정 어려울 때) |
 | `apps/web` | `apps/web/**` |
 | `apps/ml-worker` | `apps/ml-worker/**` |

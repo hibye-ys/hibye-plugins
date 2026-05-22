@@ -4,7 +4,6 @@ description: <api-app> 인증·세션·시크릿 추가 또는 수정 시 invoke
 metadata:
   role: workflow
   scope: project
-  source: (신규 — Python 인증 분산 부분 통합)
 ---
 
 # auth — 인증·세션·시크릿 패턴

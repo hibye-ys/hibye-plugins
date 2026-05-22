@@ -4,7 +4,6 @@ description: SSE 12 이벤트 집합 + lifecycle 순서 + 종료 보장 4 제약
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/sse-lifecycle.md
 ---
 
 > **정본** — App backend SSE 이벤트 lifecycle / 12 이벤트 집합 / 종료 보장 제약.

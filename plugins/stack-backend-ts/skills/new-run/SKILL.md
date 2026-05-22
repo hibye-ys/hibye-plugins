@@ -4,7 +4,6 @@ description: 새 agent run 정의 시 invoke. `<api-app>/runs/<name>.yaml` + `<a
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/new-run
 ---
 
 **적용된 §4.4 매트릭스 행**: `pydantic BaseModel RunPolicy` + `model_config = ConfigDict(extra="forbid", frozen=True)` → `zod schema` + `.strict()` + `Readonly<T>` (또는 `as const`), `@model_validator(mode="after")` → `zod refine()` / `superRefine()`, `asyncio.Task` → `Promise` + `AbortController`, `asyncio.CancelledError` → `AbortError`, `EventSourceResponse` (sse_starlette) → `<framework SSE helper>`, `uvicorn backend.main:app --port 8001` → runtime-specific dev server CLI 또는 `tsx src/index.ts`, `curl -fs http://localhost:8001/health` 동일, `pytest` → `vitest`, env access `os.environ` → `<framework env binding>`

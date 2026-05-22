@@ -4,7 +4,6 @@ description: <api-app> 백엔드 성능 baseline 확정 / 회귀 검출 / "느�
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/performance-profiling
 ---
 
 **적용된 §4.4 매트릭스 행**: `py-spy` → `0x` (flamegraph) + `clinic doctor` (이벤트 루프 lag), `cProfile` → `node --prof` + `node --prof-process` (V8 CPU profile), `memray` → `heapdump` + Chrome DevTools snapshot (메모리), `httpx.AsyncClient` → `fetch(url, init)` (스트림: `response.body.getReader()`), `time.perf_counter()` → `performance.now()`, `asyncio.sleep` → `await new Promise(r => setTimeout(r, ms))`, `statistics.quantiles` → 수동 정렬 + 인덱스 또는 `simple-statistics` (npm), `tiktoken` → `js-tiktoken` (토큰 카운트), `pytest` benchmark 러너 → `vitest` + `tinybench` 또는 standalone Node script, `pydantic BaseModel` baseline.json → `zod` schema

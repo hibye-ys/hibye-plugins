@@ -4,7 +4,6 @@ description: <api-app> TS 코드 작성 시 invoke. 네이밍 (camelCase / Pasca
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/coding-standards.md
 ---
 
 **적용된 §4.4 매트릭스 행**:
@@ -16,8 +15,6 @@ metadata:
 - 비동기: `asyncio` → **`Promise` / `async`**, `asyncio.gather` → **`Promise.all`** / **`Promise.allSettled`**
 - schema: `pydantic v2 BaseModel` → **`zod`** + `z.infer<typeof>`
 - contextvars: `structlog contextvars` → **`AsyncLocalStorage`** (Node) / **request-scoped Map via `<framework context store>('logCtx', ...)`** (edge runtime — AsyncLocalStorage 부분 지원)
-
-> source: `stack-backend-python/rules/coding-standards.md`
 
 # coding-standards — TypeScript 공통 코딩 규약 (<api-app>)
 

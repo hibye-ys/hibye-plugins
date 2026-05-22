@@ -4,7 +4,6 @@ description: <api-app> 에 새 agent 정의 추가 / AgentDefinition 스키마 �
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/ai-agent-patterns.md
 ---
 
 **적용된 §4.4 매트릭스 행**:
@@ -17,8 +16,7 @@ metadata:
 - 캐시: `@lru_cache(maxsize=64)` → **`Map<string, AgentDefinition>`** (singleton module-scoped) + 명시적 `clearAgentCacheForTests()`
 - 타입: `class AgentDefinition(BaseModel)` → **`interface AgentDefinition` + `const AgentDefinitionSchema = z.object({...})`**
 
-> source: `stack-backend-python/rules/ai-agent-patterns.md`
-> *원칙* (tool 선택 휴리스틱 / context budgeting / safety gate 순서 / fallback 정책) 는 source 그대로 유지.
+> *원칙* (tool 선택 휴리스틱 / context budgeting / safety gate 순서 / fallback 정책) 는 language-neutral 로 유지.
 
 # ai-agent-patterns — 에이전트 정의 + 로더 (TS)
 

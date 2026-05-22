@@ -4,7 +4,6 @@ description: 배포 전 또는 새 LLM provider 추가 후 invoke. <api-app>/src
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/provider-audit (retry 부분)
   pair_invariant: provider-retry-matrix
 ---
 

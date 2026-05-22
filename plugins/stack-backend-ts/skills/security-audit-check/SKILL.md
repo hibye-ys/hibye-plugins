@@ -4,7 +4,6 @@ description: 배포 전 또는 외부 입력 처리 코드 변경 후 invoke. se
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/security-audit-check
 ---
 
 # security-audit-check — 보안 통합 audit

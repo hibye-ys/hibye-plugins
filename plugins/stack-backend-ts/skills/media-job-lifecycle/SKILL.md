@@ -4,12 +4,10 @@ description: Media job 상태 전이 monotone 보장 (pending → processing →
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/rules/_shared/media-job-lifecycle.md
 ---
 
 > Language-neutral invariants — Media job lifecycle, retry classification, stale-lease reaper, tenant ownership.
-> 정본 (single source of truth) for Python harness, TS harness, 그리고 미래 Rust harness.
-> Cited from: `stack-backend-python/rules/_shared/media-job-lifecycle.md`, `stack-backend-python/rules/media-pipeline-patterns.md`, `stack-backend-ts/skills/media-pipeline-patterns/SKILL.md`.
+> 정본 (single source of truth) for 모든 언어/런타임 harness.
 
 # Media Job Lifecycle — 언어 무관 불변식
 

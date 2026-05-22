@@ -4,7 +4,6 @@ description: Codex 환경에서 stack-backend-ts plugin 의 subagent 정의/호�
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/codex-subagents
 ---
 
 **적용된 §4.4 매트릭스 행**: Python sub-agent class → TS handler function (marker md frontmatter 동일 구조), `asyncio.create_task` → `Promise` + `AbortController`, `pytest` smoke → `vitest`, `print/logger.info` → `console.log(JSON.stringify(...))`, env access `os.environ` → `process.env`

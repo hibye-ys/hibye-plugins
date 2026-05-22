@@ -4,7 +4,6 @@ description: 데이터 계층 추상 (Repository / Port 패턴, transaction boun
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/rules/data-layer-patterns.md
 ---
 
 # data-layer — 데이터 레이어 (object storage / Postgres / KV)
@@ -14,7 +13,6 @@ metadata:
 - 트랜잭션: `session_scope()` async context manager → **`db.transaction(async (tx) => { ... })`** (Drizzle)
 - interface 패턴: Python `@runtime_checkable Protocol` → **TS `interface`** + provider impl (`src/storage/provider.ts`)
 
-> source: `stack-backend-python/rules/data-layer-patterns.md`
 > **도메인 어휘 (식별자) 사용 금지** — 이 파일 내 레거시 참조는 설명 목적 OK
 
 ---

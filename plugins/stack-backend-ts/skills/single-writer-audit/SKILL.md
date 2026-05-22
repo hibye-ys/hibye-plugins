@@ -4,7 +4,6 @@ description: 동시 쓰기 위험 코드 변경 후. <api-app> 안 동일 리소
 metadata:
   role: audit
   scope: project
-  source: (신규 — invariant 기반)
   pair_invariant: single-writer
 ---
 

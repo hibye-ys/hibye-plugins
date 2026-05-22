@@ -4,7 +4,6 @@ description: HTTP 에러 코드 sentinel 매핑, 에러 응답 envelope shape, l
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/http-error-sentinels.md
 ---
 
 > Language-neutral invariants — HTTP error code sentinels, error envelope shape, leak-safe 404, scrub_text.

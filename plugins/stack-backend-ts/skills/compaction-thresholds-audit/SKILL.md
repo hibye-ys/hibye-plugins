@@ -4,7 +4,6 @@ description: compaction 코드 변경 후. compaction-thresholds invariant (Comp
 metadata:
   role: audit
   scope: project
-  source: (신규)
   pair_invariant: compaction-thresholds
 ---
 

@@ -4,7 +4,6 @@ description: 모듈 추가/이동 후. app-domain-boundary invariant — 코어 
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/data-audit (boundary 부분)
   pair_invariant: app-domain-boundary
 ---
 

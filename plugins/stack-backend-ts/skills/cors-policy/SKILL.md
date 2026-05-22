@@ -4,7 +4,6 @@ description: CORS invariant — origin allowlist, credentials, preflight cache, 
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-ts/skills/cors-policy
 ---
 
 # CORS Policy — 언어 무관 불변식

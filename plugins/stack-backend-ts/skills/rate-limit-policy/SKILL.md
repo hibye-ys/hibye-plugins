@@ -4,7 +4,6 @@ description: TS 백엔드 rate limit invariant — per-user / per-IP / per-endpo
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-ts/skills/rate-limit-policy
 ---
 
 # Rate Limit Policy — 언어 무관 불변식

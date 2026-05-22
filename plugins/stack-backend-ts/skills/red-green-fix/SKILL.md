@@ -4,7 +4,6 @@ description: Use when fixing a bug in <api-app>/ — especially the first time y
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/red-green-fix
 allowed-tools: Read, Write, Edit, Bash
 ---
 

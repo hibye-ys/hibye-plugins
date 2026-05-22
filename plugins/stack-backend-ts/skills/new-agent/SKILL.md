@@ -4,7 +4,6 @@ description: 새 agent 정의 (`<api-app>/src/agents/<name>.ts` + `<api-app>/age
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/new-agent
 ---
 
 **적용된 §4.4 매트릭스 행**: Python `ABC` / Protocol → TS `interface` (`AgentDef`), `async def step()` → `async function step()`, `pydantic BaseModel AgentConfig` → `zod schema`, `pytest @pytest.mark.asyncio` → `vitest`, `unittest.mock.AsyncMock` → `vi.fn().mockResolvedValue()`, `uvicorn backend.main:app` → runtime-specific dev server CLI (instance 측 project-local skill 참조), `ruff check` + `ty check` → `tsc --noEmit` + `eslint` (또는 `biome check`)

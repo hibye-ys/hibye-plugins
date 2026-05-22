@@ -4,7 +4,6 @@ description: 새 agent 정의 추가 후 또는 배포 전 invoke. <api-app>/src
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/agent-verify-def
 ---
 
 # agent-verify-def — agent 정의 정합성 audit

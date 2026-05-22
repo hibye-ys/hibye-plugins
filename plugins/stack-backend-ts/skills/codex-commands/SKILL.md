@@ -4,7 +4,6 @@ description: Codex 환경에서 stack-backend-ts plugin 의 slash command 호출
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/codex-commands
 ---
 
 **적용된 §4.4 매트릭스 행**: Python `click` → TS `commander` 또는 `yargs` (또는 marker md 만 — implementation 별도), `os.getenv` (Python host) → `process.env` (Codex CLI host), `pydantic` arg validation → `zod`, `pytest` smoke → `vitest`, `print` → `console.log` (`JSON.stringify` for structured)

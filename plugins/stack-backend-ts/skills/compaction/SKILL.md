@@ -4,7 +4,6 @@ description: <api-app> 에서 토큰 한계 접근 시 conversation 요약·압�
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-python/skills/compaction + rules/compaction-patterns.md
 ---
 
 **적용된 §4.4 매트릭스 행**: `asyncio.gather` → `Promise.allSettled`, `pydantic BaseModel` → TypeScript interface + zod, `msg.model_copy(deep=True)` → `JSON.parse(JSON.stringify(messages))` (deep clone), `async for event in provider.call_stream(...)` → `for await (const event of provider.callStream(...))`, `tiktoken` 토큰 수 → 근사 카운터 (`chars / 4`) 또는 `js-tiktoken`, `os.getenv` → `<framework env binding>`

@@ -4,7 +4,6 @@ description: KV / session storage 코드 변경 후 invoke. KV.put 호출이 exp
 metadata:
   role: audit
   scope: project
-  source: stack-backend-python/skills/session-audit
 ---
 
 # session-audit — KV / session storage audit

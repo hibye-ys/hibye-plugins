@@ -4,7 +4,6 @@ description: 클라이언트 재시도 안전성 workflow — POST/PATCH/DELETE 
 metadata:
   role: workflow
   scope: project
-  source: stack-backend-ts/skills/idempotency-key
 ---
 
 # Idempotency Key — Workflow

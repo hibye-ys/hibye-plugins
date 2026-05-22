@@ -4,7 +4,6 @@ description: Agent loop 6-stage 순서 (Context Prep → Model Call → Error Re
 metadata:
   role: invariant
   scope: project
-  source: stack-backend-python/_shared/agent-loop.md
 ---
 
 **적용된 §4.4 매트릭스 행**: 비동기 (async def → async function), 동시성 (asyncio.gather → Promise.all), 루프 (while True → while (true)), 최상위 (asyncio.run → top-level await)
