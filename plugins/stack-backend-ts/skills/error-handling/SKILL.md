@@ -94,6 +94,7 @@ export class InternalError extends AppError {
 - 413 — `payload_too_large`
 - 411 — `length_required`
 - 429 — rate limit (middleware 발신; `Retry-After` + `retry_after_ms`)
+- 409 — idempotency conflict (같은 `Idempotency-Key` + 다른 body hash; [[idempotency-key]] workflow)
 
 route-edge helper 는 `errorBody(code, message, details?)` 만 사용 — 인라인 JSON 작성 금지. 자세한 매트릭스는 [[http-error-sentinels]].
 

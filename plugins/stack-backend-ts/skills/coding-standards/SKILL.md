@@ -94,7 +94,7 @@ export type ToolInput = z.infer<typeof ToolInputSchema>;
 - **구조화 로깅 필수**: `logger.info({ tool, ms }, 'tool_ran')` 또는 edge runtime `console.log(JSON.stringify({ level: 'info', event: 'tool_ran', tool, ms }))`
 - 민감 정보 (secret, API key, PII) 로깅 절대 금지 — `scrubText` 유틸이 fail-safe 로 차단 (알려진 패턴만)
 - request-scoped context (request_id / spawn_depth 등) 는 `AsyncLocalStorage` (Node) 또는 `<framework context store>('logCtx', ...)` (edge runtime) 로 주입. bind / clear 는 `bindLogContext` / `clearLogContext` 경유 — 화이트리스트 외 키는 `throw new Error(...)`
-- 레벨: `debug` (개발) / `info` (정상) / `warn` (복구 가능) / `error` (실패). `logLevel` 은 `z.enum(['debug','info','warn','error'])` — 오타 시 startup fail
+- 레벨: `debug` (개발) / `info` (정상) / `warn` (복구 가능) / `error` (실패) / `fatal` (시스템 영향 — startup fail / secret 누설 시도). `logLevel` 은 `z.enum(['debug','info','warn','error','fatal'])` — 5-level (`[[structured-log-schema]]` 정본 일치). 오타 시 startup fail
 
 ### 원칙
 

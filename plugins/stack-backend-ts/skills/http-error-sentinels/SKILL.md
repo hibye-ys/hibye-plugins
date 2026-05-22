@@ -54,6 +54,7 @@ metadata:
 | `payload_too_large` | 413 | `payload_too_large` | `Content-Length` 가 path 별 cap 초과 |
 | `length_required` | 411 | `length_required` | `Transfer-Encoding: chunked` 인데 `Content-Length` 없음 |
 | Rate limit | 429 | `rate_limited` | `Retry-After` 헤더 + `retry_after_ms` body (middleware 직접 발신, [[rate-limit-policy]] invariant) |
+| Idempotency conflict | 409 | `idempotency_conflict` | 같은 `Idempotency-Key` + 다른 body hash 재시도 — `Idempotency-Key` 요청 헤더 값 echo. [[idempotency-key]] workflow 참조 |
 
 ## Leak-safe 404 원칙
 
