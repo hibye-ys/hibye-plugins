@@ -25,6 +25,10 @@ metadata:
     - 'instrumentation-client.js'
     - '**/reportWebVitals.ts'
     - '**/reportWebVitals.js'
+    - 'pages/**/*.ts'
+    - 'pages/**/*.tsx'
+    - 'pages/**/*.js'
+    - 'pages/**/*.jsx'
   bashPatterns: []
   importPatterns:
     - 'web-vitals'
@@ -35,8 +39,8 @@ validate:
   - pattern: 'addEventListener\s*\(\s*[`''"]beforeunload[`''"]'
     message: 'beforeunload listener 안 metric 전송 — 불안정. bfcache 차단 / iOS Safari 미발화 / async 처리 불가. visibilitychange (state hidden) 또는 pagehide 사용.'
     severity: warn
-  - pattern: '\b(?:onCLS|onINP|onLCP|onFID|onTTFB|onFCP)\s*\(\s*[^)]*=>\s*\{\s*(?:console\.log|console\.debug)\s*\('
-    message: 'web-vitals callback 안 console.log 만 — production transport 누락. navigator.sendBeacon / fetch keepalive / Vercel Analytics 통합 필요.'
+  - pattern: '\b(?:onCLS|onINP|onLCP|onFID|onTTFB|onFCP)\s*\(\s*(?:\([^)]*\)|[^=)]*)\s*=>\s*\{\s*(?:console\.log|console\.debug)\s*\('
+    message: 'web-vitals callback 안 console.log 만 — production transport 누락. navigator.sendBeacon / fetch keepalive / Vercel Analytics 통합 필요. (parenthesized arrow `(metric) =>` + bare `metric =>` 둘 다 검출)'
     severity: warn
 retrieval:
   aliases:
@@ -264,7 +268,7 @@ attribution build = 어떤 이미지 / 어떤 component 가 LCP 후보인지 *el
 - **`sentry-rum-pii`** — Sentry Performance 의 Web Vitals 자동 수집 / sample rate / PII redaction (transport 측 동일 sendBeacon 적용)
 - **`image-media-contract`** — LCP 후보 이미지 (priority / fetchPriority="high") — *root cause* 이미지 LCP 회귀 시 cross-ref
 - **`async-race-avoidance`** — listener cleanup (visibilitychange / pagehide 의 SPA 라우팅 시 재등록)
-- **`error-boundary-telemetry`** (Phase 3 B2.3 예정) — ErrorBoundary error → Sentry / RUM transport 패턴 공유
+- **`error-boundary-telemetry`** — ErrorBoundary error → Sentry / RUM transport 패턴 공유 (둘 다 sendBeacon-class 전송 적용)
 - **`client-boundary`** — `instrumentation-client.ts` / `'use client'` 위치 — web-vitals 는 client only
 
 ## 참조

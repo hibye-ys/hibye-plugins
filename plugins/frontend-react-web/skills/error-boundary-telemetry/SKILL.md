@@ -32,16 +32,16 @@ metadata:
     - '@sentry/react'
     - '@sentry/nextjs'
     - '@sentry/electron'
-  validate:
-    - pattern: '<(?:Sentry\.)?ErrorBoundary\b(?:(?!fallback|FallbackComponent|fallbackRender)[^>])*?/?>'
-      message: 'ErrorBoundary 에 fallback / FallbackComponent / fallbackRender 모두 없음 — render 안 됨 (또는 silent). react-error-boundary 는 셋 중 하나 의무, Sentry.ErrorBoundary 는 fallback 권장.'
-      severity: error
-    - pattern: 'componentDidCatch\s*\([^)]*\)\s*\{\s*\}'
-      message: 'componentDidCatch 빈 implementation — silent swallow. Sentry.captureException / 자체 telemetry 전송 의무. 단순 throw rethrow 도 boundary 의 의미 ✕.'
-      severity: warn
-    - pattern: 'componentDidCatch\s*\([^)]*\)\s*\{[^}]*\bthrow\b'
-      message: 'componentDidCatch 안 throw — 위로 propagate (boundary 무효). 텔레메트리 전송 후 보존 또는 reset 패턴 사용.'
-      severity: warn
+validate:
+  - pattern: '<(?:Sentry\.)?ErrorBoundary\b(?:(?!fallback|FallbackComponent|fallbackRender)[^>])*?/?>'
+    message: 'ErrorBoundary 에 fallback / FallbackComponent / fallbackRender 모두 없음 — render 안 됨 (또는 silent). react-error-boundary 는 셋 중 하나 의무, Sentry.ErrorBoundary 는 fallback 권장.'
+    severity: error
+  - pattern: 'componentDidCatch\s*\([^)]*\)\s*\{\s*\}'
+    message: 'componentDidCatch 빈 implementation — silent swallow. Sentry.captureException / 자체 telemetry 전송 의무. 단순 throw rethrow 도 boundary 의 의미 ✕.'
+    severity: warn
+  - pattern: 'componentDidCatch\s*\([^)]*\)\s*\{[^}]*\bthrow\b'
+    message: 'componentDidCatch 안 throw — 위로 propagate (boundary 무효). 텔레메트리 전송 후 보존 또는 reset 패턴 사용.'
+    severity: warn
 retrieval:
   aliases:
     - error boundary

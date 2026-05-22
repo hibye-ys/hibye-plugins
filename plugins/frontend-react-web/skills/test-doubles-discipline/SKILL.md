@@ -31,13 +31,13 @@ metadata:
     - 'msw'
 validate:
   - pattern: 'vi\.mock\s*\(\s*[`''"](?!(?:node:|fs|path|crypto|child_process|http|https|net|os|util|stream|events|dns|tls|cluster|worker_threads|fs/promises|next/|@sentry/|@tanstack/|swr|electron)).+[`''"]'
-    message: 'vi.mock 으로 내부 모듈 mock — 의존성 주입 / re-export 패턴 권장. 외부 boundary (node:* / next/ / @sentry/ / 네트워크 라이브러리) 또는 framework module 만 mock. 내부 함수 mock 은 implementation 검증으로 빠지기 쉬움.'
+    message: 'vi.mock 으로 내부 모듈 mock — 의존성 주입 / re-export 패턴 권장. 외부 boundary (node:* / next/ / @sentry/ / 네트워크 라이브러리) 또는 framework module 만 mock. 내부 함수 mock 은 implementation 검증으로 빠지기 쉬움. (eslint-plugin-vitest recommended preset 미커버 영역 — 본 plugin 유일)'
     severity: warn
   - pattern: 'jest\.(?:mock|spyOn|fn|clearAllMocks|resetAllMocks|restoreAllMocks)\s*\('
-    message: 'jest API 사용 — vitest 환경이면 vi.* 로 통일. jest 환경이면 본 skill 미적용 (path 패턴 vitest 중심).'
+    message: 'jest API 사용 — vitest 환경이면 vi.* 로 통일. jest 환경이면 본 skill 미적용 (path 패턴 vitest 중심). (eslint-plugin-vitest 미커버 — vitest 마이그레이션 잔재 즉시 표시)'
     severity: warn
   - pattern: '(?:Math\.random|Date\.now|performance\.now)\s*=\s*'
-    message: '글로벌 함수 직접 재할당 — type-safe ✕ + restore 불가능. vi.useFakeTimers() + vi.setSystemTime() (Date) / vi.spyOn(Math, "random") (random) 사용.'
+    message: '글로벌 함수 직접 재할당 — type-safe ✕ + restore 불가능. vi.useFakeTimers() + vi.setSystemTime() (Date) / vi.spyOn(Math, "random") (random) 사용. (eslint-plugin-vitest/prefer-spy-on 와 *부분 중첩* — 본 룰은 global function 한정으로 더 좁음, IDE 즉시 표시 가치로 유지)'
     severity: error
 retrieval:
   aliases:

@@ -108,6 +108,7 @@ chainTo: []
 - **라이브러리 본문**: `react-error-boundary` README — 모든 fallback 패턴
 - **Next.js**: `error.tsx` / `loading.tsx` / `not-found.tsx` template
 - **dev runtime**: React DevTools — Suspense 트리 시각화
+- **`error-boundary-telemetry` skill (Phase 3)** — `onError` → Sentry / 자체 telemetry / `role="alert"` accessible fallback / reset 패턴 깊게. 본 skill 은 Suspense 페어 *위치* 만 보장, telemetry / fallback UI 디테일은 해당 skill 위임.
 
 ## 안티패턴 표
 

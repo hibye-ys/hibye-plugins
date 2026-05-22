@@ -33,10 +33,10 @@ validate:
     message: 'getByTestId / findByTestId 사용 — query priority 최하위. getByRole + name 조합 또는 getByLabelText 우선. (eslint-plugin-testing-library/prefer-presence-queries 와 부분 보완, IDE 즉시 표시 가치로 유지)'
     severity: warn
   - pattern: '(?<!await\s)(?<!await\s{2})(?<!await\s{3})userEvent\.(?:click|type|keyboard|hover|tab|clear|selectOptions|upload|pointer)\s*\('
-    message: 'user-event v14 — 모든 인터랙션은 async. await userEvent.xxx(...) 형태로. (sync 호출 시 React act 경고 / state 미반영)'
+    message: 'user-event v14 — 모든 인터랙션은 async. await userEvent.xxx(...) 형태로. (sync 호출 시 React act 경고 / state 미반영). (eslint-plugin-testing-library/await-async-events 와 중첩 — IDE 즉시 표시 가치로 유지, v14 migration 흔한 사고)'
     severity: error
   - pattern: '\bfireEvent\.(?:click|change|input|submit|keyDown|keyUp|focus|blur)\s*\('
-    message: 'fireEvent 직접 호출 — userEvent (v14, async) 권장. fireEvent 는 user-event 미커버 케이스 (custom event dispatch / scroll) 에만.'
+    message: 'fireEvent 직접 호출 — userEvent (v14, async) 권장. fireEvent 는 user-event 미커버 케이스 (custom event dispatch / scroll) 에만. (eslint-plugin-testing-library recommended preset 미커버 — 본 plugin 유일)'
     severity: warn
 retrieval:
   aliases:
@@ -216,7 +216,7 @@ test('login flow', async () => {
   - `fireEvent.xxx(...)` 직접 호출 warn (user-event 우선 가이드)
 - **a11y 효과**: `getByRole` + `name` 작성 자체가 a11y smoke 보완 (semantic-a11y 와 cross-ref). axe 가 잡지 못하는 *accessible name 누락* 도 test 작성 단계에서 자동 드러남.
 - **async 디테일**: `async-race-avoidance` skill 의 cleanup 패턴이 useEffect test 작성 시 직접 적용 (AbortController / ignore flag).
-- **mock 위임**: `test-doubles-discipline` skill (Phase 3 B1.3) — MSW (HTTP) / vi.mock (module) / 의존성 주입 결정.
+- **mock 위임**: `test-doubles-discipline` skill — MSW (HTTP) / vi.mock (module) / 의존성 주입 결정.
 
 ## 참조
 

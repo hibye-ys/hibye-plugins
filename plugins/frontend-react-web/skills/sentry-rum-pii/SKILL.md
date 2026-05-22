@@ -31,6 +31,26 @@ metadata:
     - 'next.config.ts'
     - 'next.config.mjs'
     - 'next.config.cjs'
+    - 'vite.config.ts'
+    - 'vite.config.js'
+    - 'vite.config.mjs'
+    - 'vite.config.cjs'
+    - '**/entry.client.ts'
+    - '**/entry.client.tsx'
+    - '**/entry.client.js'
+    - '**/entry.client.jsx'
+    - '**/entry.server.ts'
+    - '**/entry.server.tsx'
+    - '**/entry.server.js'
+    - '**/entry.server.jsx'
+    - 'electron/**/*.ts'
+    - 'electron/**/*.tsx'
+    - 'electron/**/*.js'
+    - 'electron/**/*.jsx'
+    - 'src/main/**/*.ts'
+    - 'src/main/**/*.js'
+    - 'src/preload/**/*.ts'
+    - 'src/preload/**/*.js'
   bashPatterns: []
   importPatterns:
     - '@sentry/browser'
@@ -248,7 +268,7 @@ export function redactPii(event: ErrorEvent): ErrorEvent {
 - **Sentry dashboard** (Issues / Replays / Performance / Crons) — runtime audit, 본 plugin validate 가 잡지 못하는 *실제 incoming event* 안 PII / sample 확인
 - **`@sentry/cli`** — sourcemap upload + release tagging (CI 단계). `sentry-cli releases new` / `sentry-cli sourcemaps upload`
 - **`@sentry/vite-plugin`** (Vite) / **`withSentryConfig`** (Next.js) — build-time sourcemap + release 자동
-- **Lighthouse / web-vitals lib** — Sentry Performance 와 보완 영역. *Web Vitals 전송 별도* = 다음 task `web-vitals-transport` (Phase 3 B2.2) 가 깊게 다룸
+- **Lighthouse / web-vitals lib** — Sentry Performance 와 보완 영역. *Web Vitals 전송 별도* = `web-vitals-transport` skill 이 sendBeacon transport / visibilitychange listener 깊게 다룸
 - **ESLint custom rule** (`no-process-env-leak`) — `process.env.SENTRY_*` 가 클라이언트 번들에 새지 않는지
 - **`@sentry/replay-canvas`** — canvas-based UI (chart / map) replay 필요 시 별도 integration (privacy 정책 동일 적용)
 - **본 plugin validate 가 *추가* 하는 영역**:
@@ -261,8 +281,8 @@ export function redactPii(event: ErrorEvent): ErrorEvent {
 
 - **`electron-renderer-isolation`** — Electron 통합 시 main / renderer 분리 init 본문 참고
 - **`security-dom-sinks`** — Sentry tunnel endpoint 의 CORS / CSP 정책
-- **`web-vitals-transport`** (Phase 3 B2.2 예정) — Web Vitals beacon API 전송 + Sentry Performance 와 보완
-- **`error-boundary-telemetry`** (Phase 3 B2.3 예정) — ErrorBoundary + `Sentry.withErrorBoundary` 통합 패턴 (본 skill chainTo 가능)
+- **`web-vitals-transport`** — Web Vitals beacon API 전송 + Sentry Performance 와 보완
+- **`error-boundary-telemetry`** — ErrorBoundary + `Sentry.withErrorBoundary` 통합 패턴 (해당 skill 이 본 skill 로 chainTo 함)
 
 ## 참조
 

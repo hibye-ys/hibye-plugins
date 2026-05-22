@@ -33,10 +33,10 @@ validate:
     message: 'waitForTimeout / setTimeout sleep — flaky. expect(locator).toBeVisible() 같은 web-first auto-wait assertion 사용. (eslint-plugin-playwright/no-wait-for-timeout 와 보완, IDE 즉시 표시 가치)'
     severity: error
   - pattern: '\.locator\s*\(\s*[`''"](?:#|\.)[\w-]+[`''"]'
-    message: 'raw CSS selector (#id / .class) — i18n / refactor 깨짐 + a11y 회귀 미검출. getByRole / getByLabel / getByText 권장.'
+    message: 'raw CSS selector (#id / .class) — i18n / refactor 깨짐 + a11y 회귀 미검출. getByRole / getByLabel / getByText 권장. (eslint-plugin-playwright/no-raw-locators 와 중첩 — IDE 즉시 표시 가치로 유지)'
     severity: warn
   - pattern: 'page\.(?:click|fill|type|press|hover|check|uncheck|selectOption)\s*\(\s*[`''"]'
-    message: 'legacy page.click(selector) — locator API 권장. await page.getByRole("button", { name: "..." }).click(). (auto-wait + retry 자동)'
+    message: 'legacy page.click(selector) — locator API 권장. await page.getByRole("button", { name: "..." }).click(). (auto-wait + retry 자동). (eslint-plugin-playwright/prefer-locator 와 중첩 — IDE 즉시 표시 가치로 유지)'
     severity: warn
 retrieval:
   aliases:
@@ -241,7 +241,7 @@ violation 발생 시 — Playwright HTML report 안 *axe report* 가 inline 표�
   - **vercel:nextjs** — Playwright + Next.js 통합 (`webServer` config + App Router 라우팅)
   - **semantic-a11y** — axe violation 해석 (role / name / focus)
   - **rtl-query-priority** — 컴포넌트 단위 test (E2E 보다 가벼움, 같은 query 철학)
-  - **test-doubles-discipline** (Phase 3 B1.3 예정) — vitest `vi.mock` vs MSW vs 의존성 주입 결정
+  - **test-doubles-discipline** — vitest `vi.mock` vs MSW vs 의존성 주입 결정 (unit 측 mock 규율)
 
 ## 참조
 
