@@ -56,6 +56,14 @@ if [ ! -f "$FORBIDDEN_FILE" ]; then
   exit 2
 fi
 
+# Normalize TARGET_DIR — collapse `../` segments so glob 패턴 (e.g. `!**/scripts/**`)
+# 가 의도치 않게 *대상 디렉토리 경로* 안 `scripts` 세그먼트에 매치되어 전체 결과를
+# 무력화시키는 버그를 차단. (rg --glob 은 file path 전체에 매치되므로
+# `plugins/stack-backend-ts/scripts/../skills/...` 는 `**/scripts/**` 에 매치됨)
+if [ -d "$TARGET_DIR" ]; then
+  TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+fi
+
 # rg PCRE2 확인
 if ! rg --pcre2 --version >/dev/null 2>&1; then
   echo "error: rg with PCRE2 required (한국어 lookbehind/lookahead 필요)" >&2
