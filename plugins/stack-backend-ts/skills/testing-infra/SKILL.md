@@ -8,7 +8,7 @@ metadata:
 allowed-tools: Read, Write, Edit, Bash
 ---
 
-**적용된 §4.4 매트릭스 행**: pytest → vitest, fastapi.testclient.TestClient → framework in-process request helper, conftest.py fixtures → Vitest beforeAll/beforeEach/vi.mock, 환경변수 (os.getenv → `<framework env binding>`)
+**적용된 §4.4 매트릭스 행**: pytest → vitest, Python framework in-process TestClient → framework in-process request helper, conftest.py fixtures → Vitest beforeAll/beforeEach/vi.mock, 환경변수 (os.getenv → `<framework env binding>`)
 
 ## Core Rules (CRITICAL — baseline already knows common Vitest patterns, these are the UNIQUE differentiators)
 1. MUST configure Vitest for <runtime>-compatible async (no `setInterval`, `Buffer`, `fs` direct use when target runtime forbids)

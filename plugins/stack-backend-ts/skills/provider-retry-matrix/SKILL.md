@@ -7,7 +7,7 @@ metadata:
   source: stack-backend-python/_shared/provider-retry-matrix.md
 ---
 
-**적용된 §4.4 매트릭스 행**: HTTP 클라이언트 (httpx.AsyncClient → fetch), Retry (tenacity → p-retry 또는 수동 exponential backoff), 환경변수 (os.getenv → `<framework env binding>`), 에러 (FastAPI 의 HTTP exception → `<framework HTTP error class>`)
+**적용된 §4.4 매트릭스 행**: HTTP 클라이언트 (httpx.AsyncClient → fetch), Retry (tenacity → p-retry 또는 수동 exponential backoff), 환경변수 (os.getenv → `<framework env binding>`), 에러 (Python framework HTTP exception → `<framework HTTP error class>`)
 
 > Language-neutral invariants — Provider abstraction, retry/fallback matrix, circuit breaker, model resolution.
 > 정본 (single source of truth) for both Python and TS implementations.

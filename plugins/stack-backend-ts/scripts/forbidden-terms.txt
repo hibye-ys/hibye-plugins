@@ -45,7 +45,13 @@
 \bVercel\b
 \bvercel\b
 \baws-lambda\b
+AWS Lambda
 \bsupertest\b
+\bFastAPI\b
+\bfastapi\b
+\bStarlette\b
+\bstarlette\b
+\bfastapi-limiter\b
 \bctx\.env\b
 \bctx\.json\b
 \bctx\.req\b

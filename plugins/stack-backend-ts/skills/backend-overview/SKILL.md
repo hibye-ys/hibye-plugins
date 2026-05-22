@@ -41,7 +41,7 @@ metadata:
 
 ## 디렉토리 구조 (TS 백엔드 표준 레이아웃)
 
-> framework 무관 — 어느 `<framework>` 에서나 동작. runtime 도 무관 (Node / Bun / Deno / edge runtime). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`<framework env binding>`, runtime config 파일 등) 는 별도 runtime/framework plugin 에서 다룬다.
+> framework 무관 — 어느 `<framework>` 에서나 동작. runtime 도 무관 (process-based runtime / edge runtime / 컨테이너 호스팅 등). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`<framework env binding>`, runtime config 파일 등) 는 별도 runtime/framework plugin 에서 다룬다.
 
 ```
 <backend-root>/
@@ -134,7 +134,7 @@ import { ToolRegistry } from './tools/registry.ts'
 
 새 backend project 를 부트스트랩 할 때:
 1. 본 plugin (`stack-backend-ts`) = 디렉토리/계층/invariant 표준
-2. + runtime plugin (Node-server / edge runtime / Lambda 등) = 시크릿/config/배포
+2. + runtime plugin (process-based runtime / edge runtime / serverless function 등) = 시크릿/config/배포
 
 ## 자주 보는 사용 예시
 

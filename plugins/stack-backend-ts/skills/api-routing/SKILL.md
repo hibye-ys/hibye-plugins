@@ -42,7 +42,7 @@ Middleware 는 **요청 진입 순서 = 등록 순서** (FIFO) 로 동작하는 
 5. **schema validation** — route 수준 (auth 통과 후 body parse). zod 등 사용.
 6. **route handler** — 도메인 로직은 직접 호출 금지 (engine 경유).
 
-> 등록 순서 ≠ 실행 순서 인 프레임워크 (예: FastAPI `add_middleware` 의 LIFO wrap) 를 사용할 경우 본 가이드를 그대로 적용하지 말 것.
+> 등록 순서 ≠ 실행 순서 인 프레임워크 (LIFO middleware 모델 — 등록 역순으로 실행되어 inner→outer wrap 구조) 를 사용할 경우 본 가이드를 그대로 적용하지 말 것.
 
 ## Route 구현 원칙
 

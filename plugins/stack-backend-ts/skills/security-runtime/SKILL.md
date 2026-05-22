@@ -7,7 +7,7 @@ metadata:
   source: stack-backend-python/skills/security-runtime
 ---
 
-**적용된 §4.4 매트릭스 행**: `pydantic BaseModel.parse_obj` → `zSchema.parse(input)` (모든 입력 → 게이트), `starlette CORSMiddleware` → framework CORS middleware (예: `cors({ origin, ... })`), `slowapi` / `fastapi-limiter` rate limit → KV + sliding window 또는 framework rate-limiter, `python-jose` JWT → framework JWT 또는 `jose` (npm), `AWS Secrets Manager` / `.env` → runtime secret store (`<framework env binding>.<NAME>`), CSRF `starlette-csrf` → framework CSRF + double-submit cookie, audit log (Postgres trigger) → Drizzle insert + object storage immutable retention, `os.getenv` → `<framework env binding>.<NAME>`, `pip-audit` / `safety` → `npm audit` / `pnpm audit`
+**적용된 §4.4 매트릭스 행**: `pydantic BaseModel.parse_obj` → `zSchema.parse(input)` (모든 입력 → 게이트), Python ASGI CORS middleware → framework CORS middleware (예: `cors({ origin, ... })`), `slowapi` / Python rate-limiter → KV + sliding window 또는 framework rate-limiter, `python-jose` JWT → framework JWT 또는 `jose` (npm), Python secret manager SDK / `.env` → runtime secret store (`<framework env binding>.<NAME>`), Python CSRF middleware → framework CSRF + double-submit cookie, audit log (Postgres trigger) → Drizzle insert + object storage immutable retention, `os.getenv` → `<framework env binding>.<NAME>`, `pip-audit` / `safety` → `npm audit` / `pnpm audit`
 
 # security-runtime — 런타임 보안 감사 + 보고서 가이드
 

@@ -9,7 +9,7 @@ metadata:
 
 **적용된 §4.4 매트릭스 행**:
 - ABC / `abc.ABC` → **TS `interface`**
-- DI: `Depends(get_session)` (FastAPI) → **생성자 인자** 또는 **`<framework context store>('session')`** (framework context)
+- DI: `Depends(get_session)` (Python DI helper) → **생성자 인자** 또는 **`<framework context store>('session')`** (framework context)
 - `typing.Protocol` + `@runtime_checkable` → **TS `interface`** + 런타임 검증 필요 시 zod
 - `pydantic BaseModel` → **`zod`** schema (런타임 검증 경계)
 - `asyncio.CancelledError` → **`AbortController.signal`**
