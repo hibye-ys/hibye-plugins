@@ -285,8 +285,5 @@ function EmailForm() {
 ## 참조
 
 - [React 19 release notes](https://react.dev/blog/2024/12/05/react-19) · [Upgrade guide](https://react.dev/blog/2024/04/25/react-19-upgrade-guide)
-- [`use()`](https://react.dev/reference/react/use) · [`<Activity>`](https://react.dev/reference/react/Activity) · [`useOptimistic`](https://react.dev/reference/react/useOptimistic)
-- [`useFormStatus`](https://react.dev/reference/react-dom/hooks/useFormStatus) · [`useActionState`](https://react.dev/reference/react/useActionState)
-- [Document metadata](https://react.dev/reference/react-dom/components/title)
-- [React Compiler 1.0](https://react.dev/blog/2025/10/07/react-compiler-1) · [eslint-plugin-react-compiler](https://www.npmjs.com/package/eslint-plugin-react-compiler)
-- [types-react-codemod](https://github.com/eps1lon/types-react-codemod)
+- [`use()`](https://react.dev/reference/react/use) · [`<Activity>`](https://react.dev/reference/react/Activity) · [`useOptimistic`](https://react.dev/reference/react/useOptimistic) · [`useFormStatus`](https://react.dev/reference/react-dom/hooks/useFormStatus) · [`useActionState`](https://react.dev/reference/react/useActionState) · [Document metadata](https://react.dev/reference/react-dom/components/title)
+- [React Compiler 1.0](https://react.dev/blog/2025/10/07/react-compiler-1) · [eslint-plugin-react-compiler](https://www.npmjs.com/package/eslint-plugin-react-compiler) · [types-react-codemod](https://github.com/eps1lon/types-react-codemod)

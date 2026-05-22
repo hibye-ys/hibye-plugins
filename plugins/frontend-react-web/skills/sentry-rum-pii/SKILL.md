@@ -1,6 +1,6 @@
 ---
 name: sentry-rum-pii
-description: Sentry Browser SDK 초기화 + beforeSend PII redaction + Session Replay masking + sourcemap upload + production sample rate. sendDefaultPii: true / DSN 하드코딩 / replay 100% sampling 검출. sentry.client.config / Sentry.init 사용처 작성·리뷰 시 자동 트리거.
+description: "Sentry Browser SDK 초기화 + beforeSend PII redaction + Session Replay masking + sourcemap upload + production sample rate. sendDefaultPii: true / DSN 하드코딩 / replay 100% sampling 검출. sentry.client.config / Sentry.init 사용처 작성·리뷰 시 자동 트리거."
 metadata:
   priority: 4
   docs:
@@ -271,18 +271,12 @@ export function redactPii(event: ErrorEvent): ErrorEvent {
 - **Lighthouse / web-vitals lib** — Sentry Performance 와 보완 영역. *Web Vitals 전송 별도* = `web-vitals-transport` skill 이 sendBeacon transport / visibilitychange listener 깊게 다룸
 - **ESLint custom rule** (`no-process-env-leak`) — `process.env.SENTRY_*` 가 클라이언트 번들에 새지 않는지
 - **`@sentry/replay-canvas`** — canvas-based UI (chart / map) replay 필요 시 별도 integration (privacy 정책 동일 적용)
-- **본 plugin validate 가 *추가* 하는 영역**:
-  - DSN 리터럴 하드코딩 warn (build 시 sourcemap 안 노출 가능)
-  - `sendDefaultPii: true` 즉시 error (사고의 60% 출처)
-  - `replaysSessionSampleRate ≥ 0.5` warn (cost + PII 동시 위험 신호)
-  - Session Replay mask 비활성 즉시 error (production 환경에서 가장 흔한 사고)
+- **본 plugin validate 가 *추가* 하는 영역** — DSN 리터럴 하드코딩 warn / `sendDefaultPii: true` 즉시 error (사고의 60% 출처) / `replaysSessionSampleRate ≥ 0.5` warn / Session Replay mask 비활성 즉시 error
 
 ## 관련 skill cross-reference
 
-- **`electron-renderer-isolation`** — Electron 통합 시 main / renderer 분리 init 본문 참고
-- **`security-dom-sinks`** — Sentry tunnel endpoint 의 CORS / CSP 정책
-- **`web-vitals-transport`** — Web Vitals beacon API 전송 + Sentry Performance 와 보완
-- **`error-boundary-telemetry`** — ErrorBoundary + `Sentry.withErrorBoundary` 통합 패턴 (해당 skill 이 본 skill 로 chainTo 함)
+- **`electron-renderer-isolation`** — Electron main / renderer 분리 init / **`security-dom-sinks`** — Sentry tunnel endpoint 의 CORS / CSP 정책
+- **`web-vitals-transport`** — Web Vitals beacon 전송 + Sentry Performance 보완 / **`error-boundary-telemetry`** — ErrorBoundary + `Sentry.withErrorBoundary` (해당 skill 이 본 skill 로 chainTo)
 
 ## 참조
 

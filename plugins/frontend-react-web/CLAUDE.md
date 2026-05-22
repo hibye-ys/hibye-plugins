@@ -29,7 +29,7 @@ vercel 미install 시 — 성능 / Web Vitals / Next cache 룰 공백.
 
 ## 기성품 도구 진입점 + delegation 경계
 
-**핵심 원칙**: 본 plugin 의 skill validate 룰은 *도구가 잡지 못하는 / IDE 즉시 표시 가치가 큰* 패턴만. 도구가 잡는 룰 재현 ✕.
+**핵심 원칙**: 본 plugin 의 skill validate 룰은 *도구가 잡지 못하는 / IDE 즉시 표시 가치가 큰* 패턴만. 원칙적으로 도구가 잡는 룰 재현 ✕ — 단 *IDE 즉시 표시 가치* (eslint config 없는 환경 / 마이그레이션 흔한 사고 / 보안 즉시 차단) 가 명확한 경우 **carve-out 명시** 후 유지 (e.g. semantic-a11y 의 `role="button"` on `<a>` warn, rtl-query-priority 의 userEvent await, playwright-msw-e2e 의 waitForTimeout / raw CSS / legacy page.click — 본 plugin validate message 안 "(eslint-plugin-X/Y 와 중첩, IDE 즉시 표시 가치로 유지)" 어구 명시 의무).
 
 | 영역 | 도구 (위임) | 도구가 잡는 룰 | 본 plugin skill 이 *추가* 하는 룰 |
 |---|---|---|---|
@@ -37,8 +37,8 @@ vercel 미install 시 — 성능 / Web Vitals / Next cache 룰 공백.
 | 정적 TS / React 19 | `@typescript-eslint`, `tsc --noEmit`, `react/forwardref-deprecated` (ESLint react plugin) | strict 옵션 위반 / no-floating-promises / forwardRef deprecation warning 등 | `typescript-strict` / `react19-migration` (tsconfig 룰 + ref-as-prop / use() / Activity 패턴) |
 | 동적 a11y | `@axe-core/playwright` | WCAG 2.x 자동 룰 | Playwright a11y smoke 진입점 + report 해석 (`playwright-msw-e2e` 안) |
 | 성능 / Web Vitals | Lighthouse CI (lab) + vercel:react-best-practices (budget) | LCP / INP / CLS budget / bundle 등 | `web-vitals-transport` (sendBeacon / visibilitychange transport 만 — budget 은 vercel 위임) |
-| 컴포넌트 테스트 | Vitest + React Testing Library + `eslint-plugin-testing-library` (27+ 룰) | screen / fireEvent / await-async-queries 등 자동 | `rtl-query-priority` (testid warn / userEvent v14 await / fireEvent warn) + `test-doubles-discipline` (boundary-only mock + fake timers + Math.random 글로벌 재할당 error) |
-| E2E | Playwright + MSW + `eslint-plugin-playwright` (15+ 룰) | no-wait-for-timeout / no-focused-test / prefer-web-first-assertions 등 | `playwright-msw-e2e` (waitForTimeout error / raw CSS warn / legacy page.click warn + MSW handler 격리 + axe smoke) |
+| 컴포넌트 테스트 | Vitest + React Testing Library + `eslint-plugin-testing-library` (27+ 룰) | `prefer-screen-queries` / `prefer-presence-queries` / `await-async-queries` / `await-async-events` / `no-container` / `no-debugging-utils` 등 (recommended preset). `prefer-user-event` 는 *preset 밖* 별도 룰 | `rtl-query-priority` (testid warn / userEvent v14 await — `await-async-events` 와 IDE-immediacy 중첩 / fireEvent warn — preset 미커버) + `test-doubles-discipline` (boundary-only mock + fake timers + Math.random 글로벌 재할당 error — `prefer-spy-on` 과 부분 중첩) |
+| E2E | Playwright + MSW + `eslint-plugin-playwright` (15+ 룰) | `no-wait-for-timeout` / `no-raw-locators` / `prefer-locator` / `prefer-web-first-assertions` / `no-focused-test` 등 | `playwright-msw-e2e` (waitForTimeout error / raw CSS warn / legacy page.click warn — 셋 다 eslint-plugin-playwright 와 IDE-immediacy 중첩 carve-out + MSW handler 격리 + axe smoke 진입점) |
 | 보안 헤더 | CSP middleware (helmet / next.config) | CSP header presence | `security-dom-sinks` (strict-dynamic / Trusted Types / nonce 패턴 + dangerouslySetInnerHTML / eval / postMessage "*") |
 | Electron 보안 | `electronegativity` + `@electron/lint-roller` | 13 옵션 룰 자동 | `electron-renderer-isolation` (renderer-side 5 옵션 + IPC allowlist + nodeIntegration:true 검출) |
 | 디자인 토큰 | custom ESLint rule (`no-tailwind-arbitrary-color`) | `bg-[#xxx]` 같은 arbitrary color | `token-only-styling` (@theme 토큰 only / 대비 / dark mode / 인라인 style 색 검출) |
