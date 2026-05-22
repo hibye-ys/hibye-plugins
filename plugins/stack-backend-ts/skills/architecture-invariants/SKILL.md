@@ -27,12 +27,12 @@ metadata:
 
 | invariant | 적용 상황 |
 |---|---|
-| single-writer | SSE 응답 — writer 1개만 (`streamSSE` 내부에서 동시 write ✕) |
+| single-writer | SSE 응답 — writer 1개만 (framework SSE helper 내부에서 동시 write ✕) |
 | provider-retry-matrix | LLM / 외부 API 호출 — p-retry + CircuitBreaker + per-provider 재시도 분류 |
 | token-budget-constants | context 조립 / compaction 판정 — js-tiktoken 카운트 + 5 budget 상수 |
 | sse-lifecycle | SSE 응답 라이프사이클 — 12 이벤트 / 종료 4 제약 (`done` 미누락 / `done` + `error` 배타 / `usage` direct-before-`done` / payload 메타 혼합 ✕) |
 | compaction-thresholds | context 81% 도달 시 — compaction 트리거 / 결과 검증 / 실패 시 폴백 |
-| http-error-sentinels | `HTTPException` 던질 때 — 4 패턴 (공개 envelope / 내부 throw / 부팅 throw / 옵션 null+warn) |
+| http-error-sentinels | framework HTTP error 던질 때 — 4 패턴 (공개 envelope / 내부 throw / 부팅 throw / 옵션 null+warn) |
 | input-safety-gate-ordering | 사용자 입력 처리 시 — gate 순서 (size → schema → safety → policy) 고정 |
 | mcp-namespace | MCP tool 등록 시 — namespace prefix + 충돌 검출 + 도구 정렬 안정성 |
 | run-policy-presets | agent run 시작 시 — interactive / classifier / tool-based / multi-agent 4 preset + cross-field validation |

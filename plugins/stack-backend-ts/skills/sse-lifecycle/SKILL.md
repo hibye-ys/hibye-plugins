@@ -49,7 +49,7 @@ session → agent → (text | thinking | tool_call | tool_result | action | noti
 
 본 lifecycle 은 in-stream 이벤트 순서만 정의한다. 스트림 응답 이후에도 살아남아야 하는 부수 작업 (예: 로깅 flush, 비동기 DB 커밋, 백그라운드 spawn 알림) 은 런타임 특화 메커니즘으로 처리한다:
 
-> 백그라운드 태스크 스케줄링은 런타임 특화 (Node `setImmediate` / Workers `waitUntil` / Bun 등 — instance 측에서 정의)
+> 백그라운드 태스크 스케줄링은 `<runtime>` 특화 (예: Node `setImmediate`, edge runtime 의 background task helper, Bun 등 — instance 측 project-local skill 에서 정의)
 
 별도 OS 프로세스 분리 (subprocess) 는 일부 런타임에서 지원되지 않으므로 instance 측에서 런타임 가용성을 확인하고 폴백 경로를 명시할 것.
 

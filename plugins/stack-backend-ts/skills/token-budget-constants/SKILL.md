@@ -36,7 +36,7 @@ metadata:
 - 정확한 스케일 로직은 `TokenBudget.forModel(model)` (TS static method) 에서 관리
 - rule 은 비율·순서·불변만 정의, 정확한 상수는 코드에서 관리
 
-토큰 카운트 구현: `js-tiktoken` (Workers 호환) 또는 Workers 호환 lite 카운터. `tiktoken` (Python/Node native) 는 Workers runtime 에서 사용 불가 — `js-tiktoken` 으로 대체.
+토큰 카운트 구현: `js-tiktoken` (대부분의 runtime 호환) 또는 lite 카운터. `tiktoken` (native binding) 은 일부 runtime 에서 사용 불가 — runtime 호환 카운터로 대체 (구체 호환성은 instance 측 project-local skill 참조).
 
 ## Compaction 트리거 조건
 

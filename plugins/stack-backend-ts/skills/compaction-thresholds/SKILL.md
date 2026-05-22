@@ -15,7 +15,7 @@ metadata:
 
 # Compaction — 언어 무관 불변식
 
-토큰 측정: `js-tiktoken` (Workers 호환) 또는 근사 카운터. `tiktoken` (Python native) 는 Workers runtime 에서 사용 불가.
+토큰 측정: `js-tiktoken` (대부분의 runtime 호환) 또는 근사 카운터. native binding (예: `tiktoken`) 은 일부 runtime 에서 사용 불가 — runtime 호환성은 instance 측 project-local skill 참조.
 
 ## 4-Stage Escalation (순서 고정, 변경 금지)
 

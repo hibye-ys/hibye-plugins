@@ -39,7 +39,7 @@ TS 구현: `z.object({ ... }).readonly()` 또는 `Object.freeze(policy)` 로 imm
 | `spawn_enabled` | boolean | false | spawn_agent 도구 노출 여부 |
 | `max_spawn_depth` | number | 0 | 이 run 이 허용하는 서브 깊이 (`ge=0`). 전역 상한 `MAX_SPAWN_DEPTH=3` 초과 시 startup reject |
 | `response_schema` | string / null | null | 스키마 이름. 지정 시 마지막 assistant text 블록을 schema 로 파싱. **`sse=true` 와 상호 배타** |
-| `sse` | boolean | true | true=streamSSE, false=JSON buffer |
+| `sse` | boolean | true | true=SSE 스트림 (`<framework SSE helper>`), false=JSON buffer |
 | `session_enabled` | boolean | true | false=stateless (매 호출 새 세션) |
 | `pii_redaction` | boolean | true | true=user_message + tool_result 에 5종 PII 패턴 (RRN/모바일/유선/이메일/카드/운전면허) 일방향 redact |
 | `moderation` | nested | `ModerationPolicy()` (enabled=true, hard-block defaults) | Content moderation Phase 1 (input-side only) |

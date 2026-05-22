@@ -7,7 +7,7 @@ metadata:
   source: stack-backend-python/_shared/input-safety-gate-ordering.md
 ---
 
-**적용된 §4.4 매트릭스 행**: 스키마 (pydantic → zod, `z.object({...})`), 검증 (pydantic validator → `z.refine`), 의존성 주입 (Depends → `c.set/get` Hono Context), 미들웨어 (FastAPI middleware → `app.use`)
+**적용된 §4.4 매트릭스 행**: 스키마 (pydantic → zod, `z.object({...})`), 검증 (pydantic validator → `z.refine`), 의존성 주입 (Depends → `<framework context store>`), 미들웨어 (FastAPI middleware → `<framework middleware registration>`)
 
 > Language-neutral invariants — Input safety gate V3 ordering, two-port jailbreak, orthogonal moderation, header sentinels.
 > 정본 (single source of truth) for both Python and TS implementations.
@@ -41,26 +41,26 @@ tombstone (account state)
 
 ## Two-Port Jailbreak (R1-B1 — 단일 wrapper 금지)
 
-- `app.jailbreakHeuristicPort` (`HeuristicJailbreakProvider` | `NoopJailbreakProvider`) — Hono `c.set/c.get` 또는 singleton 주입
+- `app.jailbreakHeuristicPort` (`HeuristicJailbreakProvider` | `NoopJailbreakProvider`) — framework context store (`<framework context store>`) 또는 singleton 주입
 - `app.jailbreakClassifierPort` (`PromptGuardJailbreakProvider` | `NoopJailbreakProvider`)
 - **두 별도 lifespan-wired port**. 라우트는 interface 만 참조
 - 단일 `_MultiJailbreakProvider` wrapper **금지** — interface 의 single-responsibility 위반
 - `services/moderation/` 와 cross-import 금지 — 두 layer 는 직교
 
-## Hono 미들웨어 / DI 패턴
+## 미들웨어 / DI 패턴 (의사코드)
 
 ```ts
 // Zod 스키마 검증 (pydantic → zod)
 const RunRequestSchema = z.object({
   session_id: z.string(),
-  messages: z.array(z.object({ ... })),
+  messages: z.array(z.object({ /* ... */ })),
 }).refine((v) => /* cross-field */ true);
 
-// 미들웨어 (FastAPI Depends → app.use / c.set)
-app.use('*', async (c, next) => {
-  c.set('jailbreakPort', getJailbreakPort());
-  await next();
-});
+// 미들웨어 등록 (framework-neutral pseudo):
+//   <framework middleware registration>('*', async (ctx, next) => {
+//     <framework context store>.set(ctx, 'jailbreakPort', getJailbreakPort());
+//     await next();
+//   })
 ```
 
 ## Jailbreak ↔ Moderation 직교

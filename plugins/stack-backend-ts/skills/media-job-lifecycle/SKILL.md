@@ -8,7 +8,7 @@ metadata:
 ---
 
 > Language-neutral invariants — Media job lifecycle, retry classification, stale-lease reaper, tenant ownership.
-> 정본 (single source of truth) for Python harness, TS / Hono harness, 그리고 미래 Rust harness.
+> 정본 (single source of truth) for Python harness, TS harness, 그리고 미래 Rust harness.
 > Cited from: `stack-backend-python/rules/_shared/media-job-lifecycle.md`, `stack-backend-python/rules/media-pipeline-patterns.md`, `stack-backend-ts/skills/media-pipeline-patterns/SKILL.md`.
 
 # Media Job Lifecycle — 언어 무관 불변식
@@ -16,8 +16,8 @@ metadata:
 (slug: `media-job-lifecycle` — workflow 의 `media-pipeline-patterns` 와 구분)
 
 > **Storage 추상화 용어**
-> - **object storage**: 바이너리를 보관하는 외부 객체 저장소. 예: Cloudflare R2, AWS S3, GCS. Instance 측에서 구체 binding/SDK 선택.
-> - **key-value cache**: 작고 빠른 KV 저장소. 예: Workers KV, Redis, Upstash.
+> - **object storage**: 바이너리를 보관하는 외부 객체 저장소. 예: S3, GCS, R2 등. Instance 측에서 구체 binding/SDK 선택.
+> - **key-value cache**: 작고 빠른 KV 저장소. 예: Redis, Upstash, edge KV 등.
 
 ## 검증 대상 invariant 4건
 

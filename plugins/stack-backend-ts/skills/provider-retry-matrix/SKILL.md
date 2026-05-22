@@ -7,7 +7,7 @@ metadata:
   source: stack-backend-python/_shared/provider-retry-matrix.md
 ---
 
-**적용된 §4.4 매트릭스 행**: HTTP 클라이언트 (httpx.AsyncClient → fetch), Retry (tenacity → p-retry 또는 수동 exponential backoff), 환경변수 (os.getenv → c.env), 에러 (HTTPException(FastAPI) → HTTPException(hono/http-exception))
+**적용된 §4.4 매트릭스 행**: HTTP 클라이언트 (httpx.AsyncClient → fetch), Retry (tenacity → p-retry 또는 수동 exponential backoff), 환경변수 (os.getenv → `<framework env binding>`), 에러 (FastAPI 의 HTTP exception → `<framework HTTP error class>`)
 
 > Language-neutral invariants — Provider abstraction, retry/fallback matrix, circuit breaker, model resolution.
 > 정본 (single source of truth) for both Python and TS implementations.
@@ -110,7 +110,7 @@ CLOSED → OPEN → HALF_OPEN → CLOSED
   custom_models: <list>        # 파인튜닝 / 셀프호스팅 자기 선언 (선택)
 ```
 
-환경변수 접근: `c.env.OPENROUTER_API_KEY` (Hono `c.env`) — `process.env` 직접 read 금지.
+환경변수 접근: framework env binding (예: `<framework env binding>.OPENROUTER_API_KEY`) 만 사용 — 글로벌 process env 직접 read 금지 (runtime-specific bypass — instance 측 project-local skill 참조).
 
 Credentials: `api_key` (Anthropic / OpenAI / OpenRouter), `api_key` 또는 `service_account_json` (Google), 셀프호스팅용 `api_key` (openai_compatible / local).
 
@@ -133,7 +133,7 @@ Credentials: `api_key` (Anthropic / OpenAI / OpenRouter), `api_key` 또는 `serv
 
 1. 각 provider 모듈 import → `registerProviderClass()` 가 `PROVIDER_REGISTRY` 에 자가 등록 (side effect)
 2. `bootstrap` / `lifespan` 이 `config/providers.yaml` 파싱 → `ProviderRegistry` 인스턴스 생성
-3. models.dev 첫 fetch — 백그라운드 비동기 `Promise.all` / `c.executionCtx.waitUntil` (실패해도 부팅 차단 안 함)
+3. models.dev 첫 fetch — 백그라운드 비동기 (예: `Promise.all` + runtime-specific background task scheduler; 실패해도 부팅 차단 안 함. 구체 메커니즘은 instance 측 project-local skill 참조)
 4. OpenRouter catalog prewarm — 설정 시에만
 5. `ModelRouter` 생성 → agent 의 `model_preference` chain 해석 준비 완료
 

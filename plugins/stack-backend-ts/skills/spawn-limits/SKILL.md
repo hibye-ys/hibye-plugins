@@ -7,7 +7,7 @@ metadata:
   source: stack-backend-python/_shared/spawn-limits.md
 ---
 
-**적용된 §4.4 매트릭스 행**: 동시성 (asyncio.gather → Promise.all), 프로세스 분리 (Workers `c.executionCtx.waitUntil` 한계 명시), 큐 (BackgroundTasks → Promise/waitUntil 동등 패턴). Workers 제약: CPU 시간 한계, `waitUntil` 길이 제한. `p-limit` 라이브러리 권장.
+**적용된 §4.4 매트릭스 행**: 동시성 (asyncio.gather → Promise.all), 프로세스 분리 (runtime-specific background task helper — 한계 명시), 큐 (BackgroundTasks → Promise + runtime background task 동등 패턴). Runtime 제약 (CPU 시간 / background task 길이) 은 instance 측 project-local skill 참조. `p-limit` 라이브러리 권장.
 
 > Language-neutral invariants — Sub-agent spawn limits, isolation, cache discipline.
 > 정본 (single source of truth) for both Python and TS implementations.
@@ -30,11 +30,11 @@ metadata:
 |------|------|----------|----------|
 | `foreground` | blocking spawn — 결과까지 await | `runForeground()` | 짧은 위임 (< timeout_seconds) |
 | `in_process` | 별도 mailbox 로 병렬 실행 목표 | **foreground 의 alias (현재)** — mailbox/병렬 TBD | 미래 병렬 워크로드 |
-| `background` | non-blocking, 부모 즉시 다음 턴 진행 | `scheduleBackground()` — 같은 프로세스 내 Promise/`c.executionCtx.waitUntil` (**별도 프로세스 아님**) | 장시간 작업 (분 단위) |
+| `background` | non-blocking, 부모 즉시 다음 턴 진행 | `scheduleBackground()` — 같은 프로세스 내 Promise + runtime background task helper (**별도 프로세스 아님**) | 장시간 작업 (분 단위) |
 
 `in_process` 는 rule 에 선언되어 있지만 **아직 구현 미완** — 사용자는 현재 foreground 와 동일 결과를 얻음. 별도 mailbox / 병렬 실행은 미래 작업.
 
-**Workers 제약**: Cloudflare Workers 에서 `c.executionCtx.waitUntil(promise)` 는 CPU time limit 및 실행 시간 한계 있음. 장시간 background 작업은 Node 모드 전용이거나 외부 큐 위임 검토 필요.
+**Runtime 제약**: 일부 runtime 의 background task helper 는 CPU time limit 및 실행 시간 한계 있음. 장시간 background 작업은 long-running process 전용이거나 외부 큐 위임 검토 필요 (구체 한계는 instance 측 project-local skill 참조).
 
 병렬 실행 시 concurrency 제어: `p-limit` 라이브러리 권장.
 

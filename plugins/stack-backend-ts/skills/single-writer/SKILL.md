@@ -51,7 +51,7 @@ metadata:
 
 → crash-safe 불변. 부분 쓰기 / 손상 파일 발생 불가.
 
-> ⚠️ Workers 환경 caveat: `fsync` / `rename` (Node fs API) 은 *escape hatch only* — `apps/api/src/storage/provider.ts` 의 `LocalFsProvider` 내부에서만 사용. Workers runtime 에서는 R2 / KV SDK 의 atomic put 패턴으로 대체 (예: `await c.env.R2_BUCKET.put(key, data, { onlyIf: { etagDoesNotMatch: oldEtag } })`).
+> ⚠️ Runtime caveat: `fsync` / `rename` 류 Node fs API 는 *escape hatch only* — `<api-app>/src/storage/provider.ts` 의 local fs provider 내부에서만 사용. 외부 storage runtime (예: object storage SDK) 에서는 atomic put 패턴으로 대체 (etag-conditioned put 등).
 
 ### 2. Per-resource Lock
 
