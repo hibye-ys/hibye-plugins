@@ -1,0 +1,8 @@
+{
+  "name": "stack-backend-ts",
+  "version": "0.0.1",
+  "description": "TypeScript backend rules — AI agent + general backend, framework/runtime neutral (domain-coupled via <domain> placeholder).",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT",
+  "keywords": ["typescript", "backend", "ai-agent", "agent-skills"]
+}

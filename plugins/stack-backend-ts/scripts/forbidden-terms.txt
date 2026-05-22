@@ -1,0 +1,19 @@
+# forbidden-terms.txt — stack-backend-ts 정본
+#
+# 위치 = plugin scripts 옆 (forbidden-scan.sh 가 자기-포함 default 로 참조).
+# 갱신 시 본 파일 한 곳만 수정.
+#
+# rg -nP -f 로 적용. 한 줄 한 패턴. 빈 줄/`#` 시작 = 무시.
+#
+# 본 plugin 의 forbidden-terms 정책:
+# - 도메인 어휘 ("iyaki", "blog", "commerce") 는 multi-instance 예시 패턴으로
+#   본문 안에 *동시* 등장해야 함 — 단일 instance 명만 등장하면 일반화 위반.
+#   단, 본 자동화로는 검출 어려움 (의도 vs 누락 구분 X) — 리뷰 단계에서 수동 점검.
+# - 본 plugin 자체 메타 일관성 관련 어휘만 자동 강제.
+
+# === 본 plugin 메타 일관성 룰 ===
+# 현재 시점 강제하는 lexical pattern 없음 — 신규 패턴 추가 시 본 파일에 한 줄씩 추가.
+#
+# 예: 향후 deprecated identifier 강제 시:
+#   stack-backend-ts-hono  (legacy plugin name — rename 후 잔존 금지)
+\bstack-backend-ts-hono\b
