@@ -1,6 +1,6 @@
 ---
 name: design-principles
-description: apps/api 설계 결정 시 7가지 핵심 원칙 (Safe Defaults / Cheapest First / Cache Stability First / Isolation Default / Structured Errors to Model / Dynamic Context Injection / Partial Loading) 검토. PR 리뷰 자가체크 + 원칙 간 충돌 trade-off 안내.
+description: <api-app> 설계 결정 시 7가지 핵심 원칙 (Safe Defaults / Cheapest First / Cache Stability First / Isolation Default / Structured Errors to Model / Dynamic Context Injection / Partial Loading) 검토. PR 리뷰 자가체크 + 원칙 간 충돌 trade-off 안내.
 metadata:
   role: workflow
   scope: project
@@ -9,16 +9,16 @@ metadata:
 
 **적용된 §4.4 매트릭스 행**:
 - ABC / `abc.ABC` → **TS `interface`**
-- DI: `Depends(get_session)` (FastAPI) → **생성자 인자** 또는 **`c.get('session')`** (Hono context)
+- DI: `Depends(get_session)` (FastAPI) → **생성자 인자** 또는 **`<framework context store>('session')`** (framework context)
 - `typing.Protocol` + `@runtime_checkable` → **TS `interface`** + 런타임 검증 필요 시 zod
 - `pydantic BaseModel` → **`zod`** schema (런타임 검증 경계)
 - `asyncio.CancelledError` → **`AbortController.signal`**
-- `contextvars` → **`AsyncLocalStorage`** (Node) / request-scoped Hono context
+- `contextvars` → **`AsyncLocalStorage`** (Node) / request-scoped framework context
 
 > source: `stack-backend-python/rules/design-principles.md`
 > *원칙* (YAGNI / DRY / SoC / cohesion / loose coupling) 그대로, 예시 코드만 TS 화.
 
-# design-principles — 7가지 핵심 설계 원칙 (apps/api TS / Hono)
+# design-principles — 7가지 핵심 설계 원칙 (<api-app> TS)
 
 ## 이 skill은 언제 invoke 되는가
 
@@ -58,8 +58,8 @@ export const ToolDefinitionSchema = z.object({
 1. LLM 호출 — 외부 API, 초 단위 latency + 토큰 비용
 2. 외부 네트워크 I/O — provider fetch, MCP 원격
 3. DB 쿼리 — Neon (Drizzle) / SQLite fallback
-4. KV / R2 lookup — Workers 바인딩
-5. 파일 I/O — Node 환경 디스크 (Workers ✕)
+4. KV / object storage lookup — runtime 바인딩
+5. 파일 I/O — Node 환경 디스크 (일부 runtime ✕)
 6. 메모리 연산
 
 - Compaction: 메시지 삭제 → 부분 축소 → 세션 메모리 정리 → LLM 요약 (순서 고정)

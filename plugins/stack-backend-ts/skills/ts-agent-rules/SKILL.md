@@ -105,7 +105,7 @@ class OpenRouterProvider implements ProviderProtocol { ... }
 - `src/services/*` 는 요청 간 mutable state ✕
 - 상태가 필요하면 (1) 요청 인자로 전달, (2) 외부 저장소 (Postgres / Redis / object storage 등) 위임, (3) TTL 명시 Cache 주입
 - **모듈 전역 mutable state ✕** — module-level `let counter = 0` 같은 mutable 변수는 (a) serverless / isolate runtime 에서 인스턴스 재사용 보장 ✕, (b) 동일 process 안에서도 동시 요청 race 위험 → 항상 stateless
-- 요청 컨텍스트는 framework 가 제공하는 *요청 범위* 객체로만 (Hono `c.env/c.get/c.set`, Express `req.locals`, Fastify `request.context` 등) — global 로 새지 않음
+- 요청 컨텍스트는 framework 가 제공하는 *요청 범위* 객체로만 (`<framework context store>` / `<framework env binding>`, Express `req.locals`, Fastify `request.context` 등) — global 로 새지 않음
 
 ```typescript
 // ❌ module-level mutable

@@ -1,6 +1,6 @@
 ---
 name: commit-rules
-description: apps/api 변경 사항 commit 작성 시 invoke. Conventional Commits 7 접두사 + scope 카탈로그 (stack-backend-ts / apps/api / sub-area) + 제목 / 본문 / Co-Authored-By 트레일러 규약 안내.
+description: <api-app> 변경 사항 commit 작성 시 invoke. Conventional Commits 7 접두사 + scope 카탈로그 (stack-backend-ts / <api-app> / sub-area) + 제목 / 본문 / Co-Authored-By 트레일러 규약 안내.
 metadata:
   role: workflow
   scope: project
@@ -8,13 +8,13 @@ metadata:
 ---
 
 > source: `stack-backend-python/rules/commit-rules.md`
-> Conventional Commits 원본 규약 + TS / Hono 스택 scope 카탈로그.
+> Conventional Commits 원본 규약 + TS 스택 scope 카탈로그.
 
-# commit-rules — Conventional Commits 규약 (apps/api / stack-backend-ts)
+# commit-rules — Conventional Commits 규약 (<api-app> / stack-backend-ts)
 
 ## 이 skill은 언제 invoke 되는가
 
-- `apps/api/` 변경 commit 작성 시
+- `<api-app>/` 변경 commit 작성 시
 - `plugins/stack-backend-ts/` (rules / skills) 변경 commit 작성 시
 - "왜 commit 메시지가 reject 되지?" 디버깅 (lint hook)
 
@@ -40,14 +40,14 @@ scope 는 변경 파일의 **최상위 의미 단위**. 모노레포 / 플러그
 |-------|------|
 | `stack-backend-ts` | `plugins/stack-backend-ts/` rules + skills 변경 |
 | `stack-backend-python` | `plugins/stack-backend-python/` rules + skills 변경 |
-| `apps/api` | `apps/api/**` 광범위 변경 (sub-area 결정 어려울 때) |
+| `<api-app>` | `<api-app>/**` 광범위 변경 (sub-area 결정 어려울 때) |
 | `apps/web` | `apps/web/**` |
 | `apps/ml-worker` | `apps/ml-worker/**` |
 
-### apps/api sub-area
+### <api-app> sub-area
 
 ```
-apps/api/src/
+<api-app>/src/
 ├── routes/       → scope=routes (또는 routes/<name>)
 ├── engine/       → scope=loop / engine
 ├── providers/    → scope=provider (또는 provider/<name>)
@@ -60,13 +60,13 @@ apps/api/src/
 └── observability/→ scope=observability / log
 ```
 
-여러 sub-area 가 동시에 바뀌면 **상위 scope** (`apps/api`) 또는 변경의 핵심 도메인을 선택.
+여러 sub-area 가 동시에 바뀌면 **상위 scope** (`<api-app>`) 또는 변경의 핵심 도메인을 선택.
 
 ### 영역 결정 우선순위
 
 1. 변경이 한 **sub-area** 안에 닫혀 있으면 → sub-area scope (`provider`, `loop`, `sse` 등)
 2. 한 **plugin** 안에서 여러 rule / skill 동시 변경 → plugin scope (`stack-backend-ts`)
-3. 영역 cross-cutting → `apps/api` 또는 모노레포 루트 scope 생략
+3. 영역 cross-cutting → `<api-app>` 또는 모노레포 루트 scope 생략
 
 ## 형식 규칙
 

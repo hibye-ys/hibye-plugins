@@ -1,6 +1,6 @@
 ---
 name: agent-verify-def
-description: 새 agent 정의 추가 후 또는 배포 전 invoke. apps/api/src/agents/*.ts 의 default export 가 AgentDef 인터페이스 필수 필드 (name / version / step / modelMix) 를 모두 채우는지 + name 중복 ✕ 를 grep 으로 검증.
+description: 새 agent 정의 추가 후 또는 배포 전 invoke. <api-app>/src/agents/*.ts 의 default export 가 AgentDef 인터페이스 필수 필드 (name / version / step / modelMix) 를 모두 채우는지 + name 중복 ✕ 를 grep 으로 검증.
 metadata:
   role: audit
   scope: project
@@ -11,7 +11,7 @@ metadata:
 
 ## 검증 대상 invariant
 
-`apps/api/src/agents/*.ts` 의 default export = `AgentDef` 구현. 필수 필드 4개 (`name`, `version`, `step`, `modelMix`) 모두 채워야 하며, 같은 `name` 값을 가진 정의가 둘 이상 존재하면 등록 충돌이 발생한다.
+`<api-app>/src/agents/*.ts` 의 default export = `AgentDef` 구현. 필수 필드 4개 (`name`, `version`, `step`, `modelMix`) 모두 채워야 하며, 같은 `name` 값을 가진 정의가 둘 이상 존재하면 등록 충돌이 발생한다.
 
 - `name` — registry key. 중복 ✕
 - `version` — semver string, 호환성 추적
@@ -22,7 +22,7 @@ metadata:
 
 ```bash
 # 패턴 1: 필수 필드 누락 — file-level loop
-for f in apps/api/src/agents/*.ts; do
+for f in <api-app>/src/agents/*.ts; do
   [[ -f "$f" ]] || continue
   for field in name version step modelMix; do
     grep -q "$field" "$f" || echo "$f: missing $field"
@@ -30,7 +30,7 @@ for f in apps/api/src/agents/*.ts; do
 done
 
 # 패턴 2: name 중복 — sed extract (awk -F'"' 단일 quote 손실 회피)
-grep -hE "^\s*name:\s*['\"]" apps/api/src/agents/*.ts 2>/dev/null \
+grep -hE "^\s*name:\s*['\"]" <api-app>/src/agents/*.ts 2>/dev/null \
   | sed -E "s/.*name:\s*['\"]([^'\"]+)['\"].*/\1/" \
   | sort | uniq -d
 ```

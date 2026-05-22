@@ -1,6 +1,6 @@
 ---
 name: backend-overview
-description: TS 백엔드 진입 시 또는 새 모듈 위치 결정 시 invoke. TS 디렉토리 구조와 모듈 의존성 방향, 주요 진입점 (src/routes/, src/ai/providers/, src/sse/) 안내. 새 contributor onboarding, "어디에 무엇이 있는지" 분류 필요 시에도 invoke. framework (Hono / Express / Fastify 등) 무관.
+description: TS 백엔드 진입 시 또는 새 모듈 위치 결정 시 invoke. TS 디렉토리 구조와 모듈 의존성 방향, 주요 진입점 (src/routes/, src/ai/providers/, src/sse/) 안내. 새 contributor onboarding, "어디에 무엇이 있는지" 분류 필요 시에도 invoke. framework / runtime 무관.
 metadata:
   role: workflow
   scope: project
@@ -41,7 +41,7 @@ metadata:
 
 ## 디렉토리 구조 (TS 백엔드 표준 레이아웃)
 
-> framework 무관 — 예: Hono / Express / Fastify / Nest 등. runtime 도 무관 (Node / Workers / Bun / Deno). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`c.env`, `wrangler.toml` 등) 는 별도 runtime/framework plugin (예: Hono + Workers 조합 plugin) 에서 다룬다.
+> framework 무관 — 예: Express / Fastify / Nest 등. runtime 도 무관 (Node / Bun / Deno / edge runtime). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`<framework env binding>`, runtime config 파일 등) 는 별도 runtime/framework plugin 에서 다룬다.
 
 ```
 <backend-root>/
@@ -56,7 +56,7 @@ metadata:
       providers/          ← provider 어댑터 (openrouter.ts, anthropic.ts 등)
       model-resolution.ts ← 4단계 model resolution
     sse/
-      stream.ts           ← streamSSE() 헬퍼 + serialize 함수
+      stream.ts           ← <framework SSE helper> + serialize 함수
       scrub.ts            ← secret/PII scrub 로직
     tools/
       registry.ts         ← ToolRegistry (Map<string, ToolHandler>)
@@ -85,7 +85,7 @@ metadata:
     utils/
       ids.ts              ← nanoid / hex id 헬퍼
       env.ts              ← env 어댑터 (framework/runtime 추상)
-  <runtime-config>        ← runtime/framework 별도 (wrangler.toml / Dockerfile / fly.toml 등) — runtime plugin 책임
+  <runtime-config>        ← runtime/framework 별도 (runtime config 파일 / Dockerfile / fly.toml 등) — runtime plugin 책임
 ```
 
 ## 계층 단방향 import
@@ -130,11 +130,11 @@ import { ToolRegistry } from './tools/registry.ts'
 
 ## Runtime / framework 특화
 
-본 plugin 은 framework / runtime 무관. 시크릿 접근 방식 (`process.env` vs `c.env` 등), config 파일 (`wrangler.toml` / `Dockerfile` 등), CPU/메모리 한계, streaming 구현 (`waitUntil` 등) 등 *runtime-specific* 사항은 별도 runtime plugin 에 위치한다 (instance 측 project-local skill 참조).
+본 plugin 은 framework / runtime 무관. 시크릿 접근 방식 (`process.env` vs `<framework env binding>` 등), config 파일 (runtime config 파일 / `Dockerfile` 등), CPU/메모리 한계, streaming 구현 (runtime background task helper 등) 등 *runtime-specific* 사항은 별도 runtime plugin 에 위치한다 (instance 측 project-local skill 참조).
 
 새 backend project 를 부트스트랩 할 때:
 1. 본 plugin (`stack-backend-ts`) = 디렉토리/계층/invariant 표준
-2. + runtime plugin (Workers / Node-server / Lambda 등) = 시크릿/config/배포
+2. + runtime plugin (Node-server / edge runtime / Lambda 등) = 시크릿/config/배포
 
 ## 자주 보는 사용 예시
 
