@@ -5,22 +5,6 @@
   "owner": { "name": "hibye-ys" },
   "plugins": [
     {
-      "name": "core",
-      "description": "Universal LLM backend principles and workflows.",
-      "category": "development",
-      "source": "./plugins/core",
-      "version": "0.0.1"
-    },
-    {
-      "name": "deprecated-example",
-      "description": "Test fixture for M0 #10 — deprecation warning.",
-      "category": "development",
-      "source": "./plugins/deprecated-example",
-      "version": "0.0.1",
-      "deprecated": true,
-      "successor": "core"
-    },
-    {
       "name": "stack-backend-ts-hono",
       "description": "Hono + Web 표준 (Workers 호환) backend rules for TypeScript projects.",
       "category": "development",
