@@ -34,6 +34,21 @@ set -- "${ARGS[@]:-}"
 API_DIR="${1:-$(pwd)}"
 cd "$API_DIR" || { echo "error: API_DIR not found: $API_DIR" >&2; exit 2; }
 
+# Framework-specific audit patterns. default = Hono + Workers (가장 흔한 instance).
+# instance 가 다른 framework / runtime 이면 env var 로 override.
+#   예) Express: REQUEST_BODY_PATTERN='req\.(body|params|query)'
+#                ROUTE_HANDLER_PATTERN='(app|router)\.(get|post|put|patch|delete)'
+#                KV_BINDING_PATTERN='process\.env\.[A-Z_]+'
+REQUEST_BODY_PATTERN="${REQUEST_BODY_PATTERN:-c\.req\.(json|valid|parseBody)}"
+ROUTE_HANDLER_PATTERN="${ROUTE_HANDLER_PATTERN:-app\.(get|post|put|patch|delete)}"
+KV_BINDING_PATTERN="${KV_BINDING_PATTERN:-c\.env\.[A-Z_]+}"
+# api-audit: mutation route 가 schema validator 미들웨어 보유 여부. default = Hono 의 zValidator.
+#   예) Express + express-validator: ZOD_VALIDATOR_PATTERN='checkSchema|validateRequest'
+ZOD_VALIDATOR_PATTERN="${ZOD_VALIDATOR_PATTERN:-zValidator}"
+# api-audit: route handler 정의 패턴 — POST/PUT/PATCH 만 (mutation). default = Hono.
+#   예) Express: ROUTE_MUTATION_PATTERN='(app|router)\.(post|put|patch)'
+ROUTE_MUTATION_PATTERN="${ROUTE_MUTATION_PATTERN:-app\.(post|put|patch)}"
+
 VIOLATIONS=0
 SKIP_COUNT=0
 
@@ -88,9 +103,9 @@ fi
 input_safety_check() {
   [[ ! -d src/routes ]] && { echo "SKIP [input-safety]: src/routes/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local missing
-  missing=$(grep -rEn 'await\s+c\.req\.json\(\)' src/routes/ -A 5 2>/dev/null | grep -B 5 -v 'parse\|safeParse\|z\.' | grep -c 'c\.req\.json' || true)
+  missing=$(grep -rEn "await\s+${REQUEST_BODY_PATTERN}\(\)" src/routes/ -A 5 2>/dev/null | grep -B 5 -v 'parse\|safeParse\|z\.' | grep -cE "${REQUEST_BODY_PATTERN}" || true)
   if [[ $missing -gt 0 ]]; then
-    echo "VIOLATION [input-safety]: $missing 곳 c.req.json() 다음 5줄 안 zod parse 없음"
+    echo "VIOLATION [input-safety]: $missing 곳 request body accessor 다음 5줄 안 zod parse 없음 (REQUEST_BODY_PATTERN=$REQUEST_BODY_PATTERN)"
     VIOLATIONS=$((VIOLATIONS + missing))
   else
     echo "PASS [input-safety]"
@@ -176,15 +191,17 @@ agent_verify_def_check() {
 }
 agent_verify_def_check
 
-# 15. api-audit — POST/PUT/PATCH 안 zValidator 누락 + protected path auth 누락
+# 15. api-audit — POST/PUT/PATCH 안 schema validator 누락 + protected path auth 누락
+#     (default 패턴 = Hono zValidator; ZOD_VALIDATOR_PATTERN / ROUTE_MUTATION_PATTERN env 로 override)
 # BSD awk 호환: `\s` → `[[:space:]]`
 api_audit_check() {
   [[ ! -d src/routes ]] && { echo "SKIP [api-audit]: src/routes/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local count=0
   for f in $(find src/routes -type f -name '*.ts' 2>/dev/null); do
-    awk '/app\.(post|put|patch)\(/{flag=1; start=NR}
-         flag && /zValidator/{flag=0}
-         flag && /\)[[:space:]]*$/{print FILENAME":"start": missing zValidator"; flag=0; count++}
+    awk -v mutation_re="$ROUTE_MUTATION_PATTERN" -v validator_re="$ZOD_VALIDATOR_PATTERN" '
+         $0 ~ mutation_re {flag=1; start=NR}
+         flag && $0 ~ validator_re {flag=0}
+         flag && /\)[[:space:]]*$/{print FILENAME":"start": missing schema validator (ZOD_VALIDATOR_PATTERN="validator_re")"; flag=0; count++}
          END {exit count>0?1:0}' "$f" 2>/dev/null
     [[ $? -ne 0 ]] && count=$((count+1))
   done
@@ -282,11 +299,11 @@ session_audit_check() {
       count=$((count+1))
     done <<< "$ttl_candidates"
   fi
-  # c.env.KV 우회
+  # KV binding 직접 접근 우회 (default: c.env.KV*, override via KV_BINDING_PATTERN)
   local bypass
-  bypass=$(rg -nP "c\.env\.\w*KV\w*\." src/ 2>/dev/null | grep -v "src/storage/" | wc -l | tr -d ' ')
+  bypass=$(rg -nP "${KV_BINDING_PATTERN}" src/ 2>/dev/null | grep -v "src/storage/" | wc -l | tr -d ' ')
   if [[ $bypass -gt 0 ]]; then
-    echo "VIOLATION [session-audit]: $bypass storage adapter 우회"
+    echo "VIOLATION [session-audit]: $bypass storage adapter 우회 (KV_BINDING_PATTERN=$KV_BINDING_PATTERN)"
     count=$((count+bypass))
   fi
   VIOLATIONS=$((VIOLATIONS + count))

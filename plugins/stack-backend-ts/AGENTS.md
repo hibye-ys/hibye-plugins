@@ -81,7 +81,7 @@
 | Skill | Description |
 |-------|-------------|
 | [`agent-verify-def`](skills/agent-verify-def/SKILL.md) | 새 agent 정의 추가 후 또는 배포 전 invoke. <api-app>/src/agents/*.ts 의 default export 가 AgentDef 인터페이스 필수 필드 (name / version / step / modelMix) 를 모두 채우는지 + name 중복 ✕ 를 grep 으로 검증. |
-| [`api-audit`](skills/api-audit/SKILL.md) | 새 framework route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 zValidator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크. |
+| [`api-audit`](skills/api-audit/SKILL.md) | 새 framework route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 schema validator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크. |
 | [`app-domain-boundary-audit`](skills/app-domain-boundary-audit/SKILL.md) | 모듈 추가/이동 후. app-domain-boundary invariant — 코어 (provider/sse/storage 등 generic) 디렉토리에 도메인-specific 어휘 누출 검출 (구체 어휘는 `scripts/forbidden-terms.txt` 정의). |
 | [`compaction-thresholds-audit`](skills/compaction-thresholds-audit/SKILL.md) | compaction 코드 변경 후. compaction-thresholds invariant (CompactAt%, EmergencyCompactAt% 등) 상수 import 검증. |
 | [`data-audit`](skills/data-audit/SKILL.md) | schema 변경 후 또는 새 migration 추가 후 invoke. Drizzle schema 의 FK 컬럼에 인덱스 정의가 함께 있는지 / migration 파일 순서가 정렬되어 있는지 / RLS policy 누락을 grep 으로 검증. data-layer + database invariant 와 짝. |

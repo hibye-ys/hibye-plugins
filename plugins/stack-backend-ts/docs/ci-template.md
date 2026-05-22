@@ -19,6 +19,18 @@ jobs:
       # instance 측에서 값 결정 — placeholder 어휘를 forbidden-scan / audit 에 주입
       DOMAIN_VOCAB: "writer|author|scenario|novel|character|persona"
       API_APP_PATH: "apps/api"
+      # framework-specific audit pattern (default = Hono + Workers).
+      # instance 가 다른 framework 면 override:
+      #   - Express 예: REQUEST_BODY_PATTERN='req\.(body|params|query)'
+      #                 ROUTE_HANDLER_PATTERN='(app|router)\.(get|post|put|patch|delete)'
+      #                 ROUTE_MUTATION_PATTERN='(app|router)\.(post|put|patch)'
+      #                 KV_BINDING_PATTERN='process\.env\.[A-Z_]+'
+      #                 ZOD_VALIDATOR_PATTERN='checkSchema|validateRequest'
+      REQUEST_BODY_PATTERN: 'c\.req\.(json|valid|parseBody)'
+      ROUTE_HANDLER_PATTERN: 'app\.(get|post|put|patch|delete)'
+      ROUTE_MUTATION_PATTERN: 'app\.(post|put|patch)'
+      KV_BINDING_PATTERN: 'c\.env\.[A-Z_]+'
+      ZOD_VALIDATOR_PATTERN: 'zValidator'
     steps:
       - uses: actions/checkout@v4
       - name: acceptance-check

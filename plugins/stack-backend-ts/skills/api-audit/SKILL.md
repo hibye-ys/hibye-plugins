@@ -1,6 +1,6 @@
 ---
 name: api-audit
-description: 새 framework route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 zValidator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크.
+description: 새 framework route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 schema validator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크.
 metadata:
   role: audit
   scope: project
@@ -13,7 +13,7 @@ metadata:
 
 framework route 는 *thin layer* — 입력 검증 + 인증 + 핸들러 호출만. 위반 시 보안·계약 안정성 동시 손상.
 
-1. **mutation (POST/PUT/PATCH)** 은 반드시 `zValidator` 또는 동등 schema validator 미들웨어로 body schema 검증
+1. **mutation (POST/PUT/PATCH)** 은 반드시 `<framework zod validator>` (instance 측 framework 별 schema validator 미들웨어 — placeholder 어휘는 `docs/placeholder-vocabulary.md` 참조) 로 body schema 검증
 2. **보호 path** (`src/routes/protected/`) 는 반드시 `authMiddleware` 적용
 3. 핸들러는 framework JSON response helper 명시 응답 (raw `Response` 직접 반환 ✕)
 4. **middleware 등록 순서**: [[api-routing]] invariant 의 순서표 (`requestId → rateLimit → cors → auth → schema → handler`) 와 일치. 본 audit 는 순서를 자체 정의하지 않음 — SoT 는 `api-routing` 단일.
@@ -26,12 +26,19 @@ framework route 는 *thin layer* — 입력 검증 + 인증 + 핸들러 호출�
 > 는 instance 측 framework 별 호출 패턴으로 치환 (각 framework 의 라우트 정의 / 요청 접근자 / JSON 응답 헬퍼 이름).
 
 ```bash
-# 패턴 1: POST/PUT/PATCH 핸들러 안 zValidator 누락 — file-level awk block scan
+# 패턴 1: POST/PUT/PATCH 핸들러 안 schema validator 누락 — file-level awk block scan
+#   instance 측 framework 패턴은 env var 로 주입 (구체 default 는 docs/ci-template.md 참조):
+#     ROUTE_MUTATION_PATTERN — 라우터의 POST/PUT/PATCH handler 정의 정규식
+#     ZOD_VALIDATOR_PATTERN  — schema validator 미들웨어 함수 정규식
+ROUTE_MUTATION_PATTERN="${ROUTE_MUTATION_PATTERN:?set via docs/ci-template.md}"
+ZOD_VALIDATOR_PATTERN="${ZOD_VALIDATOR_PATTERN:?set via docs/ci-template.md}"
+
 for f in <api-app>/src/routes/*.ts <api-app>/src/routes/**/*.ts; do
   [[ -f "$f" ]] || continue
-  awk '/<framework route definition>\.(post|put|patch)\(/{flag=1; start=NR}
-       flag && /zValidator/{flag=0}
-       flag && /\)\s*$/{print FILENAME":"start": missing zValidator"; flag=0}' "$f"
+  awk -v mutation_re="$ROUTE_MUTATION_PATTERN" -v validator_re="$ZOD_VALIDATOR_PATTERN" '
+       $0 ~ mutation_re {flag=1; start=NR}
+       flag && $0 ~ validator_re {flag=0}
+       flag && /\)\s*$/{print FILENAME":"start": missing schema validator"; flag=0}' "$f"
 done
 
 # 패턴 2: 보호 path 안 authMiddleware 누락 — grep -L (no match files)
@@ -43,13 +50,13 @@ grep -nE 'return\s+new\s+Response\(' <api-app>/src/routes/
 
 ## 통과 기준
 
-- 패턴 1 출력 **0줄** (모든 mutation route 가 zValidator 보유)
+- 패턴 1 출력 **0줄** (모든 mutation route 가 schema validator 보유 — instance framework 별 패턴은 ZOD_VALIDATOR_PATTERN env 로 override)
 - 패턴 2 출력 **0줄** (모든 protected route 가 authMiddleware 보유)
 - 패턴 3 출력 **0줄** (또는 SSE / file download 등 명시적 사유 주석 포함)
 
 ## 위반 시 조치
 
-### 패턴 1 위반 — zValidator 누락
+### 패턴 1 위반 — schema validator 누락
 
 ```typescript
 // 위반 예시 — framework-neutral pseudo
@@ -59,16 +66,16 @@ grep -nE 'return\s+new\s+Response\(' <api-app>/src/routes/
 // })
 ```
 
-조치 — schema validator 미들웨어 추가 (framework 별 zod 통합 사용):
+조치 — schema validator 미들웨어 추가 (framework 별 zod 통합 사용 — placeholder `<framework zod validator>`):
 
 ```typescript
 // framework-neutral pseudo
-// import { zValidator } from '<framework zod-validator package>'
+// import { <framework zod validator> } from '<framework zod-validator package>'
 // import { z } from 'zod'
 //
 // const UserCreate = z.object({ email: z.string().email(), name: z.string().min(1) })
 //
-// <framework route definition>.post('/users', zValidator('json', UserCreate), async (ctx) => {
+// <framework route definition>.post('/users', <framework zod validator>('json', UserCreate), async (ctx) => {
 //   const body = <framework request accessor>(ctx).valid('json')  // typed + validated
 //   return <framework json response>(ctx, { id: ... })
 // })
