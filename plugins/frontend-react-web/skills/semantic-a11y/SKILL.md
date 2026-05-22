@@ -65,7 +65,10 @@ retrieval:
     - focus
     - ARIA role
     - tabindex
-chainTo: []
+chainTo:
+  - pattern: '<dialog\b|role=["'']dialog["'']|aria-modal|@radix-ui/react-dialog'
+    targetSkill: a11y-dialog-pattern
+    message: 'Dialog 패턴 감지 — focus trap / ESC / return focus 룰 (a11y-dialog-pattern skill).'
 ---
 
 # semantic-a11y
