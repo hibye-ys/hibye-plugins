@@ -19,11 +19,23 @@
 
 set -uo pipefail
 
+# --strict / STRICT=1: SKIP 을 fail 로 처리 (instance src 가 마운트된 CI gate 에서 사용)
+STRICT="${STRICT:-0}"
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --strict) STRICT=1 ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+set -- "${ARGS[@]:-}"
+
 # API_DIR 인자 또는 cwd. grep 경로는 API_DIR 기준 *상대*
 API_DIR="${1:-$(pwd)}"
 cd "$API_DIR" || { echo "error: API_DIR not found: $API_DIR" >&2; exit 2; }
 
 VIOLATIONS=0
+SKIP_COUNT=0
 
 run_audit() {
   local name="$1"
@@ -31,6 +43,7 @@ run_audit() {
   local dir="$3"
   if [[ ! -d "$dir" ]]; then
     echo "SKIP [$name]: $dir 디렉토리 없음 (apps/api/src 아직 비어 있을 수 있음)"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
     return
   fi
   local matches
@@ -53,7 +66,7 @@ run_audit "sse-lifecycle-setInterval" 'setInterval\(' src/sse/
 
 # 3. single-writer-audit — file-level
 single_writer_check() {
-  [[ ! -d src ]] && { echo "SKIP [single-writer]: src/ 없음"; return; }
+  [[ ! -d src ]] && { echo "SKIP [single-writer]: src/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local count=0
   for f in $(grep -rlE '\.(put|delete)\(' src/ 2>/dev/null); do
     grep -qE 'lock|mutex|transaction' "$f" || { echo "VIOLATION [single-writer]: no-lock in $f"; count=$((count+1)); }
@@ -73,7 +86,7 @@ fi
 
 # 6. input-safety-audit (zod parse 누락)
 input_safety_check() {
-  [[ ! -d src/routes ]] && { echo "SKIP [input-safety]: src/routes/ 없음"; return; }
+  [[ ! -d src/routes ]] && { echo "SKIP [input-safety]: src/routes/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local missing
   missing=$(grep -rEn 'await\s+c\.req\.json\(\)' src/routes/ -A 5 2>/dev/null | grep -B 5 -v 'parse\|safeParse\|z\.' | grep -c 'c\.req\.json' || true)
   if [[ $missing -gt 0 ]]; then
@@ -87,7 +100,7 @@ input_safety_check
 
 # 7. mcp-namespace-audit (prefix 중복)
 mcp_namespace_check() {
-  [[ ! -d src/mcp ]] && { echo "SKIP [mcp-namespace]: src/mcp/ 없음"; return; }
+  [[ ! -d src/mcp ]] && { echo "SKIP [mcp-namespace]: src/mcp/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local dups
   dups=$(grep -rE "prefix:\\s*[\"']([^\"']+)[\"']" src/mcp/ 2>/dev/null | awk -F'"' '{print $2}' | sort | uniq -d | wc -l | tr -d ' ')
   if [[ $dups -gt 0 ]]; then
@@ -111,7 +124,7 @@ run_audit "run-policy-presets" 'timeout:\s*[0-9]+|max.turns?:\s*[0-9]+|maxTurns:
 
 # 11. spawn-limits-audit (limit 없는 Promise.all)
 spawn_limits_check() {
-  [[ ! -d src/ai/sub-agents ]] && { echo "SKIP [spawn-limits]: src/ai/sub-agents/ 없음"; return; }
+  [[ ! -d src/ai/sub-agents ]] && { echo "SKIP [spawn-limits]: src/ai/sub-agents/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local missing
   missing=$(grep -rEn 'Promise\.(all|allSettled)\(' src/ai/sub-agents/ -A 3 2>/dev/null | grep -B 3 -v 'limit\|MAX_PARALLEL\|p-limit' | grep -c 'Promise\.' || true)
   if [[ $missing -gt 0 ]]; then
@@ -134,13 +147,14 @@ if [[ -n "${DOMAIN_VOCAB:-}" ]]; then
   done
 else
   echo "SKIP [app-domain-boundary]: DOMAIN_VOCAB envvar 미정의 — instance 측에서 export 필요"
+  SKIP_COUNT=$((SKIP_COUNT + 1))
 fi
 
 # ─────────────────────────── 신규 9 audit (Task 9e.1–9e.9 — post-eject) ───────────────────────────
 
 # 14. agent-verify-def — agent default export 필수 필드 + name 중복
 agent_verify_def_check() {
-  [[ ! -d src/agents ]] && { echo "SKIP [agent-verify-def]: src/agents/ 없음"; return; }
+  [[ ! -d src/agents ]] && { echo "SKIP [agent-verify-def]: src/agents/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local count=0
   for f in src/agents/*.ts; do
     [[ -f "$f" ]] || continue
@@ -165,7 +179,7 @@ agent_verify_def_check
 # 15. api-audit — POST/PUT/PATCH 안 zValidator 누락 + protected path auth 누락
 # BSD awk 호환: `\s` → `[[:space:]]`
 api_audit_check() {
-  [[ ! -d src/routes ]] && { echo "SKIP [api-audit]: src/routes/ 없음"; return; }
+  [[ ! -d src/routes ]] && { echo "SKIP [api-audit]: src/routes/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local count=0
   for f in $(find src/routes -type f -name '*.ts' 2>/dev/null); do
     awk '/app\.(post|put|patch)\(/{flag=1; start=NR}
@@ -202,7 +216,7 @@ data_audit_check
 
 # 17. full-architecture-audit — 디렉토리 화이트리스트 + 4-layer 역참조
 full_architecture_check() {
-  [[ ! -d src ]] && { echo "SKIP [full-architecture]: src/ 없음"; return; }
+  [[ ! -d src ]] && { echo "SKIP [full-architecture]: src/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local count=0
   local extra
   extra=$(ls src/ 2>/dev/null \
@@ -255,7 +269,7 @@ loop_audit_check
 
 # 20. session-audit — KV.put TTL 누락 + c.env.KV 직접 접근
 session_audit_check() {
-  [[ ! -d src ]] && { echo "SKIP [session-audit]: src/ 없음"; return; }
+  [[ ! -d src ]] && { echo "SKIP [session-audit]: src/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local count=0
   # TTL 누락 — pipe-subshell 회피 위해 출력 캡처 후 본 셸 loop
   local ttl_candidates
@@ -282,7 +296,7 @@ session_audit_check
 
 # 21. security-audit-check — secret / eval / dynamic require / SQL inj / SSRF
 security_audit_check() {
-  [[ ! -d src ]] && { echo "SKIP [security-audit-check]: src/ 없음"; return; }
+  [[ ! -d src ]] && { echo "SKIP [security-audit-check]: src/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local count=0
   local m
   m=$(rg -nP "(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]+)" src/ 2>/dev/null | wc -l | tr -d ' ')
@@ -303,7 +317,7 @@ echo "MANUAL [rule-linting]: 본 plugin 의 skills/*/SKILL.md frontmatter 검증
 
 # 23. dependency-scanning — Node built-in import (node: prefix 없는)
 dependency_scanning_check() {
-  [[ ! -d src ]] && { echo "SKIP [dependency-scanning]: src/ 없음"; return; }
+  [[ ! -d src ]] && { echo "SKIP [dependency-scanning]: src/ 없음"; SKIP_COUNT=$((SKIP_COUNT + 1)); return; }
   local m
   m=$(rg -nP "from\s+['\"](?:fs|net|tls|child_process|cluster|dgram|dns|http|https|os|path|stream|tty|vm)['\"]" \
        src/ 2>/dev/null | grep -v "node:" | grep -v "// runtime-compat-ok" | wc -l | tr -d ' ')
@@ -320,5 +334,11 @@ dependency_scanning_check
 echo ""
 echo "===================="
 echo "Total violations: $VIOLATIONS"
+echo "Total skips: $SKIP_COUNT"
 echo "===================="
+
+if [[ "$STRICT" = "1" && "$SKIP_COUNT" -gt 0 ]]; then
+  echo "STRICT mode: $SKIP_COUNT skip(s) treated as failure (instance src 가 마운트되지 않았거나 envvar 누락)" >&2
+  exit 1
+fi
 exit $VIOLATIONS

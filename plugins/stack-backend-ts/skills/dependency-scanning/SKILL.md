@@ -91,4 +91,4 @@ node -e 'require("./<api-app>/dist/index.js")'
 | Lockfile 미커밋 | reproducible build 불가, 의존성 drift | .gitignore 검증 |
 | `npm install` (non-ci) | lockfile 갱신 → 의도치 않은 버전 변경 | `npm ci` 강제 |
 | postinstall script 무검증 | malicious package 코드 실행 | `--ignore-scripts` + allowlist |
-| Lockfile 둘 이상 | 두 manager 동시 사용 → 상태 분리 | acceptance-check 에서 검증 |
+| Lockfile 둘 이상 | 두 manager 동시 사용 → 상태 분리 | instance 측 CI 에서 검증 (본 plugin 자체에는 instance src 가 없어 acceptance-check 로 enforce 불가 — 위 Lockfile 정책 체크리스트를 instance CI 에 통합) |

@@ -25,8 +25,10 @@ jobs:
         run: bash .claude/plugins/stack-backend-ts/scripts/acceptance-check.sh
       - name: forbidden-scan
         run: bash .claude/plugins/stack-backend-ts/scripts/forbidden-scan.sh
-      - name: audit-all
-        run: bash .claude/plugins/stack-backend-ts/scripts/audit-all.sh "$API_APP_PATH"
+      - name: audit-all (strict)
+        # --strict: SKIP 도 fail 처리. instance src 가 마운트된 CI 에서 사용 — 디렉토리/envvar 누락으로
+        # 모든 audit 이 SKIP 되어 "Total violations: 0" 가짜 안전을 내는 상황 차단.
+        run: bash .claude/plugins/stack-backend-ts/scripts/audit-all.sh --strict "$API_APP_PATH"
 ```
 
 ## DOMAIN_VOCAB 형식
