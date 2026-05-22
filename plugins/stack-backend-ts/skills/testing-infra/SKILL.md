@@ -148,8 +148,8 @@ export async function apiRequest(
   const { env: envOverrides, ...fetchInit } = init
   const env = makeTestEnv(envOverrides)
   // framework in-process request helper: path + fetch init + optionally env bindings
-  // 예: app.request(path, fetchInit, env) 또는 supertest(app).post(...) 등 framework-specific
-  return app.request(path, fetchInit, env)
+  // 예: <framework in-process request helper>(path, fetchInit, env) — instance 측 framework 별 helper 로 치환
+  return <framework in-process request helper>(path, fetchInit, env)
 }
 ```
 

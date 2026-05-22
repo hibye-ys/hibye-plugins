@@ -41,7 +41,7 @@ metadata:
 
 ## 디렉토리 구조 (TS 백엔드 표준 레이아웃)
 
-> framework 무관 — 예: Express / Fastify / Nest 등. runtime 도 무관 (Node / Bun / Deno / edge runtime). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`<framework env binding>`, runtime config 파일 등) 는 별도 runtime/framework plugin 에서 다룬다.
+> framework 무관 — 어느 `<framework>` 에서나 동작. runtime 도 무관 (Node / Bun / Deno / edge runtime). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`<framework env binding>`, runtime config 파일 등) 는 별도 runtime/framework plugin 에서 다룬다.
 
 ```
 <backend-root>/
