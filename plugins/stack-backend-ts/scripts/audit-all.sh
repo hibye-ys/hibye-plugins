@@ -160,7 +160,7 @@ run_audit() {
 # 1. provider-retry-audit
 run_audit "provider-retry" 'retry.*\b(401|403|404|422)\b|\b(401|403|404|422)\b.*retry' src/ai/providers/
 
-# 2. sse-lifecycle-audit (setInterval Workers 비호환)
+# 2. sse-lifecycle-audit (setInterval — serverless/edge runtime 비호환)
 run_audit "sse-lifecycle-setInterval" 'setInterval\(' src/sse/
 
 # 3. single-writer-audit — file-level
@@ -276,7 +276,7 @@ agent_verify_def_check() {
 agent_verify_def_check
 
 # 15. api-audit — POST/PUT/PATCH 안 schema validator 누락 + protected path auth 누락
-#     (default 패턴 = Hono zValidator; ZOD_VALIDATOR_PATTERN / ROUTE_MUTATION_PATTERN env 로 override)
+#     (ZOD_VALIDATOR_PATTERN / ROUTE_MUTATION_PATTERN env 주입 필수 — default 없음)
 # BSD awk 호환: `\s` → `[[:space:]]`
 api_audit_check() {
   [[ ! -d src/routes ]] && { echo "SKIP [api-audit]: src/routes/ 없음"; record_skip "api-audit"; return; }
