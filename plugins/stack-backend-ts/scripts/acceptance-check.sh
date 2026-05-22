@@ -50,6 +50,14 @@ fi
 # 7. forbidden scan
 bash "$(dirname "$0")/forbidden-scan.sh" >/dev/null || { echo "FAIL: forbidden-scan"; FAIL=$((FAIL+1)); }
 
+# 8. AGENTS.md drift detection (--check 모드 — AGENTS.md 수정 안 함)
+GENERATED=$(bash "$(dirname "$0")/generate-agents-md.sh" --check 2>/dev/null)
+CURRENT=$(cat "$(dirname "$0")/../AGENTS.md")
+if [ "$GENERATED" != "$CURRENT" ]; then
+  echo "FAIL: AGENTS.md out of sync with CLAUDE.md @imports — run scripts/generate-agents-md.sh"
+  FAIL=$((FAIL+1))
+fi
+
 echo ""
 echo "=== acceptance-check: $COUNT skills checked, $FAIL failures ==="
 [ $FAIL -eq 0 ] || exit 1
