@@ -1,6 +1,6 @@
 ---
 name: agent-loop
-description: apps/api 에서 agentic loop (provider → tool calls → 결과 feed → loop) 구현 / 수정 시 invoke. LoopState 관리, 에러 복구 4분기, tool concurrency 파티셔닝, compaction check 위치 안내. tool_use 무한 루프, budget 이상, 복구 분기 미발동 디버깅 시에도 invoke.
+description: <api-app> 에서 agentic loop (provider → tool calls → 결과 feed → loop) 구현 / 수정 시 invoke. LoopState 관리, 에러 복구 4분기, tool concurrency 파티셔닝, compaction check 위치 안내. tool_use 무한 루프, budget 이상, 복구 분기 미발동 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: project
@@ -57,7 +57,7 @@ function createLoopState(maxTurns: number): LoopState {
 
 > **LoopState 는 메시지 배열에 섞이면 안 된다.** compaction 시 요약되어 사라진다.
 
-## 7단계 스켈레톤 (TS/Hono)
+## 7단계 스켈레톤 (TS)
 
 ```typescript
 // src/engine/loop.ts
@@ -177,10 +177,10 @@ export async function* runAgentLoop(opts: RunOpts): AsyncIterable<[string, unkno
 2. **foreground vs background retry 차이** — 사용자 대기 = 짧은 백오프·많은 재시도, background = 긴 백오프·빨리 포기. `provider-layer` skill §retry 참조
 3. **system prompt 매 turn 재생성** — prompt cache miss. `systemPrompt` 는 루프 진입 전 1회만 생성
 
-## Workers 특화
+## Runtime 특화
 
 - `Promise.all` / `Promise.allSettled` 로 병렬 — `asyncio.gather` 동등
-- Workers CPU time 한계 (10ms ~ 50ms free/paid). LLM 호출은 `waitUntil` 또는 streaming response 필수
+- Runtime CPU time / wallclock 한계 주의 (runtime-specific — instance 측 project-local skill 참조). 장시간 LLM 호출은 background task helper 또는 streaming response 필수
 - `AbortController` + `cancelSignal` 로 tool 취소. `asyncio.Event` 동등
 
 ## 검증 체크리스트

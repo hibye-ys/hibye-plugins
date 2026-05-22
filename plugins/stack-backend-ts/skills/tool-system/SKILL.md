@@ -1,6 +1,6 @@
 ---
 name: tool-system
-description: apps/api 에 새 LLM tool 추가 / ToolRegistry 수정 / tool concurrency 정책 변경 시 invoke. tool 등록 규칙, is_concurrency_safe 분기, ToolContext dataclass, dispatch_tool_calls orchestration 포함. "tool not registered", "tool schema validation 실패", race condition 디버깅 시에도 invoke.
+description: <api-app> 에 새 LLM tool 추가 / ToolRegistry 수정 / tool concurrency 정책 변경 시 invoke. tool 등록 규칙, is_concurrency_safe 분기, ToolContext dataclass, dispatch_tool_calls orchestration 포함. "tool not registered", "tool schema validation 실패", race condition 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: project

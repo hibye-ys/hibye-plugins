@@ -7,7 +7,7 @@ metadata:
   source: stack-backend-python/skills/sub-agent-spawn/SKILL.md
 ---
 
-**적용된 §4.4 매트릭스 행**: `pydantic BaseModel` / `ToolInput` → TypeScript interface + zod, `asyncio.create_task` → `ctx.waitUntil(Promise)` (Workers) 또는 `Promise` (Node 호환), `asyncio.timeout(n)` → `AbortSignal.timeout(n * 1000)` + `Promise.race`, `logger.warning(...)` → `console.warn(JSON.stringify({...}))`, `await asyncio.gather(...)` → `await Promise.allSettled(...)`, `asyncio.CancelledError` → AbortError, `os.environ` → `c.env` (Workers) / Wrangler bindings, Python dataclass/BaseModel → TypeScript interface
+**적용된 §4.4 매트릭스 행**: `pydantic BaseModel` / `ToolInput` → TypeScript interface + zod, `asyncio.create_task` → runtime background task helper (예: `ctx.waitUntil(Promise)`) 또는 `Promise` (process 기반 runtime 호환), `asyncio.timeout(n)` → `AbortSignal.timeout(n * 1000)` + `Promise.race`, `logger.warning(...)` → `console.warn(JSON.stringify({...}))`, `await asyncio.gather(...)` → `await Promise.allSettled(...)`, `asyncio.CancelledError` → AbortError, `os.environ` → `<framework env binding>` / runtime-specific bindings, Python dataclass/BaseModel → TypeScript interface
 
 # sub-agent — 서브에이전트 spawn 청사진
 
@@ -40,18 +40,18 @@ parent turn N
 
 ### 2. background — 부모는 즉시 진행
 
-부모 agent가 즉시 다음 turn으로 진행한다. 자식은 Workers `ctx.waitUntil` (또는 Node `Promise`) 로 백그라운드 실행. 결과는 비동기로 세션 inbox에 저장되며, 다음 사용자 prompt 시점에 자동 주입.
+부모 agent가 즉시 다음 turn으로 진행한다. 자식은 runtime background task helper (예: `ctx.waitUntil(Promise)`) 또는 일반 `Promise` 로 백그라운드 실행 (runtime 별 메커니즘 — instance 측 project-local skill 참조). 결과는 비동기로 세션 inbox에 저장되며, 다음 사용자 prompt 시점에 자동 주입.
 
 ```
 parent turn N
   ├─ LLM 응답: spawn_agent("validator", "검증해", mode="background")
-  ├─ ctx.waitUntil(runChildAgent(...))   // Workers: 응답 후에도 실행 지속
+  ├─ <runtime background task>(runChildAgent(...))   // 응답 후에도 실행 지속 (runtime-specific)
   ├─ SpawnAgentResult(summary: null, childSessionId: "abc")
   ├─ 부모 turn N+1 즉시 진행
   └─ ... 나중에 자식 완료 → inbox 저장 → 다음 /run/<name> 시 주입
 ```
 
-> **Workers 제약**: `ctx.waitUntil` 없이 `Promise` 를 fire-and-forget하면 Workers 응답 전송 후 런타임이 종료되어 자식이 중단된다. background 모드는 반드시 `ctx.waitUntil(childPromise)` 로 등록할 것.
+> **Runtime 제약**: 일부 runtime (예: edge function, request-scoped lifecycle) 에서 `Promise` 를 fire-and-forget하면 응답 전송 후 런타임이 종료되어 자식이 중단된다. background 모드는 반드시 runtime background task helper 로 등록할 것 (구체 API 는 instance 측 project-local skill 참조).
 
 ## spawn_agent tool signature
 
@@ -65,7 +65,7 @@ import type { Tool, ToolResult, ToolContext } from './base.ts'
  * executionCtx / metadata 는 base ToolContext 에 없으므로 여기서 선언.
  */
 interface SpawnToolContext extends ToolContext {
-  executionCtx?: ExecutionContext  // Cloudflare Workers c.executionCtx (background waitUntil)
+  executionCtx?: unknown  // runtime-specific execution context (background task helper) — instance 측에서 정확한 타입 정의
   metadata?: {
     spawnDepth?: number            // 현재 agent 체인 깊이 (checkDepth 에서 참조)
     [key: string]: unknown
@@ -164,7 +164,7 @@ export const spawnTool: Tool = {
         return { content: JSON.stringify(outcome), isError: true }
       }
     } else {
-      // background: ctx.waitUntil 로 Workers 런타임에 작업 등록
+      // background: runtime background task helper 로 런타임에 작업 등록 (runtime-specific)
       const childPromise = scheduleBackgroundAgent({
         agentName: input.agentName,
         userInput: input.userInput,
@@ -172,7 +172,7 @@ export const spawnTool: Tool = {
         spawnDepth: childDepth,
         useExactTools: input.useExactTools,
       })
-      // Workers ExecutionContext.waitUntil — 응답 전송 후에도 계속 실행
+      // runtime background task helper — 응답 전송 후에도 계속 실행 (instance 측 project-local skill 참조)
       ctx.executionCtx?.waitUntil(childPromise)
 
       const outcome: SpawnAgentResult = {
@@ -396,7 +396,7 @@ async function llmSummarizeShort(text: string, maxWords: number): Promise<string
 
 ### 1. background 모드의 결과 회수 누락
 
-Workers에서 `ctx.waitUntil` 없이 background Promise를 fire-and-forget하면, 응답 전송 후 런타임이 즉시 종료되어 자식이 중단된다.
+request-scoped lifecycle runtime 에서 background task helper 없이 Promise를 fire-and-forget하면, 응답 전송 후 런타임이 즉시 종료되어 자식이 중단된다.
 
 **해결**: `ctx.executionCtx?.waitUntil(childPromise)` + `spawnQueue.register(parentSessionId, childSessionId, childPromise)` 두 줄이 모두 있어야 한다.
 

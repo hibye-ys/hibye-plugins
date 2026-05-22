@@ -1,13 +1,13 @@
 ---
 name: mcp-integration
-description: apps/api 에서 MCP 서버 연결 / namespace 결정 / tool 자동 prefix 추가 시 invoke. @modelcontextprotocol/sdk 기반 client, MCPServerConfig, mcp_ prefix 브릿지, JSON schema → zod 동적 변환 패턴. "MCP tool not registered", "MCP server disconnected" 디버깅 시에도 invoke.
+description: <api-app> 에서 MCP 서버 연결 / namespace 결정 / tool 자동 prefix 추가 시 invoke. @modelcontextprotocol/sdk 기반 client, MCPServerConfig, mcp_ prefix 브릿지, JSON schema → zod 동적 변환 패턴. "MCP tool not registered", "MCP server disconnected" 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/mcp-integration + rules/mcp-patterns.md
 ---
 
-**적용된 §4.4 매트릭스 행**: Python MCP SDK (`mcp`) → `@modelcontextprotocol/sdk` (TS), `asyncio.wait_for(..., timeout=30)` → `AbortSignal.timeout(30_000)` + `Promise.race`, `pydantic BaseModel` + `create_model` → zod dynamic schema (`z.object({})`), `structlog.warning` → `console.warn`, `asyncio.CancelledError` → AbortError, `os.environ` → `c.env` / Wrangler bindings
+**적용된 §4.4 매트릭스 행**: Python MCP SDK (`mcp`) → `@modelcontextprotocol/sdk` (TS), `asyncio.wait_for(..., timeout=30)` → `AbortSignal.timeout(30_000)` + `Promise.race`, `pydantic BaseModel` + `create_model` → zod dynamic schema (`z.object({})`), `structlog.warning` → `console.warn`, `asyncio.CancelledError` → AbortError, `os.environ` → `<framework env binding>` / runtime-specific bindings
 
 # mcp-integration — MCP client 청사진
 
@@ -21,9 +21,9 @@ metadata:
 ## MCP의 정체성
 
 Model Context Protocol — Anthropic 이 정의한 LLM 과 외부 도구 간 표준 통신 프로토콜.
-apps/api 는 **MCP CLIENT** 이다. 외부 MCP server에 연결해서 그 server가 노출하는 tools 를 `ToolRegistry` 에 동적 등록한다.
+<api-app> 는 **MCP CLIENT** 이다. 외부 MCP server에 연결해서 그 server가 노출하는 tools 를 `ToolRegistry` 에 동적 등록한다.
 
-> **apps/api 는 자신만의 MCP server를 호스팅하지 않는다. 외부 server의 client 역할만.**
+> **<api-app> 는 자신만의 MCP server를 호스팅하지 않는다. 외부 server의 client 역할만.**
 
 MCP 1.0 프로토콜의 핵심 RPC 3개:
 1. `initialize` — 핸드셰이크
@@ -49,8 +49,8 @@ import { z } from 'zod'
 export const MCPServerConfigSchema = z.object({
   name: z.string(),
   transport: z.enum(['stdio', 'sse']),
-  // stdio = Node-only (child_process.spawn 의존 — Cloudflare Workers runtime 비호환)
-  // sse  = Workers + Node 모두 지원
+  // stdio = process-based runtime 전용 (child_process.spawn 의존 — request-scoped runtime 비호환)
+  // sse  = 모든 runtime 지원 (fetch + SSE 표준만 필요)
   command: z.string().optional(),            // stdio: 실행할 바이너리
   args: z.array(z.string()).default([]),
   url: z.string().optional(),               // sse: endpoint URL
@@ -75,8 +75,8 @@ export function resolveEnvVars(env: Record<string, string>, bindings: Record<str
 }
 
 export async function loadMCPRegistry(env: Env): Promise<MCPServerConfig[]> {
-  // Workers: KV or R2 로부터 registry.json 로드
-  // 개발 환경: .dev.vars 또는 wrangler.toml bindings 에서 직접 읽기
+  // request-scoped runtime: key-value cache or object storage 로부터 registry.json 로드
+  // 개발 환경: runtime-specific local config (instance 측 project-local skill 참조) 에서 직접 읽기
   const raw = env.MCP_REGISTRY_JSON ?? '[]'
   const configs = JSON.parse(raw) as unknown[]
   return configs
@@ -110,9 +110,9 @@ export class MCPClient {
 
     let transport
     if (this.config.transport === 'stdio') {
-      // ⚠️ **Workers 비호환**: `StdioClientTransport` 는 Node `child_process.spawn` 의존 —
-      // Cloudflare Workers runtime 에서 throw. Workers 배포 시 `SSEClientTransport` 만 사용.
-      // stdio 는 *Node 모드* (`@hono/node-server`) 의 escape hatch.
+      // ⚠️ **request-scoped runtime 비호환**: `StdioClientTransport` 는 Node `child_process.spawn` 의존 —
+      // request-scoped runtime 에서 throw. 해당 runtime 배포 시 `SSEClientTransport` 만 사용.
+      // stdio 는 *process-based runtime* (예: Node 장기 프로세스) 의 escape hatch.
       if (!this.config.command) throw new Error(`stdio transport requires command: ${this.config.name}`)
       transport = new StdioClientTransport({
         command: this.config.command,
@@ -272,7 +272,7 @@ function jsonTypeToZod(schema: Record<string, unknown>): z.ZodTypeAny {
 ## 동적 tool 등록 흐름 (boot 시 1회)
 
 ```
-1. Hono app startup (src/index.ts lifespan)
+1. `<framework>` app startup (src/index.ts lifespan)
 2. loadMCPRegistry(env) → MCPServerConfig[]
 3. for each config: MCPClient.connect() — 30s timeout, 실패 시 skip
 4. registerAllMCPTools(clients) → ToolRegistry 에 mcp_* 도구 등록

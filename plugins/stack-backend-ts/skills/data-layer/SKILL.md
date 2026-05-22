@@ -1,16 +1,16 @@
 ---
 name: data-layer
-description: 데이터 계층 추상 (Repository / Port 패턴, transaction boundary, optimistic locking) 결정 시 invoke. Drizzle ORM + Neon serverless Workers 호환 구현.
+description: 데이터 계층 추상 (Repository / Port 패턴, transaction boundary, optimistic locking) 결정 시 invoke. Drizzle ORM + serverless Postgres (예: Neon) — runtime 호환성은 instance 측에서 결정.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/rules/data-layer-patterns.md
 ---
 
-# data-layer — 데이터 레이어 (R2 / Neon / KV) Workers/Hono
+# data-layer — 데이터 레이어 (object storage / Postgres / KV)
 
 **적용된 §4.4 매트릭스 행**:
-- ORM: SQLAlchemy/asyncpg → **Drizzle ORM** + `c.env.DB` (Neon binding)
+- ORM: SQLAlchemy/asyncpg → **Drizzle ORM** + `<framework env binding>.DB` (Postgres binding)
 - 트랜잭션: `session_scope()` async context manager → **`db.transaction(async (tx) => { ... })`** (Drizzle)
 - interface 패턴: Python `@runtime_checkable Protocol` → **TS `interface`** + provider impl (`src/storage/provider.ts`)
 
@@ -21,13 +21,13 @@ metadata:
 
 ## 담당 범위
 
-| 대상 | 경로 (Workers) | 쓰기 주체 |
-|------|----------------|----------|
-| Media job state | Neon DB `media_jobs` 테이블 | `MediaJobPort` 구현체 (DB) |
-| Media output 바이너리 | R2 `media/<jobId>/<file>` | `R2StorageWriter.writeMediaOutput` (single writer) |
-| User custom skill 본문 | R2 `skills/user/<userId>/<skillId>.md` | `R2StorageWriter.writeUserSkill` |
+| 대상 | 경로 | 쓰기 주체 |
+|------|------|----------|
+| Media job state | Postgres `media_jobs` 테이블 | `MediaJobPort` 구현체 (DB) |
+| Media output 바이너리 | object storage `media/<jobId>/<file>` | `ObjectStorageWriter.writeMediaOutput` (single writer) |
+| User custom skill 본문 | object storage `skills/user/<userId>/<skillId>.md` | `ObjectStorageWriter.writeUserSkill` |
 
-**우회 금지**: R2 bucket 직접 `put()` / `delete()` — 반드시 `StorageWriter` 인터페이스 경유. 정기 grep 검증.
+**우회 금지**: object storage 직접 `put()` / `delete()` — 반드시 `StorageWriter` 인터페이스 경유. 정기 grep 검증.
 
 ---
 
@@ -111,7 +111,7 @@ export interface MediaJobPort {
 | `SessionHistoryPort` | `InMemorySessionHistory` (`src/state/session.ts`) | `DbSessionHistory` (`src/state/db-session.ts`) |
 | `MediaJobPort` | — (R2 기반) | `DbMediaJob` (`src/services/media/db-store.ts`) |
 
-구현체 선택은 Hono lifespan / `c.env.DB_ENABLED` 기준. 호출자는 **Port interface 만 참조** — 구체 구현체 import 금지.
+구현체 선택은 `<framework>` lifespan / `<framework env binding>.DB_ENABLED` 기준. 호출자는 **Port interface 만 참조** — 구체 구현체 import 금지.
 
 ---
 
@@ -146,15 +146,15 @@ import { drizzle } from 'drizzle-orm/neon-http'
 import { neon } from '@neondatabase/serverless'
 import * as schema from './schema'
 
-// c.env.DATABASE_URL — Hono context (not process.env)
+// `<framework env binding>.DATABASE_URL` — `<framework>` context (not process.env)
 export function createDb(databaseUrl: string) {
   const sql = neon(databaseUrl)
   return drizzle(sql, { schema })
 }
 
-// Hono middleware 에서 주입
-// app.use('*', async (c, next) => {
-//   c.set('db', createDb(c.env.DATABASE_URL))
+// `<framework>` middleware 에서 주입 (의사코드)
+// <framework middleware registration>('*', async (ctx, next) => {
+//   <framework context store>(ctx, 'db', createDb(<framework env binding>.DATABASE_URL))
 //   await next()
 // })
 ```
@@ -165,7 +165,7 @@ export function createDb(databaseUrl: string) {
 
 ```typescript
 // Python: advisory lock (pg_advisory_xact_lock)
-// TS/Workers: version column + WHERE clause (HTTP-mode Neon 에서는 advisory lock 미지원)
+// TS: version column + WHERE clause (HTTP-mode serverless Postgres 에서는 advisory lock 미지원)
 
 // schema/sessions.ts
 export const sessions = pgTable('sessions', {
@@ -197,7 +197,7 @@ await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`media_jobs_cap:${c
 ```
 src/storage/
   ports.ts         # SessionPort / SessionHistoryPort / MediaJobPort interface
-  provider.ts      # 구현체 선택 + DI 주입 (c.env.DB_ENABLED 기준)
+  provider.ts      # 구현체 선택 + DI 주입 (`<framework env binding>.DB_ENABLED` 기준)
   r2-writer.ts     # R2StorageWriter (단일 writer — 데이터 거버넌스 instance 측 project-local skill 참조)
 
 src/db/
@@ -216,7 +216,7 @@ src/db/
 1. `src/storage/ports.ts` 에 `interface` 선언
 2. InMemory 구현체 + DB 구현체 2개 제공
 3. `src/storage/provider.ts` 의 `DB_ENABLED` 분기에 추가
-4. Hono `c.var` 또는 엔진 `LoopDeps` 에 타입 노출
+4. `<framework>` context (`<framework context store>`) 또는 엔진 `LoopDeps` 에 타입 노출
 5. 호출자는 구체 구현체 import 금지 — **interface 만 참조**
 6. `export` 에 Port 이름 추가
 
@@ -246,7 +246,7 @@ src/db/
 - Drizzle Kit 우회한 스키마 변경
 - 구체 구현체 이름 (`DbSessionStore`) 을 호출자 코드에서 import — interface 만 참조
 - `SessionHistoryPort` 를 `SessionPort` 에 병합 — identity/counter vs history 분리 원칙
-- D1 binding (`c.env.<NAME>.prepare`) — spec §1.2 절대 금지
+- 금지 DB (instance 측 project-local audit 으로 enforce — 예: edge-runtime 전용 DB binding) — 본 가이드는 일반 원칙만
 - `user-state overlay` 인프라 (`appendOp` / `PatchOperation` / `readMerged`) 재도입 — 별도 설계 승인 전 금지
 
 ---

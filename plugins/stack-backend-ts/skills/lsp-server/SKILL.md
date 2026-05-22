@@ -1,13 +1,13 @@
 ---
 name: lsp-server
-description: apps/api LSP 서버 (`<workspace-entity>` 언어 지능 — 예 prose editor / code editor / blog mention) 최초 작성 / 4-class 구조 (LSPManager / LSPRegistry / LSPInstance / LSPBridge) 추가 / completion·diagnostic·hover·definition 핸들러 수정 시 invoke. "completion 이 안 뜬다", "diagnostic 이 stale 텍스트에 걸려있다", "IDE 클라이언트가 30초 후 disconnect" 디버깅 시에도 invoke.
+description: <api-app> LSP 서버 (`<workspace-entity>` 언어 지능 — 예 prose editor / code editor / blog mention) 최초 작성 / 4-class 구조 (LSPManager / LSPRegistry / LSPInstance / LSPBridge) 추가 / completion·diagnostic·hover·definition 핸들러 수정 시 invoke. "completion 이 안 뜬다", "diagnostic 이 stale 텍스트에 걸려있다", "IDE 클라이언트가 30초 후 disconnect" 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/lsp-server
 ---
 
-**적용된 §4.4 매트릭스 행**: `pygls LanguageServer` → `vscode-languageserver` (npm) `createConnection()`, `pydantic` / `dataclass` → `zod` schema / TS `interface`, `asyncio.wait_for(timeout=10)` → `AbortSignal.timeout(10_000)`, `asyncio.create_task` → `(async () => { ... })()` (fire-and-forget Promise), `asyncio.CancelledError` → `AbortError` (signal aborted), `lsprotocol.types` → `vscode-languageserver-types`, `logger = logging.getLogger(__name__)` → `console.warn(JSON.stringify(...))` (구조화), `os.getenv` → `c.env.<NAME>` (LSP 가 Hono 와 동거할 때) 또는 `process.env` (별도 Node 프로세스), `from __future__ import annotations` → 불필요 (TS), `lazy load entities` → 모듈 레벨 `let cachedEntities: ... | null = null`
+**적용된 §4.4 매트릭스 행**: `pygls LanguageServer` → `vscode-languageserver` (npm) `createConnection()`, `pydantic` / `dataclass` → `zod` schema / TS `interface`, `asyncio.wait_for(timeout=10)` → `AbortSignal.timeout(10_000)`, `asyncio.create_task` → `(async () => { ... })()` (fire-and-forget Promise), `asyncio.CancelledError` → `AbortError` (signal aborted), `lsprotocol.types` → `vscode-languageserver-types`, `logger = logging.getLogger(__name__)` → `console.warn(JSON.stringify(...))` (구조화), `os.getenv` → `<framework env binding>.<NAME>` (LSP 가 동거할 때) 또는 `process.env` (별도 Node 프로세스), `from __future__ import annotations` → 불필요 (TS), `lazy load entities` → 모듈 레벨 `let cachedEntities: ... | null = null`
 
 ## Core Rules (non-negotiable — baseline misses ALL of these)
 
@@ -21,9 +21,9 @@ metadata:
 
 ## 이 skill 은 언제 invoke 되는가
 
-- `apps/api/src/lsp/server.ts`, `completions.ts`, `diagnostics.ts`, `hover.ts`,
+- `<api-app>/src/lsp/server.ts`, `completions.ts`, `diagnostics.ts`, `hover.ts`,
   `semanticTokens.ts` 최초 작성 또는 수정
-- LSP-Agent bridge 코드 작성 (`apps/api/src/lsp/bridge.ts`)
+- LSP-Agent bridge 코드 작성 (`<api-app>/src/lsp/bridge.ts`)
 - "completion 이 안 뜬다", "diagnostic 이 stale 텍스트에 걸려있다",
   "IDE 클라이언트가 30초 후 disconnect" 같은 디버깅
 
@@ -40,20 +40,20 @@ metadata:
 3. **Hover Info** — 엔티티명 호버 시 요약 카드 (마크다운)
 4. **Go to Definition** — 엔티티 클릭 → canonical URI 위치로 이동
 
-## Workers vs Node 배포 형태
+## 배포 형태 — runtime 호환성
 
-LSP 서버는 **Workers 비호환** (long-lived WebSocket + lsprotocol JSON-RPC) — 별도 Node 프로세스로 배포:
+LSP 서버는 **request-scoped runtime 비호환** (long-lived WebSocket + lsprotocol JSON-RPC) — 별도 long-running 프로세스로 배포:
 
-- 옵션 A: `apps/api/src/lsp/` 를 **별도 Node 엔트리포인트** 로 export 하고 Fly.io / Railway 등에 배포
-- 옵션 B: Workers 의 `apps/api/` 와 동거하되 `wrangler.toml` 의 별도 service binding 으로 분리 (Cloudflare Containers 도래 후)
-- **현재 권장 = A** (Workers 의 SSE / fetch 와 LSP JSON-RPC 는 lifetime 모델이 다름)
+- 옵션 A: `<api-app>/src/lsp/` 를 **별도 process-based runtime 엔트리포인트** (예: Node 장기 프로세스) 로 export 하고 컨테이너 호스팅 (예: Fly.io / Railway) 에 배포
+- 옵션 B: request-scoped runtime 의 `<api-app>/` 와 동거하되 별도 service binding 으로 분리 (해당 runtime 이 long-running container 지원 후)
+- **현재 권장 = A** (request-scoped runtime 의 SSE / fetch 와 LSP JSON-RPC 는 lifetime 모델이 다름)
 
 runtime 호환성 invariant (instance 측 project-local skill 참조) 에서 `lsp/` 경로는 **별도 빌드 타겟** 으로 분리.
 
 ## vscode-languageserver scaffolding
 
 ```typescript
-// apps/api/src/lsp/server.ts
+// <api-app>/src/lsp/server.ts
 import {
   createConnection,
   ProposedFeatures,
@@ -159,7 +159,7 @@ export function createLSPServer(dataReader: DataReader, bridge: LSPBridge) {
 ### LSPManager (singleton)
 
 ```typescript
-// apps/api/src/lsp/manager.ts
+// <api-app>/src/lsp/manager.ts
 import type { Diagnostic, Position, Hover, Location, CompletionItem } from 'vscode-languageserver-types'
 import type { DataReader, Entity } from './types.ts'
 import { LSPRegistry } from './registry.ts'
@@ -170,7 +170,7 @@ const STALE_INSTANCE_MAX_AGE_SEC = 300
 export class LSPManager {
   private static _instance: LSPManager | null = null
   private readonly _registries = new Map<string, LSPRegistry>()
-  // NOTE: setInterval = 옵션 A (별도 Node 배포) 가정. Workers 동거 (옵션 B) 시
+  // NOTE: setInterval = 옵션 A (별도 process-based runtime 배포) 가정. request-scoped runtime 동거 (옵션 B) 시
   //       이 필드는 사용 ✕ — Cron Trigger 또는 요청 hook 로 cleanupStaleInstances() 직접 호출.
   //       동시성 함정 #4 + "환경별 cleanup 트리거" 표 참조.
   private _cleanupTimer: ReturnType<typeof setInterval> | null = null
@@ -228,7 +228,7 @@ export class LSPManager {
     for (const reg of this._registries.values()) reg.evictOlderThan(cutoff)
   }
 
-  /** 옵션 A (Node 배포) 전용 — Workers 환경에선 호출 ✕. */
+  /** 옵션 A (process-based runtime 배포) 전용 — request-scoped runtime 에서는 호출 ✕. */
   private _startCleanup(): void {
     // eslint-disable-next-line no-restricted-globals -- 옵션 A 가정 (runtime 호환성 invariant 에서 lsp/ 경로 별도 빌드 타겟 제외 — instance 측 project-local skill)
     this._cleanupTimer = setInterval(() => this.cleanupStaleInstances(), 60_000)
@@ -259,7 +259,7 @@ export class LSPManager {
 ### LSPRegistry (per workspace)
 
 ```typescript
-// apps/api/src/lsp/registry.ts
+// <api-app>/src/lsp/registry.ts
 import {
   CompletionItemKind,
   MarkupKind,
@@ -366,7 +366,7 @@ export class LSPRegistry {
 ### LSPInstance (per document)
 
 ```typescript
-// apps/api/src/lsp/instance.ts
+// <api-app>/src/lsp/instance.ts
 import type { Diagnostic, Position } from 'vscode-languageserver-types'
 
 export class LSPInstance {
@@ -398,7 +398,7 @@ export class LSPInstance {
 ## Bridge: LSP <-> Agent
 
 ```typescript
-// apps/api/src/lsp/bridge.ts
+// <api-app>/src/lsp/bridge.ts
 import {
   DiagnosticSeverity,
   type Diagnostic,
@@ -563,25 +563,26 @@ LSP request → LSPManager → entity cache 필터 (빠름, agent 불필요)
    hard timeout (c) timeout 시 빈 다이내믹 반환 (fail-open). agent 가 느리다고 IDE 가
    멈추면 안 된다.
 
-4. **Workers 환경에서 setInterval 금지**
-   `cleanupStaleInstances` 의 `setInterval` 은 **Node 전용**. Workers 동거 시
-   Cron Triggers 또는 요청 hook 으로 대체. → 위 "Workers vs Node 배포 형태" 참조.
+4. **request-scoped runtime 에서 setInterval 금지**
+   `cleanupStaleInstances` 의 `setInterval` 은 **process-based runtime 전용**. request-scoped runtime 동거 시
+   runtime cron trigger 또는 요청 hook 으로 대체. → 위 "배포 형태 — runtime 호환성" 참조.
 
    **환경별 cleanup 트리거 매트릭스**:
 
    | 환경 | 트리거 | 호출 시점 |
    |------|--------|-----------|
-   | 옵션 A — Node (Fly.io / Railway) | `setInterval(60_000)` | `LSPManager.getInstance()` 시 `_startCleanup()` |
-   | 옵션 B — Workers (Cron Triggers) | `wrangler.toml` `[triggers] crons = ["*/1 * * * *"]` + `scheduled()` 핸들러 | scheduled event 마다 `manager.cleanupStaleInstances()` |
-   | 옵션 B — Workers (요청 hook) | `app.use('*', async (c, next) => { await next(); if (Math.random() < 0.01) manager.cleanupStaleInstances() })` | 요청 100건당 1번 |
+   | 옵션 A — process-based runtime (예: 컨테이너 호스팅) | `setInterval(60_000)` | `LSPManager.getInstance()` 시 `_startCleanup()` |
+   | 옵션 B — request-scoped runtime + cron trigger | runtime cron 설정 (예: `*/1 * * * *`) + scheduled 핸들러 | scheduled event 마다 `manager.cleanupStaleInstances()` |
+   | 옵션 B — request-scoped runtime + 요청 hook | `<framework middleware registration>('*', async (ctx, next) => { await next(); if (Math.random() < 0.01) manager.cleanupStaleInstances() })` | 요청 100건당 1번 |
 
-   Workers 변형 예시 (옵션 B + Cron):
+   request-scoped runtime 변형 예시 (옵션 B + Cron, 의사코드):
 
    ```typescript
-   // apps/api/src/lsp/scheduled.ts — Workers Cron handler
-   export const scheduled: ExportedHandlerScheduledHandler<Env> = async (_event, env, ctx) => {
+   // <api-app>/src/lsp/scheduled.ts — runtime cron handler (runtime-specific signature)
+   export const scheduled = async (_event: unknown, env: Env, ctx: unknown) => {
      const manager = LSPManager.getInstance({ dataReader: env.dataReader, bridge: env.bridge })
-     ctx.waitUntil(Promise.resolve(manager.cleanupStaleInstances()))
+     // runtime background task helper 로 등록
+     // <runtime background task>(Promise.resolve(manager.cleanupStaleInstances()))
    }
    ```
 
@@ -598,7 +599,7 @@ LSP request → LSPManager → entity cache 필터 (빠름, agent 불필요)
 - [ ] LSPBridge.runDiagnostics 가 hard rule (즉시) + soft rule (debounced) 분리
 - [ ] agent 호출 시 `maxTurns: 1` + `AbortSignal.timeout(10_000)` hard timeout
 - [ ] vitest 스켈레톤 1개 이상 (mock DataReader → completion item shape 검증)
-- [ ] Workers 비호환 — 별도 Node 빌드 타겟으로 분리 (runtime 호환성 invariant — instance 측 project-local skill)
+- [ ] request-scoped runtime 비호환 — 별도 process-based 빌드 타겟으로 분리 (runtime 호환성 invariant — instance 측 project-local skill)
 
 ## 구현 중 막히면
 

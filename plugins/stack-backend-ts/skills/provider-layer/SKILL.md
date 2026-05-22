@@ -1,13 +1,13 @@
 ---
 name: provider-layer
-description: apps/api 에 새 LLM provider 추가 / 기존 provider retry/timeout 정책 변경 / OpenRouter 게이트웨이 우회 (Anthropic·OpenAI·Google 직접 SDK escape hatch) 시 invoke. provider 코드 수정, model resolution 분기 변경, retry storm 디버깅 시에도 invoke.
+description: <api-app> 에 새 LLM provider 추가 / 기존 provider retry/timeout 정책 변경 / OpenRouter 게이트웨이 우회 (Anthropic·OpenAI·Google 직접 SDK escape hatch) 시 invoke. provider 코드 수정, model resolution 분기 변경, retry storm 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/provider-layer + rules/ai-provider-patterns.md
 ---
 
-**적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` → `fetch(url, init)`, `tenacity` → `p-retry` 또는 수동 `for/try/catch/backoff`, `pydantic BaseModel` → `z.object({...})` / `TypeScript interface`, `typing.Protocol` → `TypeScript interface`, `@functools.cache` → `let cachedResult: ... | null = null` (모듈 레벨 변수), `asyncio.sleep` → `await new Promise(r => setTimeout(r, ms))`, `asyncio.create_task` → `(async () => { ... })()` / Promise (fire-and-forget), `asyncio.CancelledError` → `AbortController` signal check, `os.getenv` → `c.env.<KEY>`
+**적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` → `fetch(url, init)`, `tenacity` → `p-retry` 또는 수동 `for/try/catch/backoff`, `pydantic BaseModel` → `z.object({...})` / `TypeScript interface`, `typing.Protocol` → `TypeScript interface`, `@functools.cache` → `let cachedResult: ... | null = null` (모듈 레벨 변수), `asyncio.sleep` → `await new Promise(r => setTimeout(r, ms))`, `asyncio.create_task` → `(async () => { ... })()` / Promise (fire-and-forget), `asyncio.CancelledError` → `AbortController` signal check, `os.getenv` → `<framework env binding>.<KEY>`
 
 # provider-layer — Provider 추상화 + Model Resolution 청사진
 
@@ -133,9 +133,10 @@ export function fuzzyMatch(name: string): string {
 }
 
 // 모듈 레벨 캐시.
-// Workers: isolation context lifetime — 같은 invocation 안 여러 호출은 1회만 검사,
-//          cold start / 새 isolation 마다 다시 검사.
-// Node: process lifetime — 프로세스 재시작 전까지 캐시.
+// Runtime-specific 캐시 lifetime:
+//   - isolation 기반 runtime (예: edge function): 같은 invocation 안 1회만 검사, cold start 마다 재검사
+//   - process 기반 runtime (예: 장기 Node 프로세스): process lifetime, 재시작 전까지 캐시
+// (instance 측 project-local skill 참조)
 let _cachedConnectedProviders: Set<string> | null = null
 
 export function connectedProviders(env: Env): Set<string> {
@@ -163,7 +164,7 @@ export function providerFor(modelId: string): string {
 }
 ```
 
-> Workers: `_cachedConnectedProviders` 는 isolation context lifetime 캐시 (cold start 마다 재검사). Node: process lifetime. 테스트에서 반드시 `clearConnectedProvidersCache()` 호출.
+> `_cachedConnectedProviders` 는 runtime 별 lifetime — isolation 기반 runtime 에서는 cold start 마다 재검사, process 기반 runtime 에서는 process lifetime (instance 측 project-local skill 참조). 테스트에서 반드시 `clearConnectedProvidersCache()` 호출.
 
 ## Retry Policy — Foreground vs Background
 

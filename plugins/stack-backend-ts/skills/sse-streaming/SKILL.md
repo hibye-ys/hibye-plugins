@@ -65,7 +65,7 @@ metadata:
 - **타이밍**: 이벤트 흐름이 heartbeat 간격보다 빠르면 생략 가능. producer 중단 가능성이 있을 때만 race 패턴으로 삽입.
 - **구현 위치**: SSE 핸들러 내부 inline (별도 generator wrapper 없이). passthrough 만 하는 stub 은 동작 보장 ✕.
 
-> 백그라운드 태스크 스케줄링은 런타임 특화 (Node `setImmediate` / Workers `waitUntil` / Bun 등 — instance 측에서 정의)
+> 백그라운드 태스크 스케줄링은 런타임 특화 (runtime-specific background task helper — instance 측에서 정의)
 
 ## Secret Scanner
 
@@ -122,7 +122,7 @@ CORS `expose_headers` 에 위 헤더 + `X-Request-Id` 포함 필수 (프론트�
 
 ## 구현 중 막히면
 
-- "stream 이 중간에 끊긴다" → 런타임 별 CPU/wallclock 제한 확인. 백그라운드 태스크 스케줄링은 런타임 특화 (Node `setImmediate` / Workers `waitUntil` / Bun 등 — instance 측에서 정의)
+- "stream 이 중간에 끊긴다" → 런타임 별 CPU/wallclock 제한 확인. 백그라운드 태스크 스케줄링은 런타임 특화 (runtime-specific background task helper — instance 측에서 정의)
 - "tool_use 가 SSE 에는 흐르는데 executor empty" → stream tee 패턴 누락. `provider-layer` skill §tee 참조
 - "client 가 done 못 받음" → finally 안전망 확인. engine 밖에서 terminal 이벤트 합성 중인지 확인
 - "시크릿이 payload 에 노출됨" → `SCAN_EVENTS` 중 하나에 누락. `scrubDict` 재귀 경로 확인

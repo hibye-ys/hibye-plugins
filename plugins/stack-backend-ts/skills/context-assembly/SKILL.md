@@ -1,13 +1,13 @@
 ---
 name: context-assembly
-description: apps/api 에서 컨텍스트 조립 (system prompt + history + retrieved + tools) 추가/수정 시 invoke. TokenBudget 상수, AssembledContext 타입, static system prompt 원칙, context_hint 주입 패턴 안내. token budget 초과, cache 적중률 하락, memory block 유실 디버깅 시에도 invoke.
+description: <api-app> 에서 컨텍스트 조립 (system prompt + history + retrieved + tools) 추가/수정 시 invoke. TokenBudget 상수, AssembledContext 타입, static system prompt 원칙, context_hint 주입 패턴 안내. token budget 초과, cache 적중률 하락, memory block 유실 디버깅 시에도 invoke.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/context-assembly + rules/context-assembly-patterns.md
 ---
 
-**적용된 §4.4 매트릭스 행**: `tiktoken` → `js-tiktoken` (Workers 환경 적합 시) 또는 근사 카운터 (`chars / 4`), `pydantic BaseModel` → TypeScript interface + zod, `@dataclass(slots=True)` → TypeScript interface / readonly object, `provider.count_tokens(out)` → `countTokens(messages)` (Provider interface), `functools.lru_cache` → `new Map<string, unknown>()` 또는 module-level cache, single writer = `src/context/assemble.ts` 단일 진입점, `os.getenv` → `c.env`
+**적용된 §4.4 매트릭스 행**: `tiktoken` → `js-tiktoken` (runtime 호환 시) 또는 근사 카운터 (`chars / 4`), `pydantic BaseModel` → TypeScript interface + zod, `@dataclass(slots=True)` → TypeScript interface / readonly object, `provider.count_tokens(out)` → `countTokens(messages)` (Provider interface), `functools.lru_cache` → `new Map<string, unknown>()` 또는 module-level cache, single writer = `src/context/assemble.ts` 단일 진입점, `os.getenv` → `<framework env binding>`
 
 # context-assembly — Prompt 조립 청사진
 
@@ -82,7 +82,7 @@ function buildSystemPrompt(agentSpec: AgentSpec, contextHint?: string): string {
 
 > **캐시 적중 규칙**: system prompt 는 동일 세션 내 매 turn 바이트 수준까지 동일해야. 동적 값 (timestamp, turn_count, session_id) 절대 금지.
 
-## Token Counting (Workers 환경)
+## Token Counting (runtime 호환 고려)
 
 ```typescript
 // src/context/token-budget.ts — 근사 카운터 (js-tiktoken 미사용 시)
@@ -95,7 +95,7 @@ export function estimateTokens(messages: Message[]): number {
   }, 0)
 }
 
-// js-tiktoken 사용 가능 시 (Workers compat 확인 필요)
+// js-tiktoken 사용 가능 시 (runtime 호환 확인 필요)
 // import { get_encoding } from 'js-tiktoken'
 // const enc = get_encoding('cl100k_base')
 // export function countTokensExact(text: string): number {
@@ -103,7 +103,7 @@ export function estimateTokens(messages: Message[]): number {
 // }
 ```
 
-> Workers 등 일부 런타임에서 `js-tiktoken` 은 WASM 바이너리 포함 → runtime 호환성 검증 (instance 측 project-local skill 참조). 미검증 시 근사 카운터(`chars / 4`) 사용.
+> 일부 런타임에서 `js-tiktoken` 은 WASM 바이너리 포함 → runtime 호환성 검증 (instance 측 project-local skill 참조). 미검증 시 근사 카운터(`chars / 4`) 사용.
 
 ## AssembledContext 타입
 
@@ -197,6 +197,7 @@ function assembleMessages(opts: {
 - [ ] system prompt 안에 timestamp / turn_count / random 등 동적 값 없음
 - [ ] `token-budget-constants` invariant 의 상수와 일치
 - [ ] runtime 환경에서 `js-tiktoken` WASM 사용 시 호환성 확인 (instance 측 project-local skill 참조)
+
 
 ## 구현 중 막히면
 
