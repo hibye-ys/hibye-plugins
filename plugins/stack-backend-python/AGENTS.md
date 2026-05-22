@@ -20,7 +20,7 @@ App 내부 서브시스템과 각각의 Python 구현 경로, 담당 skill.
 | Sub-agent Spawn  | backend/tools/agents.py, engine/subagent.py                                | sub-agent-spawn     |
 | LSP Server       | backend/lsp/ (pygls)                                                       | lsp-server          |
 | MCP Integration  | backend/services/mcp/                                                      | mcp-integration     |
-| External Domain Access | backend/tools/_iyaki_db.py, tools/iyaki_query.py, tools/iyaki_mutate.py, tools/iyaki/, tools/iyaki_project.py (project lifecycle — lock_project exception). 이 instance 의 외부 도메인 사례 = `iyaki` 웹서비스 | (rule: database-patterns + data-layer-patterns) |
+| External Domain Access | backend/tools/_<domain>_db.py, tools/<domain>_query.py, tools/<domain>_mutate.py, tools/<domain>/, tools/<domain>_project.py (project lifecycle — lock_project exception). 이 instance 의 외부 도메인 사례 = `<domain>` 웹서비스 | (rule: database-patterns + data-layer-patterns) |
 
 ## 작업 규율
 해당 서브시스템 작업을 시작하기 전에 담당 skill을 먼저 로드한다.
@@ -73,7 +73,7 @@ Layer 2 policy는 `.agents/skills/backend-overview` 로드 시 주입됨.
 
 ### 활성 불변식 경고
 - **Single writer path**: `backend/data/media/**` 쓰기는 WriteCoordinator 싱글턴 경유 (media 전용 scope — user-state overlay 는 제거됨)
-- **external domain boundary** (이 instance = `iyaki` 웹서비스): 도메인 데이터는 외부 application 소유. AI 백엔드는 자체 엔티티 테이블 미보관. 동일 Postgres 인스턴스의 `public.*` 스키마에 **직접 SELECT/UPDATE 허용**하되, 쓰기는 `lock_project` advisory lock + `ai_backend.iyaki_mutations` 감사 append 필수. 접근은 전용 pool (`backend/tools/_iyaki_db.py`) 경유
+- **external domain boundary** (이 instance = `<domain>` 웹서비스): 도메인 데이터는 외부 application 소유. AI 백엔드는 자체 엔티티 테이블 미보관. 동일 Postgres 인스턴스의 `public.*` 스키마에 **직접 SELECT/UPDATE 허용**하되, 쓰기는 `lock_project` advisory lock + `ai_backend.<domain>_mutations` 감사 append 필수. 접근은 전용 pool (`backend/tools/_<domain>_db.py`) 경유
 - **StoragePort abstraction**: `data/writer.py` 와 `state/session.py` 는 Port Protocol 로 추상화 — 호출자는 Protocol 에만 의존
 
 ### 경로 권한 (Layer 2)

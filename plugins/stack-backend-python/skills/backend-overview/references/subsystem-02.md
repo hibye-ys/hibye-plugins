@@ -13,10 +13,10 @@
 - `backend/tools/registry.py` — ToolRegistry (등록/조회/필터/정의 생성)
 - `backend/tools/orchestration.py` — 병렬/순차 실행 오케스트레이션
 - `backend/tools/{read_file,write_file,edit_file}.py` — 파일 I/O 도구
-- `backend/tools/iyaki_query.py` / `iyaki_mutate.py` — iyaki 도메인 도구 (iyaki 도메인 경계)
+- `backend/tools/<domain>_query.py` / `<domain>_mutate.py` — <domain> 도메인 도구 (<domain> 도메인 경계)
 - `backend/tools/agents.py` — spawn_agent
 - `backend/tools/_security.py` — path guard + deny list
-- `backend/tools/_iyaki_db.py` — 전용 asyncpg pool (ì¸ë¶ ëë©ì¸ public.*)
+- `backend/tools/_<domain>_db.py` — 전용 asyncpg pool (ì¸ë¶ ëë©ì¸ public.*)
 
 ## 주요 타입 / 함수
 
@@ -31,14 +31,14 @@
 
 ### 읽기 도구 (병렬 안전)
 
-external domain 읽기: `iyaki_query_entities`, `iyaki_query_blocks` 등
-(`backend/tools/iyaki_query.py`). 파일 읽기: `read_file`.
+external domain 읽기: `<domain>_query_entities`, `<domain>_query_blocks` 등
+(`backend/tools/<domain>_query.py`). 파일 읽기: `read_file`.
 
 `is_concurrency_safe=True` → `asyncio.gather` 로 동시 실행.
 
 ### 쓰기/실행 도구 (순차)
 
-external domain 쓰기: `iyaki_mutate_*` (`backend/tools/iyaki_mutate.py`).
+external domain 쓰기: `<domain>_mutate_*` (`backend/tools/<domain>_mutate.py`).
 파일 쓰기: `write_file`, `edit_file`. 모두 `is_concurrency_safe=False` → 순차 실행.
 
 ## 병렬 실행 오케스트레이션
@@ -62,7 +62,7 @@ tool_use 블록들 수신
 
 ## 범위
 
-- Tool Protocol + Registry + 모든 외부 도메인 도구 (`iyaki_*` prefix)
+- Tool Protocol + Registry + 모든 외부 도메인 도구 (`<domain>_*` prefix)
 - 병렬/순차 오케스트레이션
 - `read_file` / `write_file` / `edit_file` (샌드박스 + deny list 적용)
 - `spawn_agent` (coordinator → worker fork)

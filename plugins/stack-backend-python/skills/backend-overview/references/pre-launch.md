@@ -47,7 +47,7 @@
 - [ ] 권한 화이트리스트 — `security-audit-check` / `security-runtime` 결과로 확인
 - [ ] 미디어 single writer — `data-layer-patterns.md` WriteCoordinator 멀티워커 전환 시 fcntl/프로세스 간 락 적용 재검토
 - [ ] SessionPort (DB 영속) — `database-patterns.md` 백업/복구 시나리오 수행
-- [ ] iyaki 경계 (lock_project + iyaki_mutations 감사) — 실 쓰기 시나리오로 rollback 경로 점검
+- [ ] <domain> 경계 (lock_project + <domain>_mutations 감사) — 실 쓰기 시나리오로 rollback 경로 점검
 
 ### 운영 준비
 - [ ] 로그 보관 정책 (retention)

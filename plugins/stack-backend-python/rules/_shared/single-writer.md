@@ -95,7 +95,7 @@ data/                  (런타임 데이터 위치 — 파일/디렉토리)
 | 계층 | 저장 매체 | 관리 대상 |
 |------|-----------|-----------|
 | `backend/data/` (Python) / `crates/ai-data/file/` (Rust) | 파일 시스템 | 미디어 바이너리 + job state JSON + 유저 커스텀 skill 본문 markdown |
-| `backend/db/` (Python) / `crates/ai-data/db/` (Rust) | Postgres (SQLAlchemy / sqlx) | 세션, 메시지, media job state, user_skills 메타, iyaki_mutations 감사 |
+| `backend/db/` (Python) / `crates/ai-data/db/` (Rust) | Postgres (SQLAlchemy / sqlx) | 세션, 메시지, media job state, user_skills 메타, <domain>_mutations 감사 |
 
 - `data/` 는 `db/` 를 import 안 함 (파일 시스템은 DB 독립)
 - `db/` 는 `data/` 를 import 안 함 (ORM 자체 완결)

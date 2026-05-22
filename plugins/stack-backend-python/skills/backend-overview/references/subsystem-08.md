@@ -6,7 +6,7 @@
 
 미디어 바이너리 + job state 단일 작성자 (WriteCoordinator) + StoragePort Protocol
 뒤에 숨은 인메모리/파일/DB 구현체 라우팅. 도메인 엔티티는 소유하지 않음 (외부
-application 웹서비스 (예: iyaki) `public.*` 스키마 소유 — `database-patterns.md` 참조).
+application 웹서비스 (예: <domain>) `public.*` 스키마 소유 — `database-patterns.md` 참조).
 
 ## 파일 / 모듈
 
@@ -72,7 +72,7 @@ DataCache.invalidate(key)                     # File 모드만 (DB 모드는 DB 
 미디어 외 경로는 `data/` 가 관리하지 않음:
 - Session identity/counter/메시지 → `backend/state/` (Port 구현체)
 - 일반 DB 쓰기 → `backend/db/engine.py::session_scope()` 경유
-- iyaki 도메인 쓰기 → `backend/tools/_iyaki_db.py` 전용 pool + `lock_project` + `iyaki_mutations` 감사 append (database-patterns.md)
+- <domain> 도메인 쓰기 → `backend/tools/_<domain>_db.py` 전용 pool + `lock_project` + `<domain>_mutations` 감사 append (database-patterns.md)
 
 ## 담당 skill
 

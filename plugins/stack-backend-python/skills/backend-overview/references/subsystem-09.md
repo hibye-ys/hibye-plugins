@@ -54,7 +54,7 @@ Hard/World Rule은 즉시, Soft Rule은 debounce 후 LLM 호출.
 
 - FastAPI 와 **같은 프로세스**, 별도 daemon thread 로 실행 (`main.py:342`)
 - FastAPI 라우트가 아님 — pygls 자체 transport (stdio/WebSocket) 사용
-- 엔티티 데이터는 iyaki 도메인 DB 에서 조회 — `backend/services/lsp_entities.py` 가 `backend/tools/_iyaki_db.py` 전용 pool 을 read-only 로 경유. 자체 TTL 캐시 + 쓰기 도구 성공 후 `ToolResult.metadata["resource_updated"]` 신호로 invalidation
+- 엔티티 데이터는 <domain> 도메인 DB 에서 조회 — `backend/services/lsp_entities.py` 가 `backend/tools/_<domain>_db.py` 전용 pool 을 read-only 로 경유. 자체 TTL 캐시 + 쓰기 도구 성공 후 `ToolResult.metadata["resource_updated"]` 신호로 invalidation
 
 ## 담당 skill
 
@@ -67,7 +67,7 @@ Hard/World Rule은 즉시, Soft Rule은 debounce 후 LLM 호출.
 ## Gotchas
 
 - **Soft Rule debounce**: 매 keystroke 마다 LLM 을 부르면 비용 폭발. 500ms debounce + 세션당 rate limit 필수
-- **Entity 캐시 invalidation**: iyaki 도메인 쓰기 도구 (`iyaki_mutate.py`) 성공 시 `resource_updated` 메타데이터로 adapter 가 캐시 flush
+- **Entity 캐시 invalidation**: <domain> 도메인 쓰기 도구 (`<domain>_mutate.py`) 성공 시 `resource_updated` 메타데이터로 adapter 가 캐시 flush
 - **pygls transport**: FastAPI 라우트 경로 외부에 있음 — 인증도 자체 구현 (`api-routing-patterns.md` §LSP)
 
 ## 관련 rule / skill

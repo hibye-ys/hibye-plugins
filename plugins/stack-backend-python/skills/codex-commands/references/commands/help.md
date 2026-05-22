@@ -35,7 +35,7 @@ argument-hint:
 | 상황 | 커맨드 |
 |------|--------|
 | 배포 직전 종합 게이트 (Tier 1 정적) | `/pre-deploy` |
-| 배포 직전 + 외부 도메인 Postgres (예: iyaki) integration smoke | `/pre-deploy --integration` |
+| 배포 직전 + 외부 도메인 Postgres (예: <domain>) integration smoke | `/pre-deploy --integration` |
 | 배포 직전 + OpenAI live smoke | `/pre-deploy --live-openai` |
 | 배포 후 incident 발생 시 진단 dispatch | `/incident [증상 요약]` |
 | SSE 이벤트 실시간 트레이싱 | `/sse-trace [message...]` (run endpoint override via `APP_SSE_TRACE_RUN` env) |

@@ -9,7 +9,7 @@ paths:
 >       `database-patterns.md` (§StoragePort — SessionPort / SessionHistoryPort / MediaJobPort),
 >       `media-pipeline-patterns.md` (§WriteCoordinator 바이너리 출력)
 
-> **Scope 경계:** 본 rule 은 **미디어 파이프라인 파일 쓰기** (`WriteCoordinator.write_media_job` / `write_media_output`) 의 단일 작성자 규율을 담당한다. 도메인 entity ground truth 는 외부 application 웹서비스 (이 instance = `iyaki`) 의 `public.*` 스키마 소유 (외부 도메인 경계 — 접근은 `backend/tools/_iyaki_db.py` 전용 pool + `iyaki_*` 도구 + `ai_backend.iyaki_mutations` 감사 테이블 경유, `database-patterns.md` 참조). Session/history 저장은 `state/session.py` + `database-patterns.md` 참조.
+> **Scope 경계:** 본 rule 은 **미디어 파이프라인 파일 쓰기** (`WriteCoordinator.write_media_job` / `write_media_output`) 의 단일 작성자 규율을 담당한다. 도메인 entity ground truth 는 외부 application 웹서비스 (이 instance = `<domain>`) 의 `public.*` 스키마 소유 (외부 도메인 경계 — 접근은 `backend/tools/_<domain>_db.py` 전용 pool + `<domain>_*` 도구 + `ai_backend.<domain>_mutations` 감사 테이블 경유, `database-patterns.md` 참조). Session/history 저장은 `state/session.py` + `database-patterns.md` 참조.
 
 # data-layer-patterns — 데이터 레이어 (media writes)
 
@@ -29,7 +29,7 @@ paths:
 
 **`backend/data/` 가 담당하지 않는 것:**
 
-- 도메인 entity ground truth → 외부 application 웹서비스 (예: `iyaki`) 의 `public.*` 스키마 (외부 도메인 경계). 접근은 `backend/tools/_iyaki_db.py` pool + `iyaki_*` 도구군, 쓰기는 `ai_backend.iyaki_mutations` 감사 필수. LSP adapter (`services/lsp_entities.py`) 는 같은 pool 을 read-only 로 경유하도록 교체 예정
+- 도메인 entity ground truth → 외부 application 웹서비스 (예: `<domain>`) 의 `public.*` 스키마 (외부 도메인 경계). 접근은 `backend/tools/_<domain>_db.py` pool + `<domain>_*` 도구군, 쓰기는 `ai_backend.<domain>_mutations` 감사 필수. LSP adapter (`services/lsp_entities.py`) 는 같은 pool 을 read-only 로 경유하도록 교체 예정
 - Session/turn 이력 → `state/session.py` + `SessionHistoryPort`
 - Media job CRUD → `services/media/{file,db}_store.py` + `MediaJobPort` (state 만; 바이너리는 writer 경유)
 
@@ -69,10 +69,10 @@ media/    (런타임 데이터 위치 — 파일/디렉토리)
 4. 호출자는 **구체 구현체 import 금지**. 오직 Protocol 만 참조
 5. `__all__` 에 Port 이름 추가
 
-## 외부 도메인 웹서비스 연동 체크리스트 (이 instance = `iyaki`)
+## 외부 도메인 웹서비스 연동 체크리스트 (이 instance = `<domain>`)
 
-1. `backend/tools/_iyaki_db.py` — 전용 asyncpg pool + `lock_project(project_id)` advisory lock + `resolve_active_project_id()` 헬퍼. `IYAKI_DATABASE_URL` env (기본은 `APP_DATABASE_URL` 공유)
-2. 도구는 `backend/tools/iyaki_query.py` (read) + `backend/tools/iyaki_mutate.py` (write). 쓰기는 반드시 advisory lock 내부 + 트랜잭션 내 `ai_backend.iyaki_mutations` append
+1. `backend/tools/_<domain>_db.py` — 전용 asyncpg pool + `lock_project(project_id)` advisory lock + `resolve_active_project_id()` 헬퍼. `<DOMAIN>_DATABASE_URL` env (기본은 `APP_DATABASE_URL` 공유)
+2. 도구는 `backend/tools/<domain>_query.py` (read) + `backend/tools/<domain>_mutate.py` (write). 쓰기는 반드시 advisory lock 내부 + 트랜잭션 내 `ai_backend.<domain>_mutations` append
 3. Alembic autogenerate 가 `public.*` 를 건드리지 않도록 env.py 의 `include_object` 필터로 `schema='ai_backend'` 만 허용
 4. LSP adapter 도 같은 pool 을 read-only 로 경유 — 자체 TTL 캐시 + 쓰기 도구 성공 후 invalidation 신호 (`ToolResult.metadata["resource_updated"]` 관찰)
 

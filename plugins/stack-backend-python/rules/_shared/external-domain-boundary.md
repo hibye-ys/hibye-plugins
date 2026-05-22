@@ -1,32 +1,32 @@
-> **정본** — App backend ↔ 외부 application 도메인 경계 규약 (이 instance 의 사례 = `iyaki` 웹서비스).
+> **정본** — App backend ↔ 외부 application 도메인 경계 규약 (이 instance 의 사례 = `<domain>` 웹서비스).
 > 언어 무관 (Python / Rust / TS 공통). 양쪽 `*_agent_rules/architecture.md` 와
 > `*_agent_rules/database-patterns.md` 에서 본 파일을 단일 source of truth 로 참조한다.
 > 구체적인 ORM / migration 도구 / pool 라이브러리 차이는 각 언어 룰에 명시.
 >
-> **다른 product 에 적용 시:** `iyaki` / `IYAKI_*` / `_iyaki_*` 식별자 자리에 자기 도메인 이름을 `sed` 로 치환. 본문 패턴은 그대로 유효.
+> **다른 product 에 적용 시:** 본 plugin 본문의 placeholder (`<domain>` 소문자 식별자, `<DOMAIN>` 대문자 환경변수) 를 자기 도메인 이름으로 `sed` 치환. 이 plugin 의 reference 사례 = `iyaki` product (`<domain>` → `iyaki`, `<DOMAIN>` → `IYAKI`).
 
 # 외부 도메인 경계 — 데이터 소유권 / 쓰기 규약
 
 ## 핵심 원칙
 
-**도메인 엔티티 ground truth 는 외부 application 웹서비스 소유** (이 instance 의 사례 = `iyaki`). AI 백엔드는 자체 도메인 테이블을
+**도메인 엔티티 ground truth 는 외부 application 웹서비스 소유** (이 instance 의 사례 = `<domain>`). AI 백엔드는 자체 도메인 테이블을
 보관하지 않는다. 동일 Postgres 인스턴스를 공유하되 스키마로 분리:
 
 | 스키마 | 소유자 | 내용 |
 |--------|--------|------|
-| `public.*` | **외부 application 웹서비스** (예: iyaki) | 도메인 엔티티 (entity / block / episode / category / character / note / graph_edge / project / app_state 등) — AI 가 소유 안 함 |
-| `ai_backend.*` | **AI 백엔드** | 세션 / 메시지 / media job / user_skills 메타 / `<domain>_mutations` 감사 (이 instance = `iyaki_mutations`) / governance jobs / audit_log |
+| `public.*` | **외부 application 웹서비스** (예: <domain>) | 도메인 엔티티 (entity / block / episode / category / character / note / graph_edge / project / app_state 등) — AI 가 소유 안 함 |
+| `ai_backend.*` | **AI 백엔드** | 세션 / 메시지 / media job / user_skills 메타 / `<domain>_mutations` 감사 (이 instance = `<domain>_mutations`) / governance jobs / audit_log |
 
 ## 접근 경로 — 언어별 분리된 pool
 
 `public.*` (외부 도메인) 접근은 ORM/SQLAlchemy 메인 엔진과 **분리된 전용 pool** 경유. 이유:
 
-- 외부 도메인이 raw SQL 중심 (ORM 모델 없음 — 이 instance 의 사례 = `iyaki`)
+- 외부 도메인이 raw SQL 중심 (ORM 모델 없음 — 이 instance 의 사례 = `<domain>`)
 - advisory lock / jsonb codec 같은 PostgreSQL 고유 기능 필요
-- DSN 분리 (`<DOMAIN>_DATABASE_URL`, 이 instance = `IYAKI_DATABASE_URL`) — 누락 시 startup fail (`APP_DATABASE_URL` fallback 없음)
+- DSN 분리 (`<DOMAIN>_DATABASE_URL`, 이 instance = `<DOMAIN>_DATABASE_URL`) — 누락 시 startup fail (`APP_DATABASE_URL` fallback 없음)
 
-언어별 pool 구현 위치는 각 언어 룰에 명시 (예: Python `backend/tools/_iyaki_db.py`,
-Rust `crates/ai-data/src/iyaki/pool.rs`).
+언어별 pool 구현 위치는 각 언어 룰에 명시 (예: Python `backend/tools/_<domain>_db.py`,
+Rust `crates/ai-data/src/<domain>/pool.rs`).
 
 ## 도메인 row 쓰기 — 3 조건
 
@@ -34,9 +34,9 @@ Rust `crates/ai-data/src/iyaki/pool.rs`).
 INSERT / UPDATE / DELETE 할 때 **반드시 다음 3 조건을 동일 트랜잭션 안에서** 만족:
 
 1. **`lock_project(project_id)` advisory lock**
-   - `pg_advisory_xact_lock(bigint)` — lock key 는 `SHA-256("<domain>:project:<id>")` 의 앞 8바이트 (이 instance = `"iyaki:project:..."`)
+   - `pg_advisory_xact_lock(bigint)` — lock key 는 `SHA-256("<domain>:project:<id>")` 의 앞 8바이트 (이 instance = `"<domain>:project:..."`)
    - 프로젝트 단위 직렬화 — 외부 application 쓰기 / AI 쓰기 interleave 방지
-2. **`ai_backend.<domain>_mutations` 감사 append** (이 instance = `iyaki_mutations`)
+2. **`ai_backend.<domain>_mutations` 감사 append** (이 instance = `<domain>_mutations`)
    - prev / new 값 raw SQL `INSERT` (ORM 모델 **없음** — 테이블 스키마는 migration 에서 직접 관리)
    - 트랜잭션 내부에서 도메인 변경과 함께 atomic
 3. **`ToolResult.metadata["resource_updated"]` 신호**
@@ -49,7 +49,7 @@ INSERT / UPDATE / DELETE 할 때 **반드시 다음 3 조건을 동일 트랜잭
 
 - `lock_project` 적용 불가 (project_id 가 아직 없거나 — create / 글로벌 key — switch)
 - audit 는 `ai_backend.<domain>_mutations` 가 아니라 구조화 로깅 (Python `structlog.info`, Rust `tracing::info!`) 으로 대체
-- 적용 도구 (이 instance 의 식별자): `iyaki_create_project`, `iyaki_switch_project` (V0 신규)
+- 적용 도구 (이 instance 의 식별자): `<domain>_create_project`, `<domain>_switch_project` (V0 신규)
 
 ## 마이그레이션 격리
 
@@ -67,7 +67,7 @@ migration autogenerate 가 `public.*` row 를 보면 잘못된 결과 — 필터
 | Env var | 사용처 | 누락 시 |
 |---------|--------|---------|
 | `APP_DATABASE_URL` | `ai_backend.*` (메인 ORM/엔진) | startup fail (production), SQLite fallback (local) |
-| `<DOMAIN>_DATABASE_URL` (이 instance = `IYAKI_DATABASE_URL`) | `public.*` (외부 도메인 pool) | 즉시 `RuntimeError("<DOMAIN>_DATABASE_URL is not set")` (production+local 모두) |
+| `<DOMAIN>_DATABASE_URL` (이 instance = `<DOMAIN>_DATABASE_URL`) | `public.*` (외부 도메인 pool) | 즉시 `RuntimeError("<DOMAIN>_DATABASE_URL is not set")` (production+local 모두) |
 
 `<DOMAIN>_DATABASE_URL` 은 fallback 없음 — `.env.example` 에 별도 항목 유지.
 

@@ -101,11 +101,11 @@ run_name, agent, model, turn_count, spawn_depth
 - **키워드**: "DB 에러", "data 저장 안 됨", "외부 도메인 변경 반영 안 됨", "session 사라짐"
 - **1차 도구**:
   1. `data-state-manager` (data-audit 모드) — WriteCoordinator, StoragePort, 단일 writer
-  2. raw SQL 확인: `SELECT ... FROM ai_backend.iyaki_mutations ORDER BY created_at DESC LIMIT 50`
+  2. raw SQL 확인: `SELECT ... FROM ai_backend.<domain>_mutations ORDER BY created_at DESC LIMIT 50`
 - **증거 수집**:
-  - [ ] 최근 `ai_backend.iyaki_mutations` append 성공/실패 기록
+  - [ ] 최근 `ai_backend.<domain>_mutations` append 성공/실패 기록
   - [ ] `lock_project(project_id)` advisory lock 정상 획득?
-  - [ ] `IYAKI_DATABASE_URL` 과 `APP_DATABASE_URL` 분리 유지?
+  - [ ] `<DOMAIN>_DATABASE_URL` 과 `APP_DATABASE_URL` 분리 유지?
   - [ ] `SessionPort` vs `SessionHistoryPort` 분리 — 어느 쪽에서 누락?
   - [ ] Alembic revision 과 실 DB schema 일치?
 

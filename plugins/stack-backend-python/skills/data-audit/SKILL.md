@@ -1,6 +1,6 @@
 ---
 name: data-audit
-description: Consolidated checklist for auditing `backend/data/` (media single-writer) + `backend/state/` (SessionPort family) + `backend/db/` (SQLAlchemy async + external domain boundary). Covers StoragePort Protocol conformance, WriteCoordinator media scope, cache invalidation (FileMediaJob LRU), 5-state media job lifecycle, and `lock_project` + `iyaki_mutations` audit coverage. Does NOT restate invariants — those live in `.agents/rules/python_agent_rules/data-layer-patterns.md` and `database-patterns.md`. Absorbs the former `data-layer` skill (deleted 2026-04-24 after the user-state overlay concept was retired).
+description: Consolidated checklist for auditing `backend/data/` (media single-writer) + `backend/state/` (SessionPort family) + `backend/db/` (SQLAlchemy async + external domain boundary). Covers StoragePort Protocol conformance, WriteCoordinator media scope, cache invalidation (FileMediaJob LRU), 5-state media job lifecycle, and `lock_project` + `<domain>_mutations` audit coverage. Does NOT restate invariants — those live in `.agents/rules/python_agent_rules/data-layer-patterns.md` and `database-patterns.md`. Absorbs the former `data-layer` skill (deleted 2026-04-24 after the user-state overlay concept was retired).
 allowed-tools: Read, Bash, Grep, Glob
 ---
 
@@ -46,7 +46,7 @@ backend/db/
 ├── lifespan.py     # startup/shutdown hooks
 ├── upsert.py       # dialect-aware UPSERT
 ├── models/         # SessionORM / SessionMessageORM / MediaJobORM
-├── migrations/     # Alembic revisions (iyaki_mutations 포함)
+├── migrations/     # Alembic revisions (<domain>_mutations 포함)
 └── alembic.ini
 ```
 
@@ -144,17 +144,17 @@ rg -n "AsyncSession.*execute|session\.execute" backend/ -g '!backend/db/*' -g '!
 
 DB 쓰기는 Port 경유 → Port 구현 내부에서만 session_scope.
 
-## 8. 외부 도메인 경계 (이 instance = `iyaki`)
+## 8. 외부 도메인 경계 (이 instance = `<domain>`)
 
 ```bash
 # public.* UPDATE/INSERT 시 lock_project 감쌌는지
-rg -n "UPDATE public\.|INSERT INTO public\." backend/tools/iyaki_mutate.py -C 5 | rg lock_project
+rg -n "UPDATE public\.|INSERT INTO public\." backend/tools/<domain>_mutate.py -C 5 | rg lock_project
 
-# ai_backend.iyaki_mutations 감사 append 동반 여부
-rg -n "iyaki_mutations" backend/tools/iyaki_mutate.py
+# ai_backend.<domain>_mutations 감사 append 동반 여부
+rg -n "<domain>_mutations" backend/tools/<domain>_mutate.py
 
-# 전용 pool — IYAKI_DATABASE_URL 사용, APP_DATABASE_URL fallback 없어야 함
-rg -n "IYAKI_DATABASE_URL|APP_DATABASE_URL" backend/tools/_iyaki_db.py
+# 전용 pool — <DOMAIN>_DATABASE_URL 사용, APP_DATABASE_URL fallback 없어야 함
+rg -n "<DOMAIN>_DATABASE_URL|APP_DATABASE_URL" backend/tools/_<domain>_db.py
 ```
 
 3 조건: advisory lock + audit append + (성공 시 `ToolResult.metadata["resource_updated"]`).
@@ -211,8 +211,8 @@ rg -n "UserStatePort|PatchOperation|ExtractedRecord" backend/ .agents/
 
 ### external domain boundary
 - [OK/FAIL] public.* mutations wrapped in lock_project
-- [OK/FAIL] Every mutation appends ai_backend.iyaki_mutations in same txn
-- [OK/FAIL] backend/tools/_iyaki_db.py reads IYAKI_DATABASE_URL only (no APP_DATABASE_URL fallback)
+- [OK/FAIL] Every mutation appends ai_backend.<domain>_mutations in same txn
+- [OK/FAIL] backend/tools/_<domain>_db.py reads <DOMAIN>_DATABASE_URL only (no APP_DATABASE_URL fallback)
 
 ### Alembic
 - [OK/FAIL] include_object restricts autogenerate to schema='ai_backend'
@@ -235,4 +235,4 @@ rg -n "UserStatePort|PatchOperation|ExtractedRecord" backend/ .agents/
 - `ports.py` 없음 → StoragePort 미구현 — 전체 감사 중단 + 우선순위 높게 보고
 - `writer.py` 에 `WriteCoordinator` 없음 → single writer 패턴 미구현
 - `APP_DB_ENABLED` 미설정 → DatabaseSettings default (`True`) 적용됨 — 이는 정상
-- iyaki 관련 파일 (`_iyaki_db.py`, `iyaki_mutate.py`) 없음 → iyaki 경계 아직 미구현, iyaki 섹션 skip 가능
+- <domain> 관련 파일 (`_<domain>_db.py`, `<domain>_mutate.py`) 없음 → <domain> 경계 아직 미구현, <domain> 섹션 skip 가능

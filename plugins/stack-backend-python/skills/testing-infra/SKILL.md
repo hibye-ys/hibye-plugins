@@ -391,10 +391,10 @@ cassette 녹화 시 다음 필드 자동 redact:
 **Integration 판정 6 signal (any-of):**
 1. 기존 `@pytest.mark.integration` (honor + idempotent)
 2. `@pytest.mark.vcr`
-3. fixturenames 에 `_INTEGRATION_FIXTURES` 중 하나 이상 (`client`, `db_engine`, `iyaki_env`, `iyaki_pool`, `populated_active_project`)
+3. fixturenames 에 `_INTEGRATION_FIXTURES` 중 하나 이상 (`client`, `db_engine`, `<domain>_env`, `<domain>_pool`, `populated_active_project`)
 4. 파일 본문에 `TestClient` 또는 `pytest.mark.vcr` 문자열 (pytest_configure 에서 1회 scan — `@pytest.mark.vcr` 는 substring 으로 자동 catch)
 5. 경로에 `/integration/` 또는 `/contract/`
-6. 파일명 prefix: `test_iyaki_` / `test_db_` / `test_lsp_` / `test_live_` / `test_frontend_smoke`
+6. 파일명 prefix: `test_<domain>_` / `test_db_` / `test_lsp_` / `test_live_` / `test_frontend_smoke`
 
 **Slow 판정:** 수동 `@pytest.mark.slow` 또는 파일명 prefix `test_lsp_completion` / `test_live_anthropic`.
 

@@ -52,10 +52,10 @@ class RunPolicy(BaseModel):
 **중요**: `allowed_tools` 는 `backend/tools/` 에 실제 등록된 **개별 이름** 만 써야 함. pydantic + `run-policy.md` invariant 가 startup 에 fail-fast. 2026-04 기준 정본 (`backend/tools/__init__.py::register_builtin_tools` + 각 `.py` 의 `name="..."` attribute):
 
 - **baseline**: `read_file`, `write_file`, `edit_file`, `spawn_agent`
-- **ì¸ë¶ ëë©ì¸ query (6)**: `iyaki_query_character`, `iyaki_query_world_item`, `iyaki_query_note`, `iyaki_query_timeline_entry`, `iyaki_query_block`, `iyaki_query_episode`
-- **ì¸ë¶ ëë©ì¸ mutate (20+ 개별 액션)**: `iyaki_edit_block_prose`, `iyaki_create_entity`, `iyaki_update_entity`, `iyaki_create_category`, `iyaki_update_category`, `iyaki_create_section`, `iyaki_rename_section`, `iyaki_move_episode_to_section`, `iyaki_create_group`, `iyaki_update_group`, `iyaki_add_graph_edge`, `iyaki_update_graph_edge`, `iyaki_create_area_label`, `iyaki_update_area_label`, `iyaki_delete_area_label`, `iyaki_create_era`, `iyaki_update_era`, `iyaki_create_timeline_entry`, `iyaki_update_timeline_entry`, `iyaki_create_wb_category`, `iyaki_update_wb_category`, `iyaki_create_wb_item`, `iyaki_update_wb_item`, `iyaki_delete_note`, ...
+- **ì¸ë¶ ëë©ì¸ query (6)**: `<domain>_query_character`, `<domain>_query_world_item`, `<domain>_query_note`, `<domain>_query_timeline_entry`, `<domain>_query_block`, `<domain>_query_episode`
+- **ì¸ë¶ ëë©ì¸ mutate (20+ 개별 액션)**: `<domain>_edit_block_prose`, `<domain>_create_entity`, `<domain>_update_entity`, `<domain>_create_category`, `<domain>_update_category`, `<domain>_create_section`, `<domain>_rename_section`, `<domain>_move_episode_to_section`, `<domain>_create_group`, `<domain>_update_group`, `<domain>_add_graph_edge`, `<domain>_update_graph_edge`, `<domain>_create_area_label`, `<domain>_update_area_label`, `<domain>_delete_area_label`, `<domain>_create_era`, `<domain>_update_era`, `<domain>_create_timeline_entry`, `<domain>_update_timeline_entry`, `<domain>_create_wb_category`, `<domain>_update_wb_category`, `<domain>_create_wb_item`, `<domain>_update_wb_item`, `<domain>_delete_note`, ...
 
-**aggregate 이름 (`iyaki_query`, `iyaki_mutate`, `search_files`, `glob_files`) 은 실존하지 않으니 금지.** 파일명과 tool name 이 다르므로 항상 `backend/tools/*.py` 의 `name="..."` 을 직접 확인.
+**aggregate 이름 (`<domain>_query`, `<domain>_mutate`, `search_files`, `glob_files`) 은 실존하지 않으니 금지.** 파일명과 tool name 이 다르므로 항상 `backend/tools/*.py` 의 `name="..."` 을 직접 확인.
 
 ```yaml
 name: <name>
@@ -102,9 +102,9 @@ name: <name>
 description: "TODO: describe task"
 system_prompt_file: "<name>.md"
 model_preference: "default"
-# TODO: backend/tools/ 등록 개별 이름만 (aggregate 이름 `iyaki_query` / `iyaki_mutate` 는 실제 존재하지 않음)
-# 예시: read_file, edit_file, write_file, iyaki_query_character, iyaki_query_block,
-#       iyaki_edit_block_prose, iyaki_create_note (실제 등록 리스트는 backend/tools/iyaki/__init__.py 참조)
+# TODO: backend/tools/ 등록 개별 이름만 (aggregate 이름 `<domain>_query` / `<domain>_mutate` 는 실제 존재하지 않음)
+# 예시: read_file, edit_file, write_file, <domain>_query_character, <domain>_query_block,
+#       <domain>_edit_block_prose, <domain>_create_note (실제 등록 리스트는 backend/tools/<domain>/__init__.py 참조)
 allowed_tools:
   - read_file
 max_turns: 5                # 과도한 turn 방지

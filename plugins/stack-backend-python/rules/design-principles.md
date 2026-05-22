@@ -84,7 +84,7 @@ Sub-agent 는 복제된 상태로 시작. 부모 상태 변이는 명시적 옵�
 - 자동 재시도 금지 — 모델이 다음 행동 결정
 - 에러 메시지 절단: 현재 구현은 **head-truncate** (`TOOL_PREVIEW_MAX_CHARS=4000`, `stream.py::tool_result_preview`). Python traceback 의 실제 예외 메시지는 끝줄이라 head-only 는 핵심 이유를 잃을 수 있음 — 스택 트레이스 전용 head+tail 유틸은 **미래 개선** 사항
 - 판단 기준: **"백엔드가 모델 대신 '다음 행동' 을 정하고 있는가?"**
-- 반례: `iyaki_mutate` 실패 시 자동 3회 재시도 후 조용히 성공/실패 반환 — 모델은 실패 이유도, 재시도 히스토리도 모름
+- 반례: `<domain>_mutate` 실패 시 자동 3회 재시도 후 조용히 성공/실패 반환 — 모델은 실패 이유도, 재시도 히스토리도 모름
 
 ## 6. 동적 컨텍스트 주입 (Dynamic Context Injection)
 

@@ -54,18 +54,18 @@ paths:
 
 **Tombstone semantics:**
 
-- `tombstoned_at: datetime | None` 컬럼 4 곳: `sessions`, `user_skills`, `media_jobs`, `iyaki_mutations`
+- `tombstoned_at: datetime | None` 컬럼 4 곳: `sessions`, `user_skills`, `media_jobs`, `<domain>_mutations`
 - 모든 read 경로 (`get`/`try_get`/`list_*`/`count_queued`/`soonest_retry`/`dequeue`/`record_turn`/`get_messages` 등) 는 `WHERE tombstoned_at IS NULL` 필터. **단일 source of truth**: 14+ 메서드 — 상세 enumeration 은 `data-governance-phase1-design.md` §4.3
 - 변형 (mutation) 메서드는 tombstoned 행에 대해 `ResourceError("session_tombstoned")` raise — 호출자가 410 envelope 으로 변환
 - `delete` 메서드는 SKIP 필터 (idempotent)
 - claim-guarded writers (`schedule_retry`, `mark_dlq`, `mark_completed`, `update_progress`) + `cancel` + `reset_stale_leases` 는 SKIP — 이미 worker_id/attempt_count 로 보호되어 있고, `dequeue` 가 tombstoned 를 안 잡으므로 자연 차단
 
-**iyaki_mutations 특수 처리 (raw SQL, no ORM):**
+**<domain>_mutations 특수 처리 (raw SQL, no ORM):**
 
 - `session_id` 만 가지고 `user_id` 없음 — JOIN sessions 로 사용자 추적
 - soft delete 시 raw SQL 로:
   ```
-  UPDATE iyaki_mutations
+  UPDATE <domain>_mutations
      SET original_session_id = session_id,
          session_id = '__TOMBSTONED__',
          tombstoned_at = now()
@@ -73,7 +73,7 @@ paths:
      AND tombstoned_at IS NULL
   ```
 - `TOMBSTONE_SESSION_SENTINEL = '__TOMBSTONED__'` constant (`backend/constants.py`) 모든 사이트 공유
-- iyaki_rollback 도구는 **per-row ACL guard**: `if mutation.session_id == TOMBSTONE_SESSION_SENTINEL: skip with reason ROLLBACK_UNAVAILABLE_TOMBSTONED` — 혼합 batch 에서 honest rollback 은 영향 없음
+- <domain>_rollback 도구는 **per-row ACL guard**: `if mutation.session_id == TOMBSTONE_SESSION_SENTINEL: skip with reason ROLLBACK_UNAVAILABLE_TOMBSTONED` — 혼합 batch 에서 honest rollback 은 영향 없음
 - hard delete: `WHERE session_id = '__TOMBSTONED__' AND tombstoned_at < cutoff` (cross-user 안전 — 다른 deleted 유저의 tombstoned row 영향 없음 because cutoff 별로 분리)
 - Phase 2 에서 hard-delete 후 rollback 영구 불가 (수용된 trade-off — post-erasure)
 
@@ -118,7 +118,7 @@ CREATE UNIQUE INDEX uq_gov_jobs_active_per_user_op
 
 - soft delete 가 user 의 각 project 에 대해 `pg_try_advisory_xact_lock` (5s timeout × 3 retry)
 - 충돌 시 `governance.delete_lock_contended` structlog 이벤트 + 다음 worker iteration 으로 미루기
-- 외부 도메인 쓰기와 같은 lock namespace (SHA-256("iyaki:project:<id>") 앞 8바이트, 식별자 = 이 instance 의 reference)
+- 외부 도메인 쓰기와 같은 lock namespace (SHA-256("<domain>:project:<id>") 앞 8바이트, 식별자 = 이 instance 의 reference)
 
 ## 새 audit event 추가하기
 
@@ -147,11 +147,11 @@ CREATE UNIQUE INDEX uq_gov_jobs_active_per_user_op
 | `DEFAULT_GRACE_DAYS` 변경 (7 → N) | hard delete CLI cutoff + Phase 2 scheduler + privacy policy 문서 + UI 표시 |
 | `HARD_DELETE_MESSAGE_LIMIT` 변경 | CLI 거부 임계 + 운영 alert (Phase 2) |
 | audit_log 트리거 제거 | UPDATE/DELETE 가능해짐 — 데이터 무결성 손실 위험 (compliance 위반) |
-| `TOMBSTONE_SESSION_SENTINEL` 값 변경 | iyaki_mutations 의 모든 hard-delete WHERE 절 + iyaki_rollback ACL guard 동시 변경 |
+| `TOMBSTONE_SESSION_SENTINEL` 값 변경 | <domain>_mutations 의 모든 hard-delete WHERE 절 + <domain>_rollback ACL guard 동시 변경 |
 | `assert_user_active` 호출 사이트 누락 | 새 write 경로가 410 gate 우회 → 사용자가 grace 중 데이터 생성 가능 (compliance 갭) |
 | WriteCoordinator filesystem 경로 우회 | 단일 writer 깨짐 — 정적 grep 테스트가 차단 |
 | SessionAbortRegistry lifespan 누락 | 새 SSE handler 가 register/unregister 안 하면 abort signal 무효 |
-| iyaki_rollback ACL guard 제거 | tombstoned 사용자의 audit row 가 다른 사용자에 의해 rollback 가능 (cross-user ACL 위반) |
+| <domain>_rollback ACL guard 제거 | tombstoned 사용자의 audit row 가 다른 사용자에 의해 rollback 가능 (cross-user ACL 위반) |
 
 ## 금지 사항
 
@@ -159,7 +159,7 @@ CREATE UNIQUE INDEX uq_gov_jobs_active_per_user_op
 - 6 audit event 외 다른 이름을 `audit_log` 테이블에 INSERT — 운영 이벤트는 structlog 으로
 - tombstoned 행을 read 경로에서 보이게 하기 (read 메서드 누락 = compliance 갭)
 - hard delete 시 `os.unlink` / `shutil.rmtree` 직접 호출 — 반드시 `WriteCoordinator` 경유
-- iyaki_mutations 의 sentinel `__TOMBSTONED__` 외 다른 값으로 tombstone 표시 (iyaki_rollback ACL 깨짐)
+- <domain>_mutations 의 sentinel `__TOMBSTONED__` 외 다른 값으로 tombstone 표시 (<domain>_rollback ACL 깨짐)
 - soft delete 트랜잭션 밖에서 audit emit (rollback 시 audit row 보존 → 일관성 깨짐)
 - assert_user_active 우회 (write 경로에서 갭 = compliance 위반)
 - `governance_jobs` 의 status='hard_deleted' 인 row 를 다시 INSERT/UPDATE — terminal state

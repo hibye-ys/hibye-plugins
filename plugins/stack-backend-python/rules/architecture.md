@@ -62,12 +62,12 @@ tests → (모든 계층)
 - 이유: 경쟁 조건 단일 지점 처리, audit trail 집중, 저장 백엔드 교체 용이
 - 상세: `data-layer-patterns.md`, `user-skill-patterns.md`
 
-**외부 도메인 경계 (이 instance = `iyaki`):**
+**외부 도메인 경계 (이 instance = `<domain>`):**
 
 > **정본:** `_shared/external-domain-boundary.md` (스키마 분리 / 3 쓰기 조건 / project lifecycle 예외 /
 > 마이그레이션 격리 / DSN 분리 — 언어 무관). 본 섹션은 Python 측 적용 지점만.
 
-- 접근 pool 위치: `backend/tools/_iyaki_db.py` (전용 asyncpg pool, 식별자 = 이 instance 의 reference)
+- 접근 pool 위치: `backend/tools/_<domain>_db.py` (전용 asyncpg pool, 식별자 = 이 instance 의 reference)
 - project lifecycle 예외 시 audit 로깅: `structlog.info("<tool_name>", ...)` (Python)
 - 마이그레이션 격리: Alembic `env.py` 의 `include_object` 필터로 `schema='ai_backend'` 만 허용
 - 상세: `database-patterns.md`
@@ -86,7 +86,7 @@ tests → (모든 계층)
 | 계층 | 저장 매체 | 관리 대상 |
 |------|-----------|-----------|
 | `backend/data/` | 파일 시스템 | 미디어 바이너리 + job state JSON + 유저 커스텀 skill 본문 markdown |
-| `backend/db/` | Postgres (SQLAlchemy ORM) | 세션, 메시지, media job state, user_skills 메타, iyaki_mutations 감사 |
+| `backend/db/` | Postgres (SQLAlchemy ORM) | 세션, 메시지, media job state, user_skills 메타, <domain>_mutations 감사 |
 
 - `data/` 는 `db/` 를 import 안 함 (파일 시스템은 DB 독립)
 - `db/` 는 `data/` 를 import 안 함 (ORM 자체 완결)
@@ -98,7 +98,7 @@ tests → (모든 계층)
 - routes 가 provider 직접 호출 (engine 우회)
 - tool 이 `data/writer.py` 우회하여 `data/media/**` 직접 파일 쓰기
 - 호출자 코드가 `DbSessionStore` / `FileMediaJob` 같은 concrete 구현체 import (Port Protocol 만 참조)
-- `public.*` (외부 도메인) UPDATE/INSERT 시 `lock_project` 또는 `iyaki_mutations` 감사 생략
+- `public.*` (외부 도메인) UPDATE/INSERT 시 `lock_project` 또는 `<domain>_mutations` 감사 생략
 - cross-cutting 모듈 (`observability`, `utils`, `constants`) 이 backend 의 다른 모듈 import — 순환 위험
 
 ## 새 모듈 추가하기

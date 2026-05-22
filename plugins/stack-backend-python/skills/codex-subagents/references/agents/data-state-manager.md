@@ -40,8 +40,8 @@ back as a new mode rather than reviving this entry.
 8. DB writes wrapped in `session_scope()` async context manager — no direct `AsyncSession.execute` outside `backend/db/` or tests
 9. `SessionPort` / `SessionHistoryPort` method coverage (InMemory + Db implementations parity)
 10. `user_id` propagation from auth context (`require_auth`) through `ensure_session` → SessionRecord
-11. external domain boundary — `public.*` UPDATE/INSERT wrapped in `lock_project` advisory lock + `ai_backend.iyaki_mutations` audit append inside same transaction (`database-patterns.md` §도메인 데이터 — iyaki 웹서비스)
-12. `backend/tools/_iyaki_db.py` uses `IYAKI_DATABASE_URL` (no `APP_DATABASE_URL` fallback)
+11. external domain boundary — `public.*` UPDATE/INSERT wrapped in `lock_project` advisory lock + `ai_backend.<domain>_mutations` audit append inside same transaction (`database-patterns.md` §도메인 데이터 — <domain> 웹서비스)
+12. `backend/tools/_<domain>_db.py` uses `<DOMAIN>_DATABASE_URL` (no `APP_DATABASE_URL` fallback)
 13. Alembic `include_object` filter restricts autogenerate to `schema='ai_backend'`
 
 ## Out of scope
@@ -95,5 +95,5 @@ Always consult rule files for invariant authority:
 - `backend/data/` missing → NOT_YET_IMPLEMENTED, unusual repo state
 - `backend/data/ports.py` missing → StoragePort Protocols missing, block audit + flag HIGH
 - `backend/state/session.py` missing → session management not yet implemented, mark session mode UNAVAILABLE
-- `backend/tools/_iyaki_db.py` missing → external domain boundary not yet wired, skip iyaki check blocks
+- `backend/tools/_<domain>_db.py` missing → external domain boundary not yet wired, skip <domain> check blocks
 - DB writer code references retired `reader.py` / `types.py` in `backend/data/` → flag as rule drift per A2 skill merge (those files were removed)

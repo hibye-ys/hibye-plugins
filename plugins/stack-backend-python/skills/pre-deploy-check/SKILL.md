@@ -43,12 +43,12 @@ allowed-tools: Read, Bash, Grep, Glob
 - `APP_AUTH_REQUIRED=false` (또는 `app_env != prod`) 전제 — dev anonymous 허용 경로. prod 환경에서는 이 tier 가 맞지 않음 (별도 CI)
 - `/runs/reload` 는 Tier 1 에서 **호출 안 함** — `runs:admin` scope 필요 + 배포 직전에는 파일 정적 확인으로 충분
 
-### Tier 2: `--integration` (외부 도메인 Postgres (예: iyaki) + 테스트 DB 환경에서만)
+### Tier 2: `--integration` (외부 도메인 Postgres (예: <domain>) + 테스트 DB 환경에서만)
 
-- **Precondition**: 외부 도메인 Postgres (예: iyaki) 기동 + `APP_DATABASE_URL` + `IYAKI_DATABASE_URL` 설정
+- **Precondition**: 외부 도메인 Postgres (예: <domain>) 기동 + `APP_DATABASE_URL` + `<DOMAIN>_DATABASE_URL` 설정
 - **실행**: `bash scripts/integration-smoke.sh` orchestrate
 - 이 스크립트는 full boot + integration pytest + cleanup 수행
-- 외부 도메인 pool 실동작 (`SELECT 1` from `IYAKI_DATABASE_URL`) 포함
+- 외부 도메인 pool 실동작 (`SELECT 1` from `<DOMAIN>_DATABASE_URL`) 포함
 - Tier 1 의 uvicorn 은 kill 하고 이 스크립트가 자체 boot
 
 ### Tier 3: `--live-openai` (OpenAI API key 있는 환경에서만, OpenAI 한정)

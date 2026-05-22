@@ -14,7 +14,7 @@ Shared agent assets marketplace for Claude Code + Codex.
 | 이름 | Layer | 목적 |
 |---|---|---|
 | `stack-backend-ts-hono` | L2 | Hono + Web 표준 (Workers 호환) backend 룰 + `verify-workers-compat` skill. 80 SKILL.md (invariant 16 / workflow 40 / audit 24) |
-| `stack-backend-python` | L2 | Python FastAPI AI agent backend 룰 (23) + `_shared` 언어 무관 룰 (14) + 스킬 (45). 본문 예시는 외부 도메인 (예: `iyaki`) 통합 reference — 다른 product 적용 시 식별자 `sed` |
+| `stack-backend-python` | L2 | Python FastAPI AI agent backend 룰 (23) + `_shared` 언어 무관 룰 (14) + 스킬 (45). 본문 식별자는 `<domain>` / `<DOMAIN>` placeholder — 다른 product 적용 시 `sed` 로 자기 도메인 이름 치환. Reference 사례 = `iyaki` |
 | `surface-web-vite-react` | L3 | Vite + React + Tailwind v4 토큰 룰 + Pack 시스템 룰 + `verify-token-only-styling` skill |
 
 ## Quick Start (신규 프로젝트)

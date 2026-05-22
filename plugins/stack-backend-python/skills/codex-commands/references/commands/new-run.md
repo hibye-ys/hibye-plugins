@@ -39,10 +39,10 @@ fi
 2026-04 기준 등록 이름 (정본은 `backend/tools/__init__.py::register_builtin_tools` + 각 `.py` 의 `name="..."` attribute):
 
 - **baseline**: `read_file`, `write_file`, `edit_file`, `spawn_agent`
-- **ì¸ë¶ ëë©ì¸ query (6종)**: `iyaki_query_character`, `iyaki_query_world_item`, `iyaki_query_note`, `iyaki_query_timeline_entry`, `iyaki_query_block`, `iyaki_query_episode`
-- **ì¸ë¶ ëë©ì¸ mutate (개별 액션 20+ 종)**: `iyaki_edit_block_prose`, `iyaki_create_entity`, `iyaki_update_entity`, `iyaki_create_category`, `iyaki_update_category`, `iyaki_create_section`, `iyaki_rename_section`, `iyaki_move_episode_to_section`, `iyaki_create_group`, `iyaki_update_group`, `iyaki_add_graph_edge`, `iyaki_update_graph_edge`, `iyaki_create_area_label`, `iyaki_update_area_label`, `iyaki_delete_area_label`, `iyaki_create_era`, `iyaki_update_era`, `iyaki_create_timeline_entry`, `iyaki_update_timeline_entry`, `iyaki_create_wb_category`, `iyaki_update_wb_category`, `iyaki_create_wb_item`, `iyaki_update_wb_item`, `iyaki_delete_note`, ...
+- **ì¸ë¶ ëë©ì¸ query (6종)**: `<domain>_query_character`, `<domain>_query_world_item`, `<domain>_query_note`, `<domain>_query_timeline_entry`, `<domain>_query_block`, `<domain>_query_episode`
+- **ì¸ë¶ ëë©ì¸ mutate (개별 액션 20+ 종)**: `<domain>_edit_block_prose`, `<domain>_create_entity`, `<domain>_update_entity`, `<domain>_create_category`, `<domain>_update_category`, `<domain>_create_section`, `<domain>_rename_section`, `<domain>_move_episode_to_section`, `<domain>_create_group`, `<domain>_update_group`, `<domain>_add_graph_edge`, `<domain>_update_graph_edge`, `<domain>_create_area_label`, `<domain>_update_area_label`, `<domain>_delete_area_label`, `<domain>_create_era`, `<domain>_update_era`, `<domain>_create_timeline_entry`, `<domain>_update_timeline_entry`, `<domain>_create_wb_category`, `<domain>_update_wb_category`, `<domain>_create_wb_item`, `<domain>_update_wb_item`, `<domain>_delete_note`, ...
 
-**절대 금지 — aggregate 이름 사용**: `iyaki_query`, `iyaki_mutate`, `search_files`, `glob_files` 는 **존재하지 않는 이름**. 사용 시 startup fail-fast. 항상 `backend/tools/` 의 실제 `name="..."` 을 확인하고 개별 이름으로 선언.
+**절대 금지 — aggregate 이름 사용**: `<domain>_query`, `<domain>_mutate`, `search_files`, `glob_files` 는 **존재하지 않는 이름**. 사용 시 startup fail-fast. 항상 `backend/tools/` 의 실제 `name="..."` 을 확인하고 개별 이름으로 선언.
 
 5. **Preset = interactive (default)** — conservative chat defaults:
 ```yaml
@@ -81,7 +81,7 @@ name: <name>
 description: "TODO: describe task"
 system_prompt_file: "<name>.md"
 model_preference: "default"
-# TODO: backend/tools/ 개별 등록 이름 중 선택 (예: read_file, edit_file, iyaki_query_character, iyaki_edit_block_prose)
+# TODO: backend/tools/ 개별 등록 이름 중 선택 (예: read_file, edit_file, <domain>_query_character, <domain>_edit_block_prose)
 allowed_tools: [read_file]
 max_turns: 5
 compaction_enabled: false
