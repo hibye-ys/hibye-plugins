@@ -1,8 +1,0 @@
-{
-  "name": "surface-web-vite-react",
-  "version": "0.0.1",
-  "description": "Vite + React 19 + RR7 + Tailwind v4 token-only styling rules for web SPA.",
-  "author": { "name": "hibye-ys" },
-  "license": "MIT",
-  "keywords": ["vite", "react", "tailwind", "tokens", "agent-skills"]
-}

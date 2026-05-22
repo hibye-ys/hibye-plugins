@@ -12,10 +12,10 @@
       "version": "0.0.1"
     },
     {
-      "name": "surface-web-vite-react",
-      "description": "Vite + React 19 + RR7 + Tailwind v4 token-only styling rules for web SPA.",
+      "name": "frontend-react-web",
+      "description": "React Web frontend harness — vercel plugin 의 보완 layer (a11y / 보안 web / Electron / Form / 디자인 토큰 / 테스팅 / TS strict / observability).",
       "category": "development",
-      "source": "./plugins/surface-web-vite-react",
+      "source": "./plugins/frontend-react-web",
       "version": "0.0.1"
     },
     {

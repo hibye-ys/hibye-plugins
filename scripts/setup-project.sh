@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage: setup-project.sh <project-dir> [plugin-name ...]
-# Example: setup-project.sh /path/to/your-project stack-backend-ts-hono surface-web-vite-react
+# Example: setup-project.sh /path/to/your-project stack-backend-ts-hono frontend-react-web
 #
 # 동작:
 #   1. <project-dir>/.codex/skills/<plugin>/ 에 marketplace plugin skills/ 로 nested symlink
@@ -14,7 +14,7 @@ shift || true
 PLUGINS=("$@")
 
 if [ ${#PLUGINS[@]} -eq 0 ]; then
-  PLUGINS=("stack-backend-ts-hono" "surface-web-vite-react")
+  PLUGINS=("stack-backend-ts-hono" "frontend-react-web")
 fi
 
 MARKETPLACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
