@@ -20,24 +20,24 @@ if ! rg --pcre2 --version >/dev/null 2>&1; then
   exit 2
 fi
 
-# Framework / runtime 섹션의 패턴만 추출
+# Framework / runtime 섹션의 패턴만 추출 (mktemp 없이 here-string 으로 처리)
 # 섹션 헤더 (예: "# === Framework / runtime 어휘") 이후의 non-empty, non-comment 라인
-PATTERNS_FILE=$(mktemp)
-trap 'rm -f "$PATTERNS_FILE"' EXIT
-
-awk '
+PATTERNS=$(awk '
   /^# === Framework \/ runtime 어휘/ { in_section = 1; next }
   /^# ===/ { in_section = 0 }
   in_section && /^[^#]/ && NF > 0 { print }
-' "$TERMS_FILE" > "$PATTERNS_FILE"
+' "$TERMS_FILE")
 
-if [ ! -s "$PATTERNS_FILE" ]; then
+if [ -z "$PATTERNS" ]; then
   echo "error: no framework patterns found in $TERMS_FILE (expected '# === Framework / runtime 어휘' section)" >&2
   exit 2
 fi
 
 FAIL=0
+PATTERN_COUNT=0
 while IFS= read -r pattern; do
+  [ -z "$pattern" ] && continue
+  PATTERN_COUNT=$((PATTERN_COUNT + 1))
   matches=$(rg -nP --pcre2 "$pattern" "$SCAN_TARGET" 2>/dev/null || true)
   if [ -n "$matches" ]; then
     echo "VIOLATION: $pattern"
@@ -45,10 +45,10 @@ while IFS= read -r pattern; do
     echo ""
     FAIL=1
   fi
-done < "$PATTERNS_FILE"
+done <<< "$PATTERNS"
 
 if [ $FAIL -eq 0 ]; then
-  echo "✓ framework vocab clean: $SCAN_TARGET ($(wc -l < "$PATTERNS_FILE" | tr -d ' ') patterns from forbidden-terms.txt)"
+  echo "✓ framework vocab clean: $SCAN_TARGET ($PATTERN_COUNT patterns from forbidden-terms.txt)"
 else
   echo "✗ framework vocab violations found" >&2
   exit 1

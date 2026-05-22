@@ -8,7 +8,7 @@
 |-------------|------|-----------|
 | `<framework>` | HTTP framework 명 (general) | "`<framework>` 미들웨어 등록 시 …" |
 | `<framework env binding>` | request handler context 의 환경 변수 접근 | "`<framework env binding>` 으로 secret 읽기" |
-| `<framework HTTP error class>` | framework 의 HTTP 에러 throwable 클래스 | "`throw new <framework HTTP error class>(401, ...)`" |
+| `<framework HTTP error class>` | framework 의 HTTP 에러 throwable 클래스 | "`throw new <framework HTTP error class>(401, ...)`" (예: `HTTPException`) |
 | `<framework SSE helper>` | SSE 응답 헬퍼 함수 | "`<framework SSE helper>(c, async (stream) => { ... })`" |
 | `<framework json response>` | JSON 응답 헬퍼 | "`return <framework json response>({ ok: true })`" |
 | `<framework route definition>` | 라우트 정의 호출 | "`<framework route definition>('/health', handler)`" |
@@ -17,7 +17,7 @@
 | `<framework request accessor>` | 요청 본문/헤더 접근 | `c.req.json()` 등 |
 | `<runtime>` | JS 런타임 (Node / Bun / Workers / Deno) | "`<runtime>` 의 fetch API …" |
 | `<runtime env binding>` | runtime 의 env 변수 접근 패턴 | `process.env`, `c.env`, `Deno.env` 등 instance 별 |
-| `<api-app>` | API 어플리케이션 모듈 경로 | "`<api-app>/src/routes/...`" |
+| `<api-app>` | API 어플리케이션 모듈 경로 | "`<api-app>/src/routes/...`" (예: `apps/api`) |
 | `<domain>` | 비즈니스 도메인 명 (소문자) | "`<domain>` 데이터베이스 …" |
 | `<DOMAIN>` | 도메인 명 (대문자) | "`<DOMAIN>` 환경변수 prefix" |
 | `<domain entity>` | 도메인 엔티티 명 (e.g. user, post, order) | "`<domain entity>` 테이블 …" |
@@ -45,7 +45,6 @@
 | `<runtime deployment id>` | runtime 배포 단위 id | wrangler deployment id, vercel deployment id |
 | `<HTTP test client>` | framework 무관 HTTP 테스트 client | `fetch`, `supertest`, `axios` test |
 | `<local-secret-file>` | 로컬 개발 시 secret 주입 파일 | `.dev.vars`, `.env.local` |
-| `<api-app>` (이미 정의됨) | API 어플리케이션 경로 | `apps/api` |
 | `<ml-worker-app>` | ML/worker 어플리케이션 경로 | `apps/ml-worker` |
 | `<web-app>` | 웹 frontend 어플리케이션 경로 | `apps/web` |
 | `<backend-root>` | TS 백엔드 root 경로 | `apps/api`, `services/backend` |
@@ -55,7 +54,6 @@
 | `<agent-name>` / `<agent>` / `<test-args>` | 일반 인자 / 파일명 placeholder | scaffold / command args, `agents/prompts/<agent>.md` |
 | `<other dependent skills>` | 의존 skill 목록 (frontmatter) | `architecture-invariants, sub-agent` |
 | `<bug description>` / `<one-sentence>` / `<describe>` / `<desc>` | 자유 서술 placeholder | 사용자 작성 |
-| `<framework HTTP error class>` | HTTP 에러 throwable 클래스 (기본 표 보완) | `HTTPException` |
 
 > Step 1 의 grep 결과에서 추출된 모든 placeholder 가 본 두 표 (기본 + 확장) 합해서 100% 커버해야 함. 추가 발견 시 본 표 갱신.
 >

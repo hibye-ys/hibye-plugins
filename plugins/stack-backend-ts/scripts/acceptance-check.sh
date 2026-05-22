@@ -35,16 +35,26 @@ else
 fi
 CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/stack-backend-ts"
 # 우선순위: (1) plugin.json version path  (2) plugin root 자체 (full symlink)  (3) 1.0.0 (legacy)
+# global CLAUDE.md 규칙: 캐시 디렉토리는 *심볼릭 링크* 강제 — 일반 dir 이면 fail
 CACHE_OK=0
+CACHE_SYMLINK_VIOLATION=""
 for candidate in "$CACHE_BASE/$VERSION" "$CACHE_BASE" "$CACHE_BASE/1.0.0"; do
   [ -z "$candidate" ] || [ "$candidate" = "$CACHE_BASE/" ] && continue
-  if [ -L "$candidate" ] || [ -d "$candidate" ]; then
+  if [ -L "$candidate" ]; then
     CACHE_OK=1
     break
+  elif [ -d "$candidate" ] && [ -z "$CACHE_SYMLINK_VIOLATION" ]; then
+    # 존재하지만 symlink 가 아님 — 위반 후보 기록 (다른 candidate 가 symlink 면 OK)
+    CACHE_SYMLINK_VIOLATION="$candidate"
   fi
 done
 if [ $CACHE_OK -eq 0 ]; then
-  echo "WARN: cache link missing under $CACHE_BASE (checked: \$VERSION='$VERSION', root, 1.0.0)"
+  if [ -n "$CACHE_SYMLINK_VIOLATION" ]; then
+    echo "FAIL: $CACHE_SYMLINK_VIOLATION exists but is not a symlink (run ~/.claude/plugins/marketplaces/hibye-plugins/link-cache.sh to convert)" >&2
+    FAIL=$((FAIL+1))
+  else
+    echo "WARN: cache link missing under $CACHE_BASE (checked: \$VERSION='$VERSION', root, 1.0.0)"
+  fi
 fi
 
 # 7. forbidden scan
