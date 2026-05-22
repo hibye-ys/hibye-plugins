@@ -1,0 +1,14 @@
+{
+  "name": "frontend-react-web",
+  "version": "0.0.1",
+  "description": "React Web frontend harness — vercel plugin 의 보완 layer.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Frontend: React Web",
+    "shortDescription": "vercel plugin 과 함께 사용 권장. a11y / 보안 / Electron / Form / 디자인 토큰 / 테스팅 / TS strict / observability 영역.",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "category": "Coding",
+    "brandColor": "#61DAFB",
+    "composerIcon": "./assets/icon.svg"
+  }
+}

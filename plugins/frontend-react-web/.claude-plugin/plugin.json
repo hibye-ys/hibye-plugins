@@ -1,0 +1,12 @@
+{
+  "name": "frontend-react-web",
+  "version": "0.0.1",
+  "description": "React Web frontend harness — vercel plugin 의 보완 layer. a11y / 보안 (web) / Electron / Form / 디자인 토큰 / 테스팅 / TS strict / observability 영역에 집중. Vite SPA / Next App Router / Remix / RR7 framework mode / Electron 렌더러 (Chromium) 공통.",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT",
+  "keywords": [
+    "react", "frontend", "a11y", "electron", "security",
+    "design-tokens", "vite", "nextjs", "remix", "react-router",
+    "tailwind", "agent-skills"
+  ]
+}
