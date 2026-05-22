@@ -4,12 +4,19 @@
 # Usage:
 #   forbidden-scan.sh [target-dir]
 #   forbidden-scan.sh [target-dir] --exclude PATTERN [--exclude PATTERN ...]
+#   forbidden-scan.sh --profile <skills|all-plugin|docs>
 #
-# 기본 target = plugins/stack-backend-ts/skills/
+# 기본 target = plugins/stack-backend-ts/skills/  (--profile skills 와 동일)
 # 기본 정본 forbidden-terms = scripts/forbidden-terms.txt (자기 옆)
+#
+# Profile 옵션 (target-dir 명시 시 무시):
+#   skills      (default) — plugins/stack-backend-ts/skills/ 만
+#   all-plugin             — plugin root 전체 (단 scripts/ 자기 제외)
+#   docs                   — plugins/stack-backend-ts/docs/ 만
 #
 # 환경 변수:
 #   FORBIDDEN_FILE — forbidden-terms.txt 경로 override
+#   PROFILE        — --profile 과 동일 (env 로도 설정 가능)
 #
 # Repo-root 스캔 확장 시 --exclude 옵션 권장:
 #   bash forbidden-scan.sh /path/to/repo \
@@ -20,6 +27,7 @@
 set -euo pipefail
 
 TARGET_DIR=""
+PROFILE="${PROFILE:-}"
 EXCLUDE_GLOBS=()
 
 while [[ $# -gt 0 ]]; do
@@ -32,8 +40,16 @@ while [[ $# -gt 0 ]]; do
       EXCLUDE_GLOBS+=("${1#*=}")
       shift
       ;;
+    --profile)
+      PROFILE="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE="${1#*=}"
+      shift
+      ;;
     -h|--help)
-      sed -n '2,18p' "$0"
+      sed -n '2,24p' "$0"
       exit 0
       ;;
     *)
@@ -48,7 +64,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TARGET_DIR="${TARGET_DIR:-$(dirname "$0")/../skills}"
+PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# --profile 처리 (target-dir 명시 시 무시)
+if [ -z "$TARGET_DIR" ]; then
+  case "${PROFILE:-skills}" in
+    ""|skills)
+      TARGET_DIR="$PLUGIN_ROOT/skills"
+      ;;
+    all-plugin)
+      TARGET_DIR="$PLUGIN_ROOT"
+      # scripts/ 는 self-exclude (아래 RG_GLOB_ARGS 에서 이미 처리)
+      ;;
+    docs)
+      TARGET_DIR="$PLUGIN_ROOT/docs"
+      ;;
+    *)
+      echo "error: unknown profile '$PROFILE' (valid: skills | all-plugin | docs)" >&2
+      exit 2
+      ;;
+  esac
+fi
+
 FORBIDDEN_FILE="${FORBIDDEN_FILE:-$(dirname "$0")/forbidden-terms.txt}"
 
 if [ ! -f "$FORBIDDEN_FILE" ]; then

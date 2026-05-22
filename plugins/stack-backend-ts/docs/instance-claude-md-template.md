@@ -2,12 +2,20 @@
 
 stack-backend-ts plugin 사용 instance (예: iyaki-rebuild) 측 프로젝트 root 의 `CLAUDE.md` 작성 가이드.
 
+> **매핑 범위 — Codex Round 3 권고 반영**
+>
+> 본 매핑 표는 `docs/placeholder-vocabulary.md` 의 **카테고리 1 (Instance mapping 대상)** 만 cover.
+> 카테고리 2 (generic token / 의사코드 — `<bug description>`, `<agent-name>`, `<server-name>` 등) 는
+> instance context 로 의미 자명 → 매핑 표 등재 의무 ✕. 필요 시 자체 보조 표 별도 추가 가능.
+
 ## 최소 구조
 
 ```markdown
 @AGENTS.md
 
-## stack-backend-ts plugin placeholder 매핑
+## stack-backend-ts plugin placeholder 매핑 (카테고리 1)
+
+### 기본 framework / runtime
 
 | Placeholder | 이 프로젝트의 값 |
 |-------------|------------------|
@@ -26,6 +34,11 @@ stack-backend-ts plugin 사용 instance (예: iyaki-rebuild) 측 프로젝트 ro
 | `<domain>` | `iyaki` |
 | `<DOMAIN>` | `IYAKI` |
 | `<DOMAIN_VOCAB>` | `writer|author|scenario|novel|character|persona` |
+
+### 확장 framework / runtime
+
+| Placeholder | 이 프로젝트의 값 |
+|-------------|------------------|
 | `<framework router>` | `Hono` ( `new Hono()` ) |
 | `<framework zod validator>` | `@hono/zod-validator` ( `zValidator('json', schema)` ) |
 | `<framework zod-validator package>` | `@hono/zod-validator` |
@@ -46,8 +59,10 @@ stack-backend-ts plugin 사용 instance (예: iyaki-rebuild) 측 프로젝트 ro
 | `<ml-worker-app>` | `apps/ml-worker` |
 | `<web-app>` | `apps/web` |
 | `<workspace-entity>` | prose-editor mention (`@`) — character / scenario / persona |
-| `<server-name>` / `<source-name>` | MCP 서버 이름 (예: `github`, `postgres`) |
+| `<domain entity>` | writer / scenario / character / persona (도메인 엔티티) |
 ```
+
+> **매핑하지 않아도 되는 placeholder (카테고리 2)**: `<server-name>` / `<source-name>` / `<agent-name>` / `<agent>` / `<test-args>` / `<version-id>` / `<other dependent skills>` / `<bug description>` / `<one-sentence>` / `<describe>` / `<desc>` 등. 본 plugin SKILL.md 본문에서 자유 서술 / 추상 의사코드로 사용. 매핑 의무 ✕.
 
 ## DOMAIN_VOCAB 환경변수
 
