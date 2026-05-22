@@ -68,8 +68,12 @@ for glob in "${EXCLUDE_GLOBS[@]}"; do
   RG_GLOB_ARGS+=("--glob" "!${glob}")
 done
 
-# self-exclude — forbidden-terms.txt 자기 자신이 TARGET_DIR 안에 있으면 스캔에서 제외
-# (자기 패턴 정의 라인이 자기 자신과 매치하는 self-match 방지)
+# self-exclude — scripts/ 디렉토리 전체 (forbidden-terms.txt 자기 정의 + audit 스크립트
+# 본문의 grep 패턴 string 이 자기 forbidden 패턴에 매치하는 self-match 방지)
+RG_GLOB_ARGS+=("--glob" "!**/scripts/**")
+
+# legacy single-file self-exclude — TARGET_DIR 안 forbidden-terms.txt 가 scripts/ 외 위치에
+# 있을 때만 작동 (현재 default 호출에선 위 scripts/ glob 이 cover, redundant)
 FORBIDDEN_ABS="$(cd "$(dirname "$FORBIDDEN_FILE")" && pwd)/$(basename "$FORBIDDEN_FILE")"
 TARGET_ABS="$(cd "$TARGET_DIR" 2>/dev/null && pwd)" || TARGET_ABS="$TARGET_DIR"
 case "$FORBIDDEN_ABS" in
