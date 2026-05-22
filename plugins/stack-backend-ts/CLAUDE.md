@@ -1,10 +1,15 @@
 # stack-backend-ts
 
-TypeScript backend (AI agent + 일반 백엔드) 룰. Framework/runtime 무관 — Hono / Express / Fastify / Node / Workers / Bun 등 어디서든 사용. 도메인 결합은 `<domain>` placeholder 로 표기 (instance 측 CLAUDE.md 에서 해석).
+TypeScript backend (AI agent + 일반 백엔드) 룰. Framework / runtime / domain 무관 — Hono / Express / Fastify / Node / Bun / Workers 등 어디서든 사용. 도메인 결합은 `<domain>` placeholder, framework 결합은 `<framework>` placeholder 로 표기. instance 측 CLAUDE.md 에서 매핑.
+
+본 catalog 의 모든 skill SKILL.md 는 plugin install 시 fresh 세션에 노출. Codex CLI 는 `.agents/skills/` 디렉토리를 직접 스캔.
+
+## Placeholder 어휘
+
+- 자세한 어휘 사양: `docs/placeholder-vocabulary.md` (Task 1.3 에서 생성)
+- Instance CLAUDE.md 작성 템플릿: `docs/instance-claude-md-template.md` (Task 1.4 에서 생성)
 
 ## 상시 적용 invariant 18개
-
-> Claude Code 가 plugin install 후 fresh 세션 시작 시 다음 invariant 본문이 *상시 노출*.
 
 @./skills/single-writer/SKILL.md
 @./skills/provider-retry-matrix/SKILL.md
@@ -25,29 +30,68 @@ TypeScript backend (AI agent + 일반 백엔드) 룰. Framework/runtime 무관 �
 @./skills/structured-log-schema/SKILL.md
 @./skills/cors-policy/SKILL.md
 
----
+## On-demand workflow skills 39개
 
-## workflow 39개 (on-demand, description trigger)
+@./skills/agent-loop/SKILL.md
+@./skills/ai-agent-patterns/SKILL.md
+@./skills/api-routing/SKILL.md
+@./skills/auth/SKILL.md
+@./skills/backend-overview/SKILL.md
+@./skills/codex-commands/SKILL.md
+@./skills/codex-subagents/SKILL.md
+@./skills/coding-standards/SKILL.md
+@./skills/commit-rules/SKILL.md
+@./skills/compaction/SKILL.md
+@./skills/context-assembly/SKILL.md
+@./skills/data-layer/SKILL.md
+@./skills/database/SKILL.md
+@./skills/debug-session/SKILL.md
+@./skills/design-principles/SKILL.md
+@./skills/error-handling/SKILL.md
+@./skills/idempotency-key/SKILL.md
+@./skills/incident-triage/SKILL.md
+@./skills/lsp-server/SKILL.md
+@./skills/mcp-integration/SKILL.md
+@./skills/media-pipeline-patterns/SKILL.md
+@./skills/migration-rollback/SKILL.md
+@./skills/new-agent/SKILL.md
+@./skills/new-run/SKILL.md
+@./skills/performance-profiling/SKILL.md
+@./skills/provider-catalog-sync/SKILL.md
+@./skills/provider-layer/SKILL.md
+@./skills/provider-scaffold/SKILL.md
+@./skills/red-green-fix/SKILL.md
+@./skills/secret-rotation/SKILL.md
+@./skills/security-runtime/SKILL.md
+@./skills/sse-streaming/SKILL.md
+@./skills/sub-agent/SKILL.md
+@./skills/test-cleanup/SKILL.md
+@./skills/test-scaffold/SKILL.md
+@./skills/testing-infra/SKILL.md
+@./skills/tool-system/SKILL.md
+@./skills/ts-agent-rules/SKILL.md
+@./skills/usage-tracking/SKILL.md
 
-### AI core (15)
-agent-loop, ai-agent-patterns, provider-layer, provider-scaffold, provider-catalog-sync, tool-system, mcp-integration, compaction, context-assembly, sub-agent, usage-tracking, new-agent, new-run, codex-commands, codex-subagents
+## Audit skills 21개
 
-### 일반 TS 백엔드 (15)
-backend-overview, api-routing, sse-streaming, auth, error-handling, database, data-layer, coding-standards, commit-rules, design-principles, security-runtime, testing-infra, test-scaffold, test-cleanup, lsp-server
-
-### 미디어 (1)
-media-pipeline-patterns
-
-### 디버깅 / 운영 (5)
-debug-session, red-green-fix, performance-profiling, incident-triage, ts-agent-rules
-
-### 신규 generic (3)
-idempotency-key, secret-rotation, migration-rollback
-
-## audit 21개 (on-demand, 변경 후 검증)
-
-### invariant 직접 매핑 (10)
-provider-retry-audit, sse-lifecycle-audit, single-writer-audit, token-budget-audit, tool-sort-order-audit, input-safety-audit, mcp-namespace-audit, compaction-thresholds-audit, http-error-sentinels-audit, run-policy-presets-audit
-
-### M2.5 audit (11)
-spawn-limits-audit, agent-verify-def, api-audit, data-audit, full-architecture-audit, loop-audit, session-audit, security-audit-check, rule-linting, dependency-scanning, app-domain-boundary-audit
+@./skills/agent-verify-def/SKILL.md
+@./skills/api-audit/SKILL.md
+@./skills/app-domain-boundary-audit/SKILL.md
+@./skills/compaction-thresholds-audit/SKILL.md
+@./skills/data-audit/SKILL.md
+@./skills/dependency-scanning/SKILL.md
+@./skills/full-architecture-audit/SKILL.md
+@./skills/http-error-sentinels-audit/SKILL.md
+@./skills/input-safety-audit/SKILL.md
+@./skills/loop-audit/SKILL.md
+@./skills/mcp-namespace-audit/SKILL.md
+@./skills/provider-retry-audit/SKILL.md
+@./skills/rule-linting/SKILL.md
+@./skills/run-policy-presets-audit/SKILL.md
+@./skills/security-audit-check/SKILL.md
+@./skills/session-audit/SKILL.md
+@./skills/single-writer-audit/SKILL.md
+@./skills/spawn-limits-audit/SKILL.md
+@./skills/sse-lifecycle-audit/SKILL.md
+@./skills/token-budget-audit/SKILL.md
+@./skills/tool-sort-order-audit/SKILL.md
