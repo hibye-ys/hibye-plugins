@@ -50,6 +50,12 @@ fi
 # 7. forbidden scan
 bash "$(dirname "$0")/forbidden-scan.sh" >/dev/null || { echo "FAIL: forbidden-scan"; FAIL=$((FAIL+1)); }
 
+# 7b. framework vocab regression check
+if ! bash "$(dirname "$0")/check-framework-vocab.sh" > /dev/null 2>&1; then
+  echo "FAIL: framework vocab regression — run scripts/check-framework-vocab.sh for details" >&2
+  FAIL=$((FAIL+1))
+fi
+
 # 8. AGENTS.md drift detection (--check 모드 — AGENTS.md 수정 안 함)
 GENERATED=$(bash "$(dirname "$0")/generate-agents-md.sh" --check 2>/dev/null)
 CURRENT=$(cat "$(dirname "$0")/../AGENTS.md")
