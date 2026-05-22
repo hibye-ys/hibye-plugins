@@ -53,10 +53,9 @@ cd "$API_DIR" || { echo "error: API_DIR not found: $API_DIR" >&2; exit 2; }
 # Framework-specific audit patterns. default = Hono + Workers (가장 흔한 instance).
 # instance 가 다른 framework / runtime 이면 env var 로 override.
 #   예) Express: REQUEST_BODY_PATTERN='req\.(body|params|query)'
-#                ROUTE_HANDLER_PATTERN='(app|router)\.(get|post|put|patch|delete)'
+#                ROUTE_MUTATION_PATTERN='(app|router)\.(post|put|patch)'
 #                KV_BINDING_PATTERN='process\.env\.[A-Z_]+'
 REQUEST_BODY_PATTERN="${REQUEST_BODY_PATTERN:-c\.req\.(json|valid|parseBody)}"
-ROUTE_HANDLER_PATTERN="${ROUTE_HANDLER_PATTERN:-app\.(get|post|put|patch|delete)}"
 KV_BINDING_PATTERN="${KV_BINDING_PATTERN:-c\.env\.[A-Z_]+}"
 # api-audit: mutation route 가 schema validator 미들웨어 보유 여부. default = Hono 의 zValidator.
 #   예) Express + express-validator: ZOD_VALIDATOR_PATTERN='checkSchema|validateRequest'
@@ -64,6 +63,13 @@ ZOD_VALIDATOR_PATTERN="${ZOD_VALIDATOR_PATTERN:-zValidator}"
 # api-audit: route handler 정의 패턴 — POST/PUT/PATCH 만 (mutation). default = Hono.
 #   예) Express: ROUTE_MUTATION_PATTERN='(app|router)\.(post|put|patch)'
 ROUTE_MUTATION_PATTERN="${ROUTE_MUTATION_PATTERN:-app\.(post|put|patch)}"
+# session-audit: KV store 어휘 + TTL 필드 패턴. default = Hono+Workers (KV / expirationTtl).
+#   예) Express+Redis: KV_STORE_PATTERN='redis', TTL_FIELD_PATTERN='(EX|PX|ttl)'
+KV_STORE_PATTERN="${KV_STORE_PATTERN:-(KV|kv)}"
+TTL_FIELD_PATTERN="${TTL_FIELD_PATTERN:-expirationTtl}"
+# api-audit: protected route auth middleware 함수 이름. default = authMiddleware.
+#   예) Express: AUTH_MIDDLEWARE_NAME='requireAuth' 또는 'isAuthenticated'
+AUTH_MIDDLEWARE_NAME="${AUTH_MIDDLEWARE_NAME:-authMiddleware}"
 
 VIOLATIONS=0
 SKIP_COUNT=0
@@ -102,7 +108,7 @@ run_audit() {
   fi
 }
 
-# ─────────────────────────── 기존 13 audit ───────────────────────────
+# ─────────────────────────── 기존 12 audit ───────────────────────────
 
 # 1. provider-retry-audit
 run_audit "provider-retry" 'retry.*\b(401|403|404|422)\b|\b(401|403|404|422)\b.*retry' src/ai/providers/
@@ -239,9 +245,9 @@ api_audit_check() {
   # protected auth
   if [[ -d src/routes/protected ]]; then
     local no_auth
-    no_auth=$(grep -L "authMiddleware" src/routes/protected/*.ts 2>/dev/null | wc -l | tr -d ' ')
+    no_auth=$(grep -L "$AUTH_MIDDLEWARE_NAME" src/routes/protected/*.ts 2>/dev/null | wc -l | tr -d ' ')
     if [[ $no_auth -gt 0 ]]; then
-      echo "VIOLATION [api-audit]: $no_auth protected route(s) missing authMiddleware"
+      echo "VIOLATION [api-audit]: $no_auth protected route(s) missing $AUTH_MIDDLEWARE_NAME (AUTH_MIDDLEWARE_NAME=$AUTH_MIDDLEWARE_NAME)"
       count=$((count+no_auth))
     fi
   fi
@@ -321,12 +327,12 @@ session_audit_check() {
   local count=0
   # TTL 누락 — pipe-subshell 회피 위해 출력 캡처 후 본 셸 loop
   local ttl_candidates
-  ttl_candidates=$(rg -nP "\.put\(" src/ 2>/dev/null | grep -E "(KV|kv)" || true)
+  ttl_candidates=$(rg -nP "\.put\(" src/ 2>/dev/null | grep -E "$KV_STORE_PATTERN" || true)
   if [[ -n "$ttl_candidates" ]]; then
     while IFS=: read -r file ln rest; do
       [[ -z "$file" ]] && continue
-      awk -v ln="$ln" 'NR>=ln && NR<=ln+5 {print}' "$file" | grep -q "expirationTtl" && continue
-      echo "VIOLATION [session-audit]: $file:$ln missing expirationTtl"
+      awk -v ln="$ln" 'NR>=ln && NR<=ln+5 {print}' "$file" | grep -qE "$TTL_FIELD_PATTERN" && continue
+      echo "VIOLATION [session-audit]: $file:$ln missing TTL field (KV_STORE_PATTERN=$KV_STORE_PATTERN TTL_FIELD_PATTERN=$TTL_FIELD_PATTERN)"
       count=$((count+1))
     done <<< "$ttl_candidates"
   fi
@@ -353,7 +359,7 @@ security_audit_check() {
   [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m eval/new Function"; count=$((count+m)); }
   m=$(rg -nP "require\([^'\"\\\`]+\)" src/ 2>/dev/null | wc -l | tr -d ' ')
   [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m 동적 require"; count=$((count+m)); }
-  m=$(rg -nP "fetch\(\s*(req\.|body\.|c\.req\.)" src/ 2>/dev/null | wc -l | tr -d ' ')
+  m=$(rg -nP "fetch\(\s*(req\.|body\.|${REQUEST_BODY_PATTERN})" src/ 2>/dev/null | wc -l | tr -d ' ')
   [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m SSRF 의심"; count=$((count+m)); }
   VIOLATIONS=$((VIOLATIONS + count))
   [[ $count -eq 0 ]] && echo "PASS [security-audit-check]"

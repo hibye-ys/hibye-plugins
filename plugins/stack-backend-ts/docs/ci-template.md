@@ -20,17 +20,22 @@ jobs:
       DOMAIN_VOCAB: "writer|author|scenario|novel|character|persona"
       API_APP_PATH: "apps/api"
       # framework-specific audit pattern (default = Hono + Workers).
-      # instance 가 다른 framework 면 override:
-      #   - Express 예: REQUEST_BODY_PATTERN='req\.(body|params|query)'
-      #                 ROUTE_HANDLER_PATTERN='(app|router)\.(get|post|put|patch|delete)'
-      #                 ROUTE_MUTATION_PATTERN='(app|router)\.(post|put|patch)'
-      #                 KV_BINDING_PATTERN='process\.env\.[A-Z_]+'
-      #                 ZOD_VALIDATOR_PATTERN='checkSchema|validateRequest'
+      # instance 가 다른 framework / storage 면 override:
+      #   - Express + Redis 예:
+      #       REQUEST_BODY_PATTERN: 'req\.(body|params|query)'
+      #       ROUTE_MUTATION_PATTERN: '(app|router)\.(post|put|patch)'
+      #       ZOD_VALIDATOR_PATTERN: '(validateRequest|checkSchema)'
+      #       KV_BINDING_PATTERN: 'process\.env\.[A-Z_]+'
+      #       KV_STORE_PATTERN: 'redis'
+      #       TTL_FIELD_PATTERN: '(EX|PX|ttl)'
+      #       AUTH_MIDDLEWARE_NAME: 'requireAuth'
       REQUEST_BODY_PATTERN: 'c\.req\.(json|valid|parseBody)'
-      ROUTE_HANDLER_PATTERN: 'app\.(get|post|put|patch|delete)'
       ROUTE_MUTATION_PATTERN: 'app\.(post|put|patch)'
       KV_BINDING_PATTERN: 'c\.env\.[A-Z_]+'
       ZOD_VALIDATOR_PATTERN: 'zValidator'
+      KV_STORE_PATTERN: '(KV|kv)'
+      TTL_FIELD_PATTERN: 'expirationTtl'
+      AUTH_MIDDLEWARE_NAME: 'authMiddleware'
 
       # audit-all strict 정책 — Round 3 분리 (--strict deprecated):
       #   - REQUIRE_MOUNT=1: API_DIR/src 부재 시 fail (instance src 마운트 강제)
@@ -77,7 +82,7 @@ export DOMAIN_VOCAB="entity1|entity2|entity3"
 | `--require-mount` | `REQUIRE_MOUNT=1` | `API_DIR/src` 부재 시 exit 1. instance src 마운트 강제 |
 | `--strict-audits` | `STRICT_AUDITS=1` | `EXPECTED_AUDITS` 중 SKIP 된 audit 있으면 exit 1 |
 | `EXPECTED_AUDITS` | env only | space-separated audit 이름 (예: `"data-audit loop-audit"`). 강제할 audit 목록 |
-| `--strict` (deprecated) | `STRICT=1` (제거) | `--require-mount` + `--strict-audits` 동시 활성화. 새 코드는 두 flag 직접 사용 권장 |
+| `--strict` (deprecated) | 없음 — env var 형태는 미지원 | `--require-mount` + `--strict-audits` 동시 활성화. 새 코드는 두 flag 직접 사용 권장 |
 
 EXPECTED_AUDITS 가 비어 있고 `--strict-audits` 만 있으면 informational warning (no-op). instance 측에서 강제 audit 명시 권장.
 
