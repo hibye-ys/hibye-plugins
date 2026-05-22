@@ -1,43 +1,15 @@
 ---
 name: database
-description: Workers 호환 DB 선택 / 연결 / 마이그레이션 결정 시 invoke. Neon Postgres + Drizzle ORM + Drizzle Kit. D1 / Durable Objects 절대 금지.
+description: TS 백엔드 DB 선택 / ORM 선택 / runtime 호환성 / StoragePort 추상 결정 시 invoke. DB·ORM·driver 선택 trade-off matrix + Port 추상 원칙. 구체 DB/driver는 instance 측 결정.
 metadata:
   role: workflow
   scope: apps/api
   source: stack-backend-python/rules/database-patterns.md
 ---
 
-# database — DB + StoragePort 규약 (Workers-compat, D1 금지)
+# database — TS DB 선택 가이드 + Port 추상
 
-> **⛔ spec §1.2 — Cloudflare D1 절대 금지**
-> D1 은 2025년 $5,000/10초 청구 사고 이후 이 프로젝트에서 **영구 금지**. `[[d1_databases]]` binding / `D1Database` import / `c.env.<NAME>.prepare()` API 사용 시 즉시 deploy 차단.
->
-> **⛔ Durable Objects 절대 금지** — spec §1.2. lock-in 최고 위험.
-
-**적용된 §4.4 매트릭스 행**:
-- DB 드라이버: asyncpg → **`@neondatabase/serverless`** (HTTP/WebSocket, Workers 적합)
-- 마이그레이션: Alembic → **Drizzle Kit** (`drizzle-kit generate` + `drizzle-kit migrate`)
-- 환경변수: `APP_DATABASE_URL` os.getenv → **`c.env.DATABASE_URL`** (Hono context)
-
-> source: `stack-backend-python/rules/database-patterns.md`
-> **도메인 어휘 (식별자) 사용 금지** — 이 파일 내 레거시 참조는 설명 목적 OK
-
----
-
-## 현재 상태 (Workers 스택)
-
-| 대상 | 위치 | 방식 |
-|------|------|------|
-| 도메인 엔티티 (character / world / persona / …) | **외부 서비스 소유** (별도 Postgres 인스턴스) | AI API 가 소유 안 함. 접근은 전용 pool + 도구군. 쓰기 시 mutations 감사 append 필수 |
-| 쓰기 감사 | Neon `ai_backend.mutations` 테이블 | raw SQL INSERT, ORM 모델 없음 — Drizzle Kit migration 에서 직접 관리 |
-| 세션 identity/counters | Neon DB 또는 InMemory | `SessionPort` (InMemory 또는 Db 구현체) |
-| 세션 메시지 이력 | Neon DB 또는 InMemory | `SessionHistoryPort` |
-| Media jobs (state) | Neon DB | `MediaJobPort` (Db 구현체) |
-| Media 바이너리 | R2 `media/<jobId>/<file>` | 항상 R2 (`R2StorageWriter.writeMediaOutput`). 삭제 → `deleteMediaArtifacts` |
-| User custom skill 본문 | R2 `skills/user/<userId>/<skillId>.md` | `R2StorageWriter.writeUserSkill` (단일 writer) |
-| 감사 로그 | Neon `ai_backend.audit_log` | append-only (Postgres trigger + 앱 규율). 7년 보존. `emitAuditEvent` 단일 진입점. 6 event taxonomy 고정 |
-| Governance jobs | Neon `ai_backend.governance_jobs` | `DbGovernanceJob` Port — DB only (audit-grade) |
-| KV cache | `c.env.CACHE` (Cloudflare KV) | 세션 캐시 / rate limit / 단기 상태 — **durable 상태 ✕** |
+TS 백엔드에서 **DB 엔진 / ORM / driver 선택**과 **StoragePort 추상화** 원칙. 구체 호스팅/driver/금지 DB 룰은 instance 측 결정 (이 가이드는 DB-agnostic 원칙만 다룬다).
 
 ---
 
@@ -45,184 +17,87 @@ metadata:
 
 | 용도 | 스토리지 | 이유 |
 |------|----------|------|
-| 단기 캐시 (세션 TTL, rate limit 카운터) | KV (`c.env.CACHE`) | eventual consistency OK, 낮은 지연, 높은 처리량 |
-| Durable 상태 (세션 identity, 메시지 이력, jobs) | Neon Postgres | strong consistency, transaction, ACID |
-| Blob 파일 (미디어, skill 본문) | R2 (`c.env.STORAGE`) | 대용량 바이너리, 전역 분산 |
+| 단기 캐시 (세션 TTL, rate limit 카운터) | KV (Redis / Workers KV / in-memory) | eventual consistency OK, 낮은 지연, 높은 처리량 |
+| Durable 상태 (세션 identity, 메시지 이력, jobs, 감사) | RDBMS (Postgres / MySQL / SQLite) | strong consistency, transaction, ACID |
+| Blob 파일 (미디어, 대용량 본문) | Object Storage (S3 / R2 / GCS) | 대용량 바이너리, 전역 분산 |
 
 **KV 에 durable 상태 저장 금지** — 데이터 손실 위험 (eventual consistency + TTL 만료).
 
 ---
 
-## 스택 (Workers 호환)
+## TS 백엔드 DB 선택 매트릭스
 
-| 레이어 | 선택 | 메모 |
-|--------|------|------|
-| DB 엔진 | **Neon Postgres (serverless)** | Workers 환경에서 HTTP/WebSocket 모드 지원 |
-| 드라이버 | **`@neondatabase/serverless`** | Workers 호환 (asyncpg 대체) |
-| ORM | **Drizzle ORM** | Workers 호환, type-safe, 경량 |
-| 마이그레이션 | **Drizzle Kit** | `drizzle-kit generate` + `drizzle-kit migrate` |
-| 연결 | HTTP 모드 (기본) / WebSocket 모드 (트랜잭션) | `c.env.DATABASE_URL` Hono context |
-| UPSERT | Drizzle `onConflictDoUpdate` | Postgres 방언 (SQLite fallback 미지원) |
-| 세션 캐시 | Neon DB 1순위. KV 는 단기 캐시 전용 | 단일 엔진 원칙 |
+| DB | 강점 | 약점 | 적합 |
+|----|------|------|------|
+| **Postgres** | 가장 풍부한 기능 (JSON / arrays / window / CTE), strong ecosystem, jsonb | 운영 부담 약간 ↑ | 복잡한 도메인, AI/agent state (jsonb), analytics |
+| **MySQL** | 운영 단순, 광범위 호스팅 | 일부 SQL 기능 미흡 (e.g., FULL OUTER JOIN) | 단순 OLTP, 광범위 클라우드 호환성 |
+| **SQLite** | embed, zero-config | concurrent write 약함, single-node | local dev, edge replicas, embedded apps |
 
----
+**Hosting 옵션 (Postgres 기준)**: Neon (serverless / branching) / Supabase (full BaaS) / PlanetScale (MySQL 변형) / AWS RDS / GCP Cloud SQL / self-hosted.
 
-## 금지 DB 목록 (spec §1.2)
-
-| DB | 이유 |
-|----|------|
-| **Cloudflare D1** | ⛔ $5,000/10초 청구 사고, Workers 내부 lock-in |
-| **Durable Objects** | ⛔ lock-in 최고, 복잡도 최고 |
-| Cloudflare Pages | ⛔ deprecated 2025-04 |
-
-**Workers 호환 외부 DB 허용 목록**: Neon Postgres · PlanetScale · Supabase (Postgres) · Turso · Upstash Redis (KV용)
+선택 기준은 instance 측 결정 — 이 가이드는 trade-off 만 제시.
 
 ---
 
-## Neon serverless 연결 (asyncpg → @neondatabase/serverless)
+## ORM 선택 매트릭스
 
-```typescript
-// src/db/client.ts
+| ORM | 강점 | 약점 | 적합 |
+|-----|------|------|------|
+| **Drizzle** | typesafe, light, raw SQL escape hatch | 비교적 새것 (ecosystem 작음), 일부 dialect 미숙 | 신규 프로젝트, type-safety + SQL closeness 원함 |
+| **Kysely** | 가장 SQL-close, 타입 안전 query builder | ORM 추상화 부족 (DAO 직접 작성) | raw SQL 선호 + type safety |
+| **Prisma** | full ORM, schema-first, migration ergonomics | 런타임 obfuscation, generated client 의존 | 대규모 팀, schema-first 워크플로 |
 
-// HTTP 모드 (단순 쿼리 — Workers 기본)
-import { neon } from '@neondatabase/serverless'
-import { drizzle } from 'drizzle-orm/neon-http'
-import * as schema from './schema'
-
-export function createDb(databaseUrl: string) {
-  const sql = neon(databaseUrl)  // c.env.DATABASE_URL 에서 주입
-  return drizzle(sql, { schema })
-}
-
-// WebSocket 모드 (트랜잭션 필요 시 — connection pooling)
-import { Pool } from '@neondatabase/serverless'
-import { drizzle as drizzlePool } from 'drizzle-orm/neon-serverless'
-
-export function createDbWithPool(databaseUrl: string) {
-  const pool = new Pool({ connectionString: databaseUrl })
-  return drizzlePool(pool, { schema })
-}
-```
-
-```typescript
-// Hono middleware 에서 DI
-app.use('*', async (c, next) => {
-  c.set('db', createDb(c.env.DATABASE_URL))
-  await next()
-})
-```
+선택은 trade-off — *typesafety 정도* vs *추상화 정도* vs *마이그레이션 도구 성숙도*.
 
 ---
 
-## Drizzle 스키마 선언 (SQLAlchemy DeclarativeBase → pgTable)
+## Runtime 호환성 고려사항
 
-```typescript
-// src/db/schema/sessions.ts
-import { pgTable, text, integer, timestamp, boolean } from 'drizzle-orm/pg-core'
+런타임 별 driver 선택 *원칙*:
 
-export const sessions = pgTable('sessions', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull(),
-  version: integer('version').notNull().default(0),
-  displayLabel: text('display_label'),
-  tombstonedAt: timestamp('tombstoned_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-})
+- **Node**: 거의 모든 driver 호환. native binary (e.g., pg) / pure JS 선택.
+- **Workers / Edge**: HTTP-fetch 기반 driver 만 (native binary X). 예: HTTP-based Postgres drivers (serverless / branching 제공자).
+- **Bun**: Node-compat 대부분 동작. native binding 검증 권장.
 
-// 인덱스 (Drizzle index helper)
-import { index } from 'drizzle-orm/pg-core'
-export const sessionsByUserIdx = index('sessions_user_id_idx').on(sessions.userId)
-```
+구체 driver 이름은 instance 측 결정. invariant 는 **"runtime 호환성 검증 의무"** 만 강제 — target runtime 에서 동작하지 않는 driver 선택 시 deploy 차단.
+
+마이그레이션 절차는 [[migration-rollback]] workflow 참조.
 
 ---
 
-## Drizzle Kit 마이그레이션 (Alembic → Drizzle Kit)
+## StoragePort 추상화 원칙
 
-```bash
-# 스키마 변경 후 migration 파일 생성
-npx drizzle-kit generate
+DB 구현체는 **Port (interface)** 뒤로 격리한다. 호출자는 구체 구현체 import 금지, interface 만 참조.
 
-# migration 적용 (Neon DB)
-npx drizzle-kit migrate
+| 원칙 | 이유 |
+|------|------|
+| 각 도메인 영속 자원당 Port 1개 (e.g., `SessionPort`, `MediaJobPort`) | 단일 책임, 테스트 가능성 |
+| Port 마다 **2개 구현체 이상 제공** (InMemory + DB) | 테스트 격리, runtime 전환 가능 |
+| Port 우회한 직접 SQL 금지 | single writer 원칙, 감사 일관성 |
+| 구현체 선택은 DI / lifespan 에서 결정 | 호출자 무지 (loose coupling) |
 
-# 현재 스키마 introspect (기존 DB 에서 역방향)
-npx drizzle-kit introspect
-```
+### 새 Port 추가하기 (concept)
 
-```typescript
-// drizzle.config.ts
-import { defineConfig } from 'drizzle-kit'
-
-export default defineConfig({
-  schema: './src/db/schema/*.ts',
-  out: './src/db/migrations',
-  dialect: 'postgresql',
-  dbCredentials: {
-    url: process.env.DATABASE_URL!, // CI/deploy 시 환경변수
-    // drizzle.config.ts 는 *Node CLI* (drizzle-kit migrate) — process.env 정상. Workers runtime 에서는 c.env 사용.
-  },
-})
-```
-
-migration 파일은 `src/db/migrations/` — Drizzle Kit 생성 SQL. **Alembic revision 없음**.
-
----
-
-## 트랜잭션 / 일관성
-
-```typescript
-// Python: async with session_scope() as session:
-// Drizzle: db.transaction()
-
-await db.transaction(async (tx) => {
-  await tx.insert(auditLog).values({ event: 'data.delete_soft_executed', userId })
-  await tx.update(sessions).set({ tombstonedAt: new Date() }).where(eq(sessions.userId, userId))
-  // 예외 → 자동 rollback
-})
-
-// Long-running 트랜잭션 금지 — SSE 스트리밍 중 open 유지 시 Neon 연결 타임아웃
-// UTC 고정: new Date() → always UTC in JS
-```
-
----
-
-## 환경변수 (c.env — Hono context)
-
-```typescript
-// wrangler.toml
-// [vars]
-// DATABASE_URL = "postgresql+..." ← 실제값은 Cloudflare Secret
-
-// Hono Env 타입
-type Env = {
-  Bindings: {
-    DATABASE_URL: string     // Neon serverless DSN (Python: APP_DATABASE_URL)
-    STORAGE: R2Bucket        // R2 blob (Python: data/media/)
-    CACHE: KVNamespace       // KV cache (Python: Redis — 병목 후 추가)
-    // D1 binding ✕ — spec §1.2 절대 금지
-  }
-}
-```
-
----
-
-## 새 엔티티 / 테이블 추가하기
-
-1. `src/db/schema/<name>.ts` 에 `pgTable` 선언
-2. `src/db/schema/index.ts` 에 export 추가 (Drizzle Kit autogenerate 대상)
-3. migration 생성: `npx drizzle-kit generate`
-4. 생성된 파일 검토 + downgrade SQL 수동 작성 (Drizzle Kit 은 down migration 자동 생성 ✕)
-5. 필요 시 `src/storage/ports.ts` 에 interface 추가, 구현체 2개 제공
-6. Hono `c.var` 또는 엔진 `LoopDeps` 에 Port 타입 노출
-7. 테스트: 두 구현체 모두에서 동일 시나리오 통과 (parametrize)
-
-## 새 Port 추가하기
-
-1. `src/storage/ports.ts` 에 `interface` 선언
+1. `ports.ts` 에 `interface` 선언 (DB 중립적 시그니처)
 2. InMemory 구현체 + DB 구현체 2개 제공
-3. `src/storage/provider.ts` 의 `DB_ENABLED` 분기에 추가 (lifespan에서 인스턴스화)
+3. provider / lifespan 분기에 추가 (config flag 로 토글)
 4. 호출자는 구체 구현체 import 금지 — **interface 만 참조**
+5. 테스트: 두 구현체 모두에서 동일 시나리오 통과 (parametrize)
+
+---
+
+## 트랜잭션 / 일관성 원칙
+
+| 원칙 | 이유 |
+|------|------|
+| 쓰기는 트랜잭션 안에서 (BEGIN/COMMIT) | ACID 보장, 부분 실패 → rollback |
+| 트랜잭션 안에서 예외 → 자동 rollback | 데이터 일관성 |
+| Long-running 트랜잭션 금지 (SSE 스트리밍 중 open 유지 ✕) | 연결 풀 고갈, 타임아웃 |
+| 시각은 항상 UTC | 시간대 혼동 방지 |
+| Parametrized query 강제 (string interpolation ✕) | SQL injection 방지 |
+| 단일 mutation 은 단일 트랜잭션 안에 | 부분 적용 방지 |
+
+구체 트랜잭션 API (e.g., `db.transaction(...)` vs `BEGIN/COMMIT`) 는 ORM/driver 결정사항.
 
 ---
 
@@ -230,26 +105,31 @@ type Env = {
 
 | 변경 | 영향받는 곳 |
 |------|-----------|
-| Neon DSN 변경 | `c.env.DATABASE_URL`, CI/CD secrets, `drizzle.config.ts` |
-| Drizzle schema 컬럼 추가/삭제 | `npx drizzle-kit generate` 후 migration 파일 검토 필수 |
+| DB 엔진 교체 (Postgres ↔ MySQL 등) | driver, ORM dialect, 모든 raw SQL, migration 도구 — **전 범위 재검증** |
+| Hosting 제공자 변경 (e.g., self-host → managed) | 연결 문자열, CI/CD secrets, connection pool 설정 |
+| Schema 컬럼 추가/삭제 | migration 파일 생성 + 검토 + downgrade 계획 |
+| ORM 교체 | 모든 query 코드, 타입 정의, migration 재생성 — **대규모 작업** |
 | KV → DB durable 상태 이전 | Port 구현체 교체 + 기존 KV 데이터 migration 계획 |
-| HTTP → WebSocket 모드 전환 | connection pool 설정, Workers CPU limit 고려 |
-| R2 bucket 이름 변경 | `wrangler.toml [[r2_buckets]]` + 기존 객체 migration |
-
-## 금지 사항
-
-- **Cloudflare D1** (`[[d1_databases]]` binding / `D1Database` import / `.prepare()` API) — spec §1.2 절대 금지
-- **Durable Objects** — spec §1.2 절대 금지
-- KV 에 durable 상태 저장 (eventual consistency + TTL = 데이터 손실 위험)
-- Port 우회한 직접 `db.execute` raw SQL (single writer + StoragePort 위반)
-- 트랜잭션 밖에서 write
-- Long-running 트랜잭션 (SSE 스트리밍 중 open 유지)
-- SQL injection: `sql\`... ${userInput}\`` — parametrized 강제
-- Drizzle Kit 우회한 스키마 변경
-- 외부 도메인 엔티티 테이블을 `ai_backend.*` 에 복제
-- mutations 감사 없이 외부 도메인 엔티티 UPDATE/INSERT
-- `DATABASE_URL` 미설정 시 D1 fallback — **fallback 없음, RuntimeError 즉시 실패**
+| Runtime 변경 (Node ↔ Workers ↔ Bun) | driver 호환성 재검증 (native binary 여부) |
+| Blob bucket 이름 / 제공자 변경 | 설정 + 기존 객체 migration |
 
 ---
 
-*사용자 메모리 룰: 도메인 어휘(식별자) 신규 코드/스키마에 ✕. 이 파일 내 레거시 참조는 설명 목적.*
+## 금지 사항 (DB-agnostic)
+
+- **KV 에 durable 상태 저장** — eventual consistency + TTL = 데이터 손실 위험
+- **Port 우회한 직접 raw SQL** — single writer + StoragePort 위반
+- **트랜잭션 밖에서 write** — 부분 실패 시 일관성 깨짐
+- **Long-running 트랜잭션** — SSE 스트리밍 중 open 유지 → 연결 풀 고갈
+- **SQL injection 패턴** — string interpolation 사용 시 즉시 차단, parametrized 강제
+- **Migration 도구 우회한 스키마 변경** — schema drift 발생, 환경 간 불일치
+- **외부 도메인 엔티티 테이블 복제** — source-of-truth 위반
+- **감사 없는 mutation** — 7년 보존 요구 위반 (해당 도메인 한정)
+- **연결 문자열 / DB credential 미설정 시 silent fallback** — fallback 없음, 즉시 실패 (fail-fast)
+- **Target runtime 비호환 driver 사용** — 예: Workers/Edge 에서 native binary driver
+
+> 구체 금지 DB / driver / API 룰 (e.g., 특정 cloud product 금지) 은 **instance 측 audit skill 에서 enforce**. 이 가이드는 일반 원칙만 다룬다.
+
+---
+
+*Port 추상화 / 단일 writer / KV-DB 분리 / 트랜잭션 일관성 — 4대 원칙 준수.*
