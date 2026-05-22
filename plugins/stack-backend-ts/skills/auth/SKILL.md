@@ -72,7 +72,7 @@ SessionPort {
 - IP-based, anonymous DDoS 보호 목적의 rate limit 은 **auth middleware 앞** 에 등록 ([[api-routing]] middleware 순서 참조).
 - 인증 후 per-user 제한은 route handler 또는 별도 middleware 에서 처리.
 - 파라미터 (window, max requests, backend) 는 [[rate-limit-policy]] invariant 참조 — 본 skill 은 상수 정의하지 않음.
-- 초과 시: HTTP 429 + `Retry-After` 헤더 + `{ error: { code: "rate_limit_exceeded", message, retry_after_ms } }` envelope.
+- 초과 시: HTTP 429 + `Retry-After` 헤더 + `{ error: { code: "rate_limited", retry_after_ms } }` envelope ([[rate-limit-policy]] invariant 와 일치).
 - 정책 변경은 [[run-policy-presets]] invariant 와 충돌하지 않는지 확인.
 
 ## Scope 검증 원칙
