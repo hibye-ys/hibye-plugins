@@ -3,7 +3,7 @@ name: sse-streaming
 description: TS 백엔드 SSE 응답 핸들러 추가 / 기존 SSE 핸들러 수정 시 invoke. 12 이벤트 직렬화 + heartbeat + secret scrub + done/error 종료 보장 가이드. SSE stream 끊김, done 이벤트 누락, 시크릿 노출 증상 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/sse-streaming + rules/sse-streaming-patterns.md
 ---
 

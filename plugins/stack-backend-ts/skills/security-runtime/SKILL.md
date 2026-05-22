@@ -3,7 +3,7 @@ name: security-runtime
 description: apps/api 런타임 보안 감사 + 통합 보고서 작성 시 invoke. CORS / rate limit / auth 경로 커버리지 / leak-safe 404 / secret scanner / 요청 크기 제한 / 세션 TTL / CSRF / audit log retention. zod input parse 게이트 / Cloudflare Workers Secrets / WAF 연동.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/security-runtime
 ---
 

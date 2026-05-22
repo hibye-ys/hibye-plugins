@@ -3,7 +3,7 @@ name: tool-sort-order
 description: Tool API 배열 정렬 순서 (built-in → MCP, 각 그룹 알파벳), is_concurrency_safe 입력 기반 동적 결정, ToolProtocol 8 멤버 invariant.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/tool-sort-order.md
 ---
 

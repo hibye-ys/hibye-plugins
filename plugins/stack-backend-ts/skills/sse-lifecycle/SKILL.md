@@ -3,7 +3,7 @@ name: sse-lifecycle
 description: SSE 12 이벤트 집합 + lifecycle 순서 + 종료 보장 4 제약 invariant. 이벤트 타입 추가/순서 변경은 클라이언트 상태머신 breaking change.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/sse-lifecycle.md
 ---
 

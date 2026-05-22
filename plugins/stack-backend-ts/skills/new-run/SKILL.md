@@ -3,7 +3,7 @@ name: new-run
 description: 새 agent run 정의 시 invoke. `apps/api/runs/<name>.yaml` + `apps/api/runs/prompts/<name>.md` 스캐폴드 — 4 RunPolicy preset (interactive / classifier / tool-based / multi-agent) 중 선택. name pattern + full-form 필드명 + cross-field validation 강제. run-policy-presets + sse-lifecycle + token-budget-constants + spawn-limits invariant 자동 적용. new-agent 와 경계 분리 (agents 는 spawn 대상 / runs 는 `POST /run/<name>` 엔드포인트).
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/new-run
 ---
 

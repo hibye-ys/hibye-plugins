@@ -3,7 +3,7 @@ name: provider-retry-audit
 description: 배포 전 또는 새 LLM provider 추가 후 invoke. apps/api/src/ai/providers/**/*.ts 안 retry 로직이 provider-retry-matrix invariant (재시도 가능 / 즉시 fatal 구분) 따르는지 grep 검증.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/provider-audit (retry 부분)
   pair_invariant: provider-retry-matrix
 ---

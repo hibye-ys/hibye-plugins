@@ -3,7 +3,7 @@ name: full-architecture-audit
 description: 대규모 리팩토링 후 또는 정기 점검 시 invoke. 24 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. pre-deploy-check 의 6-step 체인 안에서도 호출됨.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/full-architecture-audit
 ---
 

@@ -3,7 +3,7 @@ name: incident-triage
 description: 배포 후 incident 1차 진단 dispatch. 사용자 증상 ("느림", "응답 이상", "tool 실패") → 7 symptom class 분류 → 1차 진단 도구 / 증거 수집 체크리스트로 dispatch. Workers tail / Sentry / Logflare 라이브 로그 + AsyncLocalStorage 10 필드 상관관계.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/incident-triage
 ---
 

@@ -3,7 +3,7 @@ name: run-policy-presets-audit
 description: AI run / job 설정 코드 변경 후. run-policy-presets invariant 의 timeout / max-turn / retry preset 우회 검출.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: (신규)
   pair_invariant: run-policy-presets
 ---

@@ -3,7 +3,7 @@ name: coding-standards
 description: apps/api TS 코드 작성 시 invoke. 네이밍 (camelCase / PascalCase / UPPER_SNAKE / kebab-case 파일명), 타입 (strict TS + zod 경계), async (Promise / fetch / Promise.all), 로깅 (pino + AsyncLocalStorage / Workers JSON.stringify), SRP / DRY / KISS / YAGNI 원칙 안내.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/coding-standards.md
 ---
 

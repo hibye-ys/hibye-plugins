@@ -3,7 +3,7 @@ name: mcp-namespace-audit
 description: MCP 서버 추가 후. namespace prefix 규칙 위반·충돌 검출.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: (신규)
   pair_invariant: mcp-namespace
 ---

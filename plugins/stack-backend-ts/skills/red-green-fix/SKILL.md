@@ -3,7 +3,7 @@ name: red-green-fix
 description: Use when fixing a bug in apps/api/ — especially the first time you're touching that subsystem after a regression. Load this skill to walk a strict 5-step red-green-fix workflow covering a failing test, failure confirmation, minimal production fix, subsystem test run, and refactor after green. Also use when the user says "fix this bug", "this is broken", or "regression".
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/red-green-fix
 allowed-tools: Read, Write, Edit, Bash
 ---

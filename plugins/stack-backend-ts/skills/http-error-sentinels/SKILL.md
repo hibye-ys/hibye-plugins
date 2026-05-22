@@ -3,7 +3,7 @@ name: http-error-sentinels
 description: HTTP 에러 코드 sentinel 매핑, 에러 응답 envelope shape, leak-safe 404, scrub_text invariant. Shape 변경 시 클라이언트 파서 계약 깨짐.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/http-error-sentinels.md
 ---
 

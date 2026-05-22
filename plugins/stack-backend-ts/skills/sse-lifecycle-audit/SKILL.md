@@ -3,7 +3,7 @@ name: sse-lifecycle-audit
 description: SSE 라우트 추가/수정 후 invoke. apps/api/src/sse/**/*.ts 안 4-state (open/heartbeat/drain/close) 라이프사이클 + stream.onAbort 처리 검증.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/stream-audit
   pair_invariant: sse-lifecycle
 ---

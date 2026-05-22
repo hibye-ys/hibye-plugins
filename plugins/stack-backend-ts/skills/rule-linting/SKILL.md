@@ -3,7 +3,7 @@ name: rule-linting
 description: 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope / source) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/rule-linting
 ---
 

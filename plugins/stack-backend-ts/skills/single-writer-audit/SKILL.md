@@ -3,7 +3,7 @@ name: single-writer-audit
 description: 동시 쓰기 위험 코드 변경 후. apps/api 안 동일 리소스 (DB row, KV key, R2 object) 에 lock/transaction 없이 다중 writer 접근하는 패턴 grep.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: (신규 — invariant 기반)
   pair_invariant: single-writer
 ---

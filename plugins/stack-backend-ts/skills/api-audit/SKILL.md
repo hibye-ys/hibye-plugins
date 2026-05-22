@@ -3,7 +3,7 @@ name: api-audit
 description: 새 Hono route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 zValidator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/api-audit
 ---
 

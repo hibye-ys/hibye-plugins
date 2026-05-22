@@ -3,7 +3,7 @@ name: media-job-lifecycle
 description: Media job 상태 전이 monotone 보장 (pending → processing → succeeded|failed|canceled|dlq), jobId = idempotency key, terminal 후 result immutable, canceled = soft signal. MediaJobStatus 정본 + TERMINAL_JOB_STATUSES (언어 무관). 위반 = 즉시 차단.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/_shared/media-job-lifecycle.md
 ---
 

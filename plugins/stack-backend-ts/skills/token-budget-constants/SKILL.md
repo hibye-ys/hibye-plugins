@@ -3,7 +3,7 @@ name: token-budget-constants
 description: Token budget 6 영역, 3-layer system prompt, attachment 수집 순서, compaction 트리거 조건 invariant. 수치 상수 및 순서 변경 금지.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/token-budget-constants.md
 ---
 

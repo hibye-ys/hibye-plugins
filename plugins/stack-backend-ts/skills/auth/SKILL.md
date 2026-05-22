@@ -3,7 +3,7 @@ name: auth
 description: apps/api 인증·세션·시크릿 추가 또는 수정 시 invoke. JWT 인증 / 세션 스토어 / API key / rate limit 패턴, scope 검증, 시크릿 누락 에러 처리. 인증 실패 401 디버깅, 시크릿 누락 에러 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: (신규 — Python 인증 분산 부분 통합)
 ---
 

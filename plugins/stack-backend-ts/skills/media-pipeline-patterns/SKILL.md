@@ -3,7 +3,7 @@ name: media-pipeline-patterns
 description: 미디어 (이미지 / 오디오 / 비디오) 파이프라인 추가 / 수정 시 invoke. /media/<category>/<op> 라우트, object storage 바이너리 출력, ML-worker enqueue / SSE polling, 런타임별 본문 크기 제한 → presigned URL 패턴 안내. Job lifecycle 정본은 media-job-lifecycle invariant.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/media-pipeline-patterns.md
 ---
 

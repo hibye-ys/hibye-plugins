@@ -3,7 +3,7 @@ name: agent-verify-def
 description: 새 agent 정의 추가 후 또는 배포 전 invoke. apps/api/src/agents/*.ts 의 default export 가 AgentDef 인터페이스 필수 필드 (name / version / step / modelMix) 를 모두 채우는지 + name 중복 ✕ 를 grep 으로 검증.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/agent-verify-def
 ---
 

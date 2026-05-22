@@ -3,7 +3,7 @@ name: commit-rules
 description: apps/api 변경 사항 commit 작성 시 invoke. Conventional Commits 7 접두사 + scope 카탈로그 (stack-backend-ts / apps/api / sub-area) + 제목 / 본문 / Co-Authored-By 트레일러 규약 안내.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/commit-rules.md
 ---
 

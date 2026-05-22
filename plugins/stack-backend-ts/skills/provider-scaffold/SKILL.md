@@ -3,7 +3,7 @@ name: provider-scaffold
 description: apps/api 에 새 LLM provider (Anthropic / OpenAI / Google / OpenRouter / OpenAI-compatible self-hosted) 추가 시 invoke. 7-step 절차 — Provider interface 구현 / retry 매트릭스 / 카탈로그 yaml 항목 / test scaffolding / catalog sync. `provider-layer` 의 단일 변환 원칙 + `provider-retry-matrix` invariant 준수.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/provider-scaffold
 ---
 

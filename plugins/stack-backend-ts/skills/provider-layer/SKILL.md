@@ -3,7 +3,7 @@ name: provider-layer
 description: apps/api 에 새 LLM provider 추가 / 기존 provider retry/timeout 정책 변경 / OpenRouter 게이트웨이 우회 (Anthropic·OpenAI·Google 직접 SDK escape hatch) 시 invoke. provider 코드 수정, model resolution 분기 변경, retry storm 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/provider-layer + rules/ai-provider-patterns.md
 ---
 

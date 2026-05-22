@@ -3,7 +3,7 @@ name: test-cleanup
 description: Checklist + grep patterns for detecting stale, orphaned, or redundant tests in `apps/api/src/`. Load this skill to find tests referencing deleted symbols, duplicate scenarios, permanently-skipped tests, and git-diff-based coverage gaps. Also covers DB rollback, KV cleanup, and mock reset isolation patterns.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/test-cleanup
 allowed-tools: Read, Bash
 ---

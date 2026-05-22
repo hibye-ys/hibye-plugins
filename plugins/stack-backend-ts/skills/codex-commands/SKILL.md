@@ -3,7 +3,7 @@ name: codex-commands
 description: Codex 환경에서 stack-backend-ts plugin 의 slash command 호출 시 invoke. `.codex-plugin/commands/` 카탈로그 + arg 파싱 + 출력 포맷. Claude Code 의 `.claude/commands/` 와 contract 호환 — Codex 측 mirror.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/codex-commands
 ---
 

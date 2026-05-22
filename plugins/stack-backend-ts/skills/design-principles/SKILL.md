@@ -3,7 +3,7 @@ name: design-principles
 description: apps/api 설계 결정 시 7가지 핵심 원칙 (Safe Defaults / Cheapest First / Cache Stability First / Isolation Default / Structured Errors to Model / Dynamic Context Injection / Partial Loading) 검토. PR 리뷰 자가체크 + 원칙 간 충돌 trade-off 안내.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/design-principles.md
 ---
 

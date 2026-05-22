@@ -3,7 +3,7 @@ name: compaction-thresholds-audit
 description: compaction 코드 변경 후. compaction-thresholds invariant (CompactAt%, EmergencyCompactAt% 등) 상수 import 검증.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: (신규)
   pair_invariant: compaction-thresholds
 ---

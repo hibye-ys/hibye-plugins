@@ -3,7 +3,7 @@ name: agent-loop-invariants
 description: Agent loop 6-stage 순서 (Context Prep → Model Call → Error Recovery → Tool Exec → Context Merge → Loop Decision), LoopTransition 8종 invariant. Stage 순서 변경 금지.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/agent-loop.md
 ---
 

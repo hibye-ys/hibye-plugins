@@ -3,7 +3,7 @@ name: lsp-server
 description: apps/api LSP 서버 (`<workspace-entity>` 언어 지능 — 예 prose editor / code editor / blog mention) 최초 작성 / 4-class 구조 (LSPManager / LSPRegistry / LSPInstance / LSPBridge) 추가 / completion·diagnostic·hover·definition 핸들러 수정 시 invoke. "completion 이 안 뜬다", "diagnostic 이 stale 텍스트에 걸려있다", "IDE 클라이언트가 30초 후 disconnect" 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/lsp-server
 ---
 

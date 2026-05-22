@@ -3,7 +3,7 @@ name: loop-audit
 description: agent loop / run executor 코드 변경 후 invoke. apps/api/src/agents/ + src/runs/ 안 while(true) 가 break / abort signal / turn 카운터 같은 종료 조건 없이 도는 경우를 검출. Workers CPU time 초과 / 사용자 abort 무시 / 무한 비용 누출 방지.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/loop-audit
 ---
 

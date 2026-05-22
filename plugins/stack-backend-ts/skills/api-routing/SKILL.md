@@ -3,7 +3,7 @@ name: api-routing
 description: apps/api 에 새 HTTP route / middleware / 전역 에러 핸들러 추가 시 invoke. route 그룹화 + middleware 순서 + auth middleware 패턴, HTTP 에러 sentinel 변환, CORS expose_headers 규약 안내.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/api-routing-patterns.md
 ---
 

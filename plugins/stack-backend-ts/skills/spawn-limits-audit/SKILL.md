@@ -3,7 +3,7 @@ name: spawn-limits-audit
 description: sub-agent / parallel call 코드 변경 후. spawn-limits invariant 의 max-parallel 상수 + MAX_SPAWN_DEPTH depth 가드 우회 검출.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/subagent-audit/SKILL.md (depth grep 흡수)
   pair_invariant: spawn-limits
 ---

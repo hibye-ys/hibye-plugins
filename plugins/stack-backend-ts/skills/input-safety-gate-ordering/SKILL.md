@@ -3,7 +3,7 @@ name: input-safety-gate-ordering
 description: Input safety gate V3 순서 (cheapest-first), two-port jailbreak, moderation/jailbreak 직교, header sentinel invariant. 게이트 순서 변경 금지.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/input-safety-gate-ordering.md
 ---
 

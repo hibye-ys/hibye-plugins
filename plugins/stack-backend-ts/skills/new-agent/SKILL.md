@@ -3,7 +3,7 @@ name: new-agent
 description: 새 agent 정의 (`apps/api/src/agents/<name>.ts` + `apps/api/agents/<name>.yaml` + prompts/<name>.md) 추가 시 invoke. AgentDef interface + zod schema 검증 + tool allowlist 룰 (coordinator vs worker) + 등록/스모크 체크. agent-loop-invariants + run-policy-presets + spawn-limits invariant 자동 적용. Codex 의 .codex-plugin/agents/ 마커도 함께 생성.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/new-agent
 ---
 

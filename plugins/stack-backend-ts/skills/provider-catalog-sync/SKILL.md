@@ -3,7 +3,7 @@ name: provider-catalog-sync
 description: apps/api 의 provider 모델 카탈로그 (bundled snapshot + FUZZY 별칭 + ENV default) 새로고침 시 invoke. 주요 provider 릴리스 직후 / `_meta.updated` 3개월 경과 / 새 provider 추가 직후 운영 절차. PROVIDER_SOURCES 표가 유일한 provider별 지식 — 새 provider 추가 = 행 1개 추가.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/provider-catalog-sync
 ---
 

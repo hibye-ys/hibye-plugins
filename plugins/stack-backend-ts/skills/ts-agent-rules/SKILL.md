@@ -3,7 +3,7 @@ name: ts-agent-rules
 description: TS 백엔드 작업 시 자동 로드. 18 invariant + 39 workflow + 21 audit 의 라우팅 + 자주 묶이는 룰 묶음 + core-infrastructure 흡수 보충 (타입 경계 / interface DI / Stateless / AsyncLocalStorage 10 필드 / 영향도 표). python-agent-rules 의 TS 동등 — 메모리 룰 rename.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/python-agent-rules
 ---
 

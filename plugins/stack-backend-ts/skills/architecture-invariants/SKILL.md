@@ -3,7 +3,7 @@ name: architecture-invariants
 description: TS 백엔드 작업 시 자동 로드. 18 invariant 의 overview + 어느 상황에 어느 invariant 가 적용되는지 라우팅 가이드. 새 invariant 추가 시 본 파일 갱신.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/architecture-invariants
 ---
 

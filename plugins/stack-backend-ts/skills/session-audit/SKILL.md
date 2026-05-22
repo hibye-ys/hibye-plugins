@@ -3,7 +3,7 @@ name: session-audit
 description: KV / session storage 코드 변경 후 invoke. KV.put 호출이 expirationTtl 없음 / c.env.KV 직접 접근 (storage adapter 우회) 두 패턴을 검출. KV 잔존 방지 + storage 경계 보존.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/session-audit
 ---
 

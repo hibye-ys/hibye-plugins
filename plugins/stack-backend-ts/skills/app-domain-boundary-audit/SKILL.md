@@ -3,7 +3,7 @@ name: app-domain-boundary-audit
 description: 모듈 추가/이동 후. app-domain-boundary invariant — 코어 (provider/sse/storage 등 generic) 디렉토리에 도메인-specific 어휘 누출 검출 (구체 어휘는 `scripts/forbidden-terms.txt` 정의).
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/data-audit (boundary 부분)
   pair_invariant: app-domain-boundary
 ---

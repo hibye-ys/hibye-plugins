@@ -3,7 +3,7 @@ name: dependency-scanning
 description: 의존성 lockfile 변경 후 또는 배포 전 invoke. npm/pnpm audit 으로 high/critical CVE 를 검출.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/dependency-scanning
 ---
 

@@ -3,7 +3,7 @@ name: mcp-namespace
 description: MCP 도구 네이밍 (`mcp__<server>__<tool>`), 연결 5-state lifecycle, registry 로드 순서, env 치환 정책 invariant.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/mcp-namespace.md
 ---
 

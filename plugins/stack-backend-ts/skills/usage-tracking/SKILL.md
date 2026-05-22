@@ -3,7 +3,7 @@ name: usage-tracking
 description: apps/api 의 LLM 호출 usage 이벤트 정합성 / 토큰·비용 집계 / 일일 한도 검사 추가 수정 시 invoke. provider 응답 (OpenAI / Anthropic / OpenRouter) 정규화, Neon `llm_usage` insert, KV pre-call cache + DB post-call tx, Cron Triggers 일일 집계. "usage 이벤트 누락", "비용 폭증", "한도 검사 누락" 디버깅.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/usage-tracking
 ---
 

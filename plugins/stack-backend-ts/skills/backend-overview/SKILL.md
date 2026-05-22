@@ -3,7 +3,7 @@ name: backend-overview
 description: TS 백엔드 진입 시 또는 새 모듈 위치 결정 시 invoke. TS 디렉토리 구조와 모듈 의존성 방향, 주요 진입점 (src/routes/, src/ai/providers/, src/sse/) 안내. 새 contributor onboarding, "어디에 무엇이 있는지" 분류 필요 시에도 invoke. framework (Hono / Express / Fastify 등) 무관.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/backend-overview + rules/architecture.md + rules/core-infrastructure.md
 ---
 

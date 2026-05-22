@@ -3,7 +3,7 @@ name: compaction-thresholds
 description: Compaction 4-stage escalation 순서, 핵심 상수, post-compact 재주입 의무, tool output boundary 보존 invariant.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/compaction-thresholds.md
 ---
 

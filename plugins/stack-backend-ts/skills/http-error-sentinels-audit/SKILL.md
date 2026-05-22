@@ -3,7 +3,7 @@ name: http-error-sentinels-audit
 description: route handler 또는 error path 수정 후. http-error-sentinels invariant 의 status ↔ sentinel 매핑 따르는지.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/api-audit (error 부분)
   pair_invariant: http-error-sentinels
 ---

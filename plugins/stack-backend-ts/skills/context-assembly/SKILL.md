@@ -3,7 +3,7 @@ name: context-assembly
 description: apps/api 에서 컨텍스트 조립 (system prompt + history + retrieved + tools) 추가/수정 시 invoke. TokenBudget 상수, AssembledContext 타입, static system prompt 원칙, context_hint 주입 패턴 안내. token budget 초과, cache 적중률 하락, memory block 유실 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/context-assembly + rules/context-assembly-patterns.md
 ---
 

@@ -3,7 +3,7 @@ name: test-scaffold
 description: Template-driven test file generation for `apps/api/src/`. Creates unit + integration skeletons following the project's Vitest + Hono app.request patterns (FACTORY mocks, async generator streams). Load this skill when a new module needs tests or test-cleanup identifies coverage gaps.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/test-scaffold
 allowed-tools: Read, Write, Edit, Bash
 ---

@@ -3,7 +3,7 @@ name: performance-profiling
 description: apps/api 백엔드 성능 baseline 확정 / 회귀 검출 / "느려졌다" 객관화 시 invoke. 4 시나리오 × 30 샘플 × p50/p95/p99 측정. 0x / clinic / node --inspect / heapdump 진단 순서. Pre-launch 또는 provider / agent loop / compaction 대대적 변경 후 회귀 검출 시.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/performance-profiling
 ---
 

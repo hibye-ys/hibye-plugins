@@ -3,7 +3,7 @@ name: ai-agent-patterns
 description: apps/api 에 새 agent 정의 추가 / AgentDefinition 스키마 변경 / agent loader 수정 시 invoke. YAML + markdown prompt 선언, zod 기반 AgentDefinition 검증, in-memory cache (Map) 패턴, coordinator vs worker tool 제한, prompt cache 보전 안내.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/ai-agent-patterns.md
 ---
 

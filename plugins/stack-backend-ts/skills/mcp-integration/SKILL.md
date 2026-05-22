@@ -3,7 +3,7 @@ name: mcp-integration
 description: apps/api 에서 MCP 서버 연결 / namespace 결정 / tool 자동 prefix 추가 시 invoke. @modelcontextprotocol/sdk 기반 client, MCPServerConfig, mcp_ prefix 브릿지, JSON schema → zod 동적 변환 패턴. "MCP tool not registered", "MCP server disconnected" 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/mcp-integration + rules/mcp-patterns.md
 ---
 

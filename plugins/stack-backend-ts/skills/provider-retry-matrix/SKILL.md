@@ -3,7 +3,7 @@ name: provider-retry-matrix
 description: Provider 추상화, retry/fallback 매트릭스, circuit breaker, model resolution invariant. OpenRouter default, provider SDK escape hatch.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/provider-retry-matrix.md
 ---
 

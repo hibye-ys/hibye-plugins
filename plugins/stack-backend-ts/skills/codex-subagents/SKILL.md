@@ -3,7 +3,7 @@ name: codex-subagents
 description: Codex 환경에서 stack-backend-ts plugin 의 subagent 정의/호출 시 invoke. `.codex-plugin/agents/` 카탈로그 + Claude Code 의 Agent tool contract 호환. Codex 가 named agent 를 직접 로드하지 못해 reference md 로 mirror.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/codex-subagents
 ---
 

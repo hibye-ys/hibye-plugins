@@ -3,7 +3,7 @@ name: agent-loop
 description: apps/api 에서 agentic loop (provider → tool calls → 결과 feed → loop) 구현 / 수정 시 invoke. LoopState 관리, 에러 복구 4분기, tool concurrency 파티셔닝, compaction check 위치 안내. tool_use 무한 루프, budget 이상, 복구 분기 미발동 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/agent-loop + rules/agent-loop-patterns.md
 ---
 

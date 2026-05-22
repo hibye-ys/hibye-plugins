@@ -3,7 +3,7 @@ name: app-domain-boundary
 description: 앱 도메인 경계 invariant — AI 백엔드 (`ai_backend.*`) 와 웹서비스 도메인 (`public.*` — instance 측 `<domain>` 웹서비스) 사이 데이터 소유권 + 쓰기 3 조건 규약. 도메인 row 를 ORM 모델로 매핑 금지. instance 별 `<domain>` placeholder 해석은 본 SKILL.md 끝의 `## Placeholder 해석` 섹션 참조.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/external-domain-boundary.md (generalized)
 ---
 

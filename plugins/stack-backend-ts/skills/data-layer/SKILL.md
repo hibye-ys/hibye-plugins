@@ -3,7 +3,7 @@ name: data-layer
 description: 데이터 계층 추상 (Repository / Port 패턴, transaction boundary, optimistic locking) 결정 시 invoke. Drizzle ORM + Neon serverless Workers 호환 구현.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/data-layer-patterns.md
 ---
 

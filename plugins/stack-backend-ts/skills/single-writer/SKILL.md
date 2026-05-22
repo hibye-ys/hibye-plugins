@@ -3,7 +3,7 @@ name: single-writer
 description: Single-writer pattern invariant — 동일 자원의 쓰기 경로는 1개로 제한. Atomic write, per-resource lock, WriteCoordinator singleton.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/single-writer.md
 ---
 

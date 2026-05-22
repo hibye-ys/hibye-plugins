@@ -3,7 +3,7 @@ name: spawn-limits
 description: Sub-agent spawn 상한 (`MAX_SPAWN_DEPTH=3`), 3 mode, coordinator/worker 분리, state isolation, CacheSafeParams invariant.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/spawn-limits.md
 ---
 

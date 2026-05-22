@@ -3,7 +3,7 @@ name: database
 description: TS 백엔드 DB 선택 / ORM 선택 / runtime 호환성 / StoragePort 추상 결정 시 invoke. DB·ORM·driver 선택 trade-off matrix + Port 추상 원칙. 구체 DB/driver는 instance 측 결정.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/rules/database-patterns.md
 ---
 

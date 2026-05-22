@@ -3,7 +3,7 @@ name: sub-agent
 description: src/tools/spawn.ts 또는 src/engine/subagent.ts 최초 작성·수정 시 invoke. MAX_SPAWN_DEPTH = 3 상수 / SpawnDepthExceeded / checkDepth() 가드 / SpawnQueue (background task 추적) / useExactTools 캐시 정합성 / summarizeSession() 결과 압축. "depth budget exhausted", "무한 재귀", "부모 cache hit 소실" 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/sub-agent-spawn/SKILL.md
 ---
 

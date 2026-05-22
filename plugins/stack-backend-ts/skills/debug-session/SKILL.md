@@ -3,7 +3,7 @@ name: debug-session
 description: "apps/api 에서 무언가 깨졌는데 원인을 모를 때 invoke. Vitest 실패 / agent loop hang / tool not firing / context window exceeded / wrangler dev 500 / 사용자가 '왜 안 돼' · 'stuck' · 'debug me' 라고 할 때. Hono+Workers 특화 단서 포함 5단계 디버깅 워크플로를 제공한다."
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/debug-session/SKILL.md
 ---
 

@@ -3,7 +3,7 @@ name: token-budget-audit
 description: context-assembly 또는 prompt 코드 변경 후. apps/api 안 token-budget-constants 상수 (MAX_HISTORY_TOKENS 등) 우회·하드코딩 검출.
 metadata:
   role: audit
-  scope: apps/api
+  scope: project
   source: (신규)
   pair_invariant: token-budget-constants
 ---

@@ -3,7 +3,7 @@ name: run-policy-presets
 description: RunPolicy 16 필드 defaults, cross-field 불변, 정책 해석 순서, 프리셋 가이드 invariant. YAML 추가만으로 새 엔드포인트.
 metadata:
   role: invariant
-  scope: apps/api
+  scope: project
   source: stack-backend-python/_shared/run-policy-presets.md
 ---
 

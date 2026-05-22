@@ -3,7 +3,7 @@ name: compaction
 description: apps/api 에서 토큰 한계 접근 시 conversation 요약·압축 트리거 시 invoke. 5 전략 에스컬레이션 (snip/micro/session_memory/auto/reactive), CompactionResult 타입, COMPACTABLE_TOOLS frozenset, autoCompactThreshold 계산 안내. "context window exceeded" 에러, auto compaction 미발동 디버깅 시에도 invoke.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/compaction + rules/compaction-patterns.md
 ---
 

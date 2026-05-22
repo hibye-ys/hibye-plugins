@@ -3,7 +3,7 @@ name: testing-infra
 description: apps/api 테스트 인프라 셋업 시 invoke. Vitest 설정 + Hono app.request 패턴 + Neon test branch 격리 + miniflare/wrangler dev 옵션.
 metadata:
   role: workflow
-  scope: apps/api
+  scope: project
   source: stack-backend-python/skills/testing-infra
 allowed-tools: Read, Write, Edit, Bash
 ---
