@@ -10,7 +10,6 @@
 #
 # 환경 변수:
 #   FORBIDDEN_FILE — forbidden-terms.txt 경로 override
-#   ALLOW_FRAMEWORK_VOCAB=1 — Phase 4 batch 일시 우회 (Task 4.8 에서 제거)
 #
 # Repo-root 스캔 확장 시 --exclude 옵션 권장:
 #   bash forbidden-scan.sh /path/to/repo \
@@ -55,17 +54,6 @@ FORBIDDEN_FILE="${FORBIDDEN_FILE:-$(dirname "$0")/forbidden-terms.txt}"
 if [ ! -f "$FORBIDDEN_FILE" ]; then
   echo "error: forbidden-terms file not found: $FORBIDDEN_FILE" >&2
   exit 2
-fi
-
-# Phase 4 batch 진행 중 임시 우회 — Task 4.8 에서 제거
-ALLOW_FRAMEWORK_VOCAB="${ALLOW_FRAMEWORK_VOCAB:-0}"
-
-if [ "$ALLOW_FRAMEWORK_VOCAB" = "1" ]; then
-  # Framework/runtime 어휘 섹션 헤더 이전까지만 패턴으로 사용
-  _PATTERNS_TMP="$(mktemp)"
-  trap 'rm -f "$_PATTERNS_TMP"' EXIT
-  awk '/^# === Framework \/ runtime 어휘/ { exit } { print }' "$FORBIDDEN_FILE" > "$_PATTERNS_TMP"
-  FORBIDDEN_FILE="$_PATTERNS_TMP"
 fi
 
 # Normalize TARGET_DIR — collapse `../` segments so glob 패턴 (e.g. `!**/scripts/**`)
