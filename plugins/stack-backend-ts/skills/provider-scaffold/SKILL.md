@@ -1,13 +1,13 @@
 ---
 name: provider-scaffold
-description: apps/api 에 새 LLM provider (Anthropic / OpenAI / Google / OpenRouter / OpenAI-compatible self-hosted) 추가 시 invoke. 7-step 절차 — Provider interface 구현 / retry 매트릭스 / 카탈로그 yaml 항목 / test scaffolding / catalog sync. `provider-layer` 의 단일 변환 원칙 + `provider-retry-matrix` invariant 준수.
+description: <api-app> 에 새 LLM provider (Anthropic / OpenAI / Google / OpenRouter / OpenAI-compatible self-hosted) 추가 시 invoke. 7-step 절차 — Provider interface 구현 / retry 매트릭스 / 카탈로그 yaml 항목 / test scaffolding / catalog sync. `provider-layer` 의 단일 변환 원칙 + `provider-retry-matrix` invariant 준수.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/provider-scaffold
 ---
 
-**적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` → `fetch(url, init)` (Workers fetch + AbortSignal), `pydantic Response` → `zod` schema (`Z.parse(await response.json())`), `tenacity` → `p-retry` 또는 수동 exponential backoff, `typing.Protocol` → TS `interface` (`Provider` — 정본 = `provider-layer` workflow), `dataclass ProviderConfig` → TS `interface` / `zod`, `os.getenv("PROVIDER_KEY")` → `c.env.<PROVIDER>_API_KEY` (Workers Bindings), `pytest` provider test → `vitest`, `pyyaml` 카탈로그 → `yaml` (npm), Python `register` decorator side effect → `registerProviderClass(name, factory)` 명시 호출 (Workers 빌드 안정성)
+**적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` → `fetch(url, init)` (runtime fetch + AbortSignal), `pydantic Response` → `zod` schema (`Z.parse(await response.json())`), `tenacity` → `p-retry` 또는 수동 exponential backoff, `typing.Protocol` → TS `interface` (`Provider` — 정본 = `provider-layer` workflow), `dataclass ProviderConfig` → TS `interface` / `zod`, `os.getenv("PROVIDER_KEY")` → `<framework env binding>.<PROVIDER>_API_KEY` (runtime Bindings), `pytest` provider test → `vitest`, `pyyaml` 카탈로그 → `yaml` (npm), Python `register` decorator side effect → `registerProviderClass(name, factory)` 명시 호출 (runtime 빌드 안정성)
 
 # provider-scaffold — 새 프로바이더 추가 가이드
 
@@ -28,7 +28,7 @@ metadata:
 
 - **단일 변환** — provider 의 `convertTo()` / `convertFrom()` 단일 지점에서만 변환. 호출자는 내부 `Message` / `ContentBlock` 만 (`provider-layer` workflow §타입 경계)
 - **runtime compat** — `fetch` API + `AbortSignal` 만 사용. `http` / `https` / `node-fetch` ✕ (runtime-specific — instance 측 project-local skill 참조)
-- **Secrets = Workers Secrets** — `c.env.<NAME>` 만. `process.env` ✕ (`security-runtime` workflow)
+- **Secrets = runtime secret store** — `<framework env binding>.<NAME>` 만. `process.env` ✕ (`security-runtime` workflow)
 - **테스트 의무** — 7 시나리오 (정상 / streaming / 429 / timeout / 5xx / auth / circuit breaker)
 - **카탈로그 yaml 등록 후 sync 실행** — `provider-catalog-sync` workflow
 
@@ -39,7 +39,7 @@ metadata:
 `Provider` interface 정본 = `provider-layer` workflow §Provider Interface. 본 SKILL.md 는 **구현 절차만**.
 
 ```typescript
-// apps/api/src/ai/providers/<name>.ts
+// <api-app>/src/ai/providers/<name>.ts
 import type { Provider, ProviderEvent, Message } from './base.ts'
 import { MessageSchema } from './base.ts'
 import pRetry, { AbortError } from 'p-retry'
@@ -142,11 +142,11 @@ export class NewProvider implements Provider {
 `PROVIDER_REGISTRY` 정본 = `provider-retry-matrix` invariant §빌드/부팅 순서.
 
 ```typescript
-// apps/api/src/ai/providers/registry.ts (정본 = provider-retry-matrix)
+// <api-app>/src/ai/providers/registry.ts (정본 = provider-retry-matrix)
 import { NewProvider } from './new-provider.ts'
 import { registerProviderClass } from './registry.ts'
 
-// 명시 호출 — side effect import 대신 (Workers 빌드 안정성)
+// 명시 호출 — side effect import 대신 (runtime 빌드 안정성)
 export function registerAllProviders(): void {
   registerProviderClass('new-provider', (config, model) => new NewProvider(config, model))
   // ... 기존 provider 들
@@ -156,7 +156,7 @@ export function registerAllProviders(): void {
 ### Step 3: Credentials 타입 + Bindings
 
 ```typescript
-// apps/api/src/index.ts (Env Bindings)
+// <api-app>/src/index.ts (Env Bindings)
 export type Env = {
   Bindings: {
     OPENROUTER_API_KEY: string
@@ -167,19 +167,19 @@ export type Env = {
 ```
 
 ```bash
-# Workers secret 등록 (production)
-pnpm exec wrangler secret put NEW_PROVIDER_API_KEY
+# runtime secret 등록 (production) — runtime-specific CLI (instance 측 project-local skill 참조)
+# 예: <runtime CLI> secret put NEW_PROVIDER_API_KEY
 
-# 로컬 개발 (.dev.vars — gitignored)
-echo 'NEW_PROVIDER_API_KEY=sk-...' >> apps/api/.dev.vars
+# 로컬 개발 — local secret file (gitignored, path 는 runtime-specific)
+# echo 'NEW_PROVIDER_API_KEY=sk-...' >> <api-app>/<local-secret-file>
 ```
 
-> `auth` workflow §시크릿 / `security-runtime` workflow §Workers Secrets 참조.
+> `auth` workflow §시크릿 / `security-runtime` workflow §runtime secrets 참조.
 
 ### Step 4: 카탈로그 yaml 항목 추가
 
 ```yaml
-# apps/api/catalog/providers/new-provider.yaml
+# <api-app>/catalog/providers/new-provider.yaml
 type: new-provider
 display_name: "New Provider"
 base_url: "https://api.example.com"
@@ -200,7 +200,7 @@ models:
 ### Step 5: Fallback chain 등록 (선택)
 
 ```yaml
-# apps/api/catalog/fallback-chains.yaml — 운영자 결정 (provider-catalog-sync 가 제안만)
+# <api-app>/catalog/fallback-chains.yaml — 운영자 결정 (provider-catalog-sync 가 제안만)
 default:
   - openrouter:openrouter/auto
   - new-provider:new-flagship-1
@@ -210,7 +210,7 @@ default:
 ### Step 6: 테스트 scaffold
 
 ```typescript
-// apps/api/tests/providers/new-provider.test.ts
+// <api-app>/tests/providers/new-provider.test.ts
 import { describe, it, expect, vi } from 'vitest'
 import { NewProvider } from '../../src/ai/providers/new-provider.ts'
 
@@ -253,17 +253,17 @@ describe('NewProvider', () => {
 ### Step 7: 검증
 
 ```bash
-# 1. 부팅 — Workers 호환 import 검사
+# 1. 부팅 — runtime 호환 import 검사
 pnpm exec tsc --noEmit
 
 # 2. Provider 등록 확인 (runtime)
-pnpm exec vitest run apps/api/tests/providers/new-provider.test.ts
+pnpm exec vitest run <api-app>/tests/providers/new-provider.test.ts
 
 # 3. Catalog sync 실행 — provider-catalog-sync workflow
-pnpm tsx apps/api/scripts/sync-models.ts --provider new-provider --dry-run
+pnpm tsx <api-app>/scripts/sync-models.ts --provider new-provider --dry-run
 
-# 4. wrangler dev 부팅 (Workers 환경 실측)
-pnpm exec wrangler dev
+# 4. runtime dev server 부팅 (runtime 환경 실측 — runtime-specific CLI)
+# 예: <runtime dev CLI>
 # 로컬에서 /run/chat 호출 → 새 provider 응답 확인
 ```
 
@@ -274,7 +274,7 @@ pnpm exec wrangler dev
 ### Step 1: 카탈로그 entry
 
 ```yaml
-# apps/api/catalog/providers/vllm-internal.yaml
+# <api-app>/catalog/providers/vllm-internal.yaml
 type: openai_compatible
 base_url: "http://vllm.internal:8000/v1"
 credentials_env: VLLM_KEY
@@ -287,10 +287,11 @@ models:
       output_per_million: "0.30"
 ```
 
-### Step 2: Workers Secret + Bindings
+### Step 2: runtime Secret + Bindings
 
 ```bash
-pnpm exec wrangler secret put VLLM_KEY
+# runtime-specific CLI 로 secret 등록 (instance 측 project-local skill 참조)
+# 예: <runtime CLI> secret put VLLM_KEY
 ```
 
 ```typescript
@@ -301,8 +302,9 @@ VLLM_KEY: string
 ### Step 3: 부팅 확인
 
 ```bash
-pnpm exec wrangler dev
-curl -s http://localhost:8787/models | jq .   # 신규 모델 노출 확인
+# runtime-specific dev server CLI (instance 측 project-local skill 참조)
+# 예: <runtime dev CLI>
+curl -s http://localhost:<port>/models | jq .   # 신규 모델 노출 확인
 ```
 
 ## 검증 체크리스트
@@ -310,22 +312,22 @@ curl -s http://localhost:8787/models | jq .   # 신규 모델 노출 확인
 - [ ] `Provider` interface 의 모든 메서드 구현 (`callStream`, `countTokens`, `name`, `model`, `supportsTools`, `supportsStreaming`)
 - [ ] `_convertTo` / `_convertFrom` 가 provider 파일 내에만 존재 (단일 변환)
 - [ ] `registerProviderClass` 호출 추가 (`registerAllProviders()` 안에)
-- [ ] `Env.Bindings` 에 `<PROVIDER>_API_KEY` 타입 추가 + `wrangler secret put`
-- [ ] 카탈로그 yaml 항목 추가 (`apps/api/catalog/providers/<name>.yaml`)
+- [ ] `Env.Bindings` 에 `<PROVIDER>_API_KEY` 타입 추가 + runtime secret store 등록
+- [ ] 카탈로그 yaml 항목 추가 (`<api-app>/catalog/providers/<name>.yaml`)
 - [ ] 테스트 7개 시나리오 작성 (vitest)
-- [ ] `tsc --noEmit` 통과 (Workers compat)
+- [ ] `tsc --noEmit` 통과 (runtime compat)
 - [ ] `provider-catalog-sync` workflow 실행 (드라이런 통과)
 - [ ] `fetch` + `AbortSignal` 만 사용 (`http` / `node-fetch` ✕)
-- [ ] `c.env.<NAME>` 만 사용 (`process.env` ✕)
+- [ ] `<framework env binding>.<NAME>` 만 사용 (`process.env` ✕)
 
 ## 절대 금지
 
 - `Provider` interface 정의 본 SKILL.md 에 재정의 (정본 = `provider-layer`)
 - `PROVIDER_REGISTRY` 정의 본 SKILL.md 에 재정의 (정본 = `provider-retry-matrix`)
 - `convertTo` / `convertFrom` 을 provider 파일 밖에 작성
-- `node-fetch` / `http` / `https` import (Workers 비호환)
-- `process.env.<NAME>` 사용 (Workers undefined)
-- side effect import (`import './new-provider'` 만으로 등록 — Workers 빌드 tree-shaking 위험)
+- `node-fetch` / `http` / `https` import (runtime 비호환 가능성 — instance 측 project-local skill 참조)
+- `process.env.<NAME>` 사용 (일부 runtime 에서 undefined)
+- side effect import (`import './new-provider'` 만으로 등록 — runtime 빌드 tree-shaking 위험)
 - retry 대상 아닌 에러 (auth / validation / quota) 를 재시도 → `AbortError` 명시
 - 카탈로그 yaml 없이 fallback chain 에 추가 (pricing lookup 실패)
 
@@ -333,8 +335,8 @@ curl -s http://localhost:8787/models | jq .   # 신규 모델 노출 확인
 
 - `Provider` interface 정의 모름 → `provider-layer` workflow §Provider Interface
 - `PROVIDER_REGISTRY` 정의 모름 → `provider-retry-matrix` invariant §빌드/부팅 순서
-- `_openaiBase.ts` 구조 모름 → `apps/api/src/ai/providers/_openaiBase.ts` 직접 read
-- credentials 패턴 모름 → `auth` workflow §Workers Secrets
+- `_openaiBase.ts` 구조 모름 → `<api-app>/src/ai/providers/_openaiBase.ts` 직접 read
+- credentials 패턴 모름 → `auth` workflow §runtime secrets
 - 카탈로그 yaml 스키마 모름 → `provider-catalog-sync` workflow §카탈로그 schema
 
 ## Cross-ref
@@ -342,7 +344,7 @@ curl -s http://localhost:8787/models | jq .   # 신규 모델 노출 확인
 - `provider-layer` (Provider interface 정본, model resolution)
 - `provider-retry-matrix` (PROVIDER_REGISTRY 정본, retry / circuit breaker)
 - `provider-catalog-sync` (카탈로그 yaml diff / write)
-- `auth` (Workers Secrets / `wrangler secret put`)
+- `auth` (runtime secrets / runtime secret store CLI)
 - `security-runtime` (`process.env` ✕)
 - `test-scaffold` (테스트 패턴)
 - `red-green-fix` (TDD)

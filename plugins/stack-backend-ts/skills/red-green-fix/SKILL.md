@@ -1,6 +1,6 @@
 ---
 name: red-green-fix
-description: Use when fixing a bug in apps/api/ — especially the first time you're touching that subsystem after a regression. Load this skill to walk a strict 5-step red-green-fix workflow covering a failing test, failure confirmation, minimal production fix, subsystem test run, and refactor after green. Also use when the user says "fix this bug", "this is broken", or "regression".
+description: Use when fixing a bug in <api-app>/ — especially the first time you're touching that subsystem after a regression. Load this skill to walk a strict 5-step red-green-fix workflow covering a failing test, failure confirmation, minimal production fix, subsystem test run, and refactor after green. Also use when the user says "fix this bug", "this is broken", or "regression".
 metadata:
   role: workflow
   scope: project
@@ -37,9 +37,9 @@ allowed-tools: Read, Write, Edit, Bash
 버그를 정확히 재현하는 실패 테스트를 작성한다.
 
 ```ts
-// apps/api/src/<module>/__tests__/<module>.regression.test.ts
+// <api-app>/src/<module>/__tests__/<module>.regression.test.ts
 import { describe, it, expect } from 'vitest'
-import { apiRequest } from '../../test/helpers'  // Hono in-process
+import { apiRequest } from '../../test/helpers'  // framework in-process
 
 describe('<Module> regression', () => {
   it('<functionName> — <bug description>', async () => {
@@ -86,7 +86,7 @@ it('<functionName> — <bug description>', async () => {
 테스트를 실행해서 **올바른 이유로 실패**하는지 확인한다.
 
 ```bash
-npx vitest run apps/api/src/<module>/__tests__/<module>.regression.test.ts \
+npx vitest run <api-app>/src/<module>/__tests__/<module>.regression.test.ts \
   --reporter=verbose --bail=1
 ```
 
@@ -117,14 +117,14 @@ Step 2 를 통과해야만 Step 3 으로 진행. 잘못된 이유로 실패하�
 
 | 증상 | 수정 대상 |
 |---|---|
-| agent loop 이상 | `apps/api/src/engine/loop.ts` |
-| tool 실행 실패 | `apps/api/src/tools/base.ts`, `registry.ts` |
-| provider 응답 변환 오류 | `apps/api/src/providers/<name>.ts` |
-| context 조립 오류 | `apps/api/src/engine/context.ts` |
-| SSE 이벤트 누락/순서 오류 | `apps/api/src/engine/stream.ts`, `apps/api/src/routes/run.ts` |
-| 데이터 읽기/쓰기 오류 | `apps/api/src/data/reader.ts`, `writer.ts` |
-| route 응답 오류 | `apps/api/src/routes/<route>.ts` — Hono handler |
-| DB 쿼리 오류 | `apps/api/src/db/<table>.ts` — Drizzle query |
+| agent loop 이상 | `<api-app>/src/engine/loop.ts` |
+| tool 실행 실패 | `<api-app>/src/tools/base.ts`, `registry.ts` |
+| provider 응답 변환 오류 | `<api-app>/src/providers/<name>.ts` |
+| context 조립 오류 | `<api-app>/src/engine/context.ts` |
+| SSE 이벤트 누락/순서 오류 | `<api-app>/src/engine/stream.ts`, `<api-app>/src/routes/run.ts` |
+| 데이터 읽기/쓰기 오류 | `<api-app>/src/data/reader.ts`, `writer.ts` |
+| route 응답 오류 | `<api-app>/src/routes/<route>.ts` — framework handler |
+| DB 쿼리 오류 | `<api-app>/src/db/<table>.ts` — Drizzle query |
 
 ## Step 4 — CONFIRM GREEN + NO REGRESSION
 
@@ -132,14 +132,14 @@ Step 2 를 통과해야만 Step 3 으로 진행. 잘못된 이유로 실패하�
 
 ```bash
 # 4-1. 새 테스트만 — GREEN 확인
-npx vitest run apps/api/src/<module>/__tests__/<module>.regression.test.ts \
+npx vitest run <api-app>/src/<module>/__tests__/<module>.regression.test.ts \
   --reporter=verbose --bail=1
 
 # 4-2. 해당 모듈 전체 — 모듈 내 regression 확인
-npx vitest run apps/api/src/<module>/__tests__/ --reporter=verbose
+npx vitest run <api-app>/src/<module>/__tests__/ --reporter=verbose
 
 # 4-3. 서브시스템 전체 — 크로스 모듈 regression 확인
-npx vitest run apps/api/src/ --reporter=verbose
+npx vitest run <api-app>/src/ --reporter=verbose
 ```
 
 > **4-2 에서 기존 테스트가 깨지면 — 깨진 테스트를 수정하는 게 아니라 Step 3 의
@@ -152,7 +152,7 @@ Step 4 를 **모두 통과한 상태에서만** 리팩터링 진행. GREEN 아�
 허용되는 리팩터링: 중복 제거, 이름 개선, 매직 넘버 상수화, 하드코딩 일반화, 함수 분리.
 
 규칙:
-- **한 번에 하나만 변경** — 리팩터링 1건마다 `npx vitest run apps/api/src/<module>/` 재실행
+- **한 번에 하나만 변경** — 리팩터링 1건마다 `npx vitest run <api-app>/src/<module>/` 재실행
 - 테스트가 깨지면 리팩터링 취소 (undo) 후 원인 파악
 - 리팩터링 중 새 기능 추가 금지
 
@@ -163,13 +163,13 @@ Step 4 를 **모두 통과한 상태에서만** 리팩터링 진행. GREEN 아�
 npx vitest --watch
 
 # 특정 파일 watch
-npx vitest --watch apps/api/src/<module>/__tests__/
+npx vitest --watch <api-app>/src/<module>/__tests__/
 
 # 첫 실패에서 중단 (RED 확인용)
 npx vitest run --reporter=verbose --bail=1
 
 # 상세 출력 + 1번 실패 시 중단
-npx vitest run --reporter=verbose --bail=1 apps/api/src/<module>/
+npx vitest run --reporter=verbose --bail=1 <api-app>/src/<module>/
 ```
 
 > `vitest --watch` 는 RED-GREEN 사이클을 빠르게 돌릴 때 필수. Step 1~3 구간에서
@@ -225,11 +225,11 @@ Node 버전, OS, 환경변수 차이. `process.platform` 분기를 테스트에�
 불가피하면 `it.skipIf(process.platform === 'win32')(...)` + 사유 기록.
 `engines.node` 와 CI Node 버전을 일치.
 
-### 5. Workers 비호환 패턴이 unit test 를 통과
+### 5. runtime 비호환 패턴이 unit test 를 통과
 
 `setInterval`, `Buffer`, `fs` 는 Node 환경 단위 테스트에서 동작하지만
-Workers runtime 배포 시 실패. 이런 패턴은 `vi.mock` 으로 격리하거나
-`miniflare` 통합 테스트로 검증.
+일부 runtime 배포 시 실패. 이런 패턴은 `vi.mock` 으로 격리하거나
+runtime-specific test harness 통합 테스트로 검증 (instance 측 project-local skill 참조).
 
 ## 사용 예시 — maxTurns 버그
 
@@ -240,24 +240,24 @@ Workers runtime 배포 시 실패. 이런 패턴은 `vi.mock` 으로 격리하�
 
 **Step 2 CONFIRM RED**:
 ```bash
-npx vitest run apps/api/src/engine/__tests__/loop.regression.test.ts \
+npx vitest run <api-app>/src/engine/__tests__/loop.regression.test.ts \
   --reporter=verbose --bail=1
 # FAIL — AssertionError: Expected exactly 1 turn with maxTurns=1, but got 2 turns
 ```
 AssertionError 확인. 올바른 이유.
 
-**Step 3 GREEN**: `apps/api/src/engine/loop.ts` 에서 `turns++` 위치를 루프 끝으로 이동.
+**Step 3 GREEN**: `<api-app>/src/engine/loop.ts` 에서 `turns++` 위치를 루프 끝으로 이동.
 최소 1줄 변경. 새 모듈/함수 없음.
 
 **Step 4 CONFIRM GREEN + NO REGRESSION**:
 ```bash
-npx vitest run apps/api/src/engine/__tests__/loop.regression.test.ts --reporter=verbose --bail=1
+npx vitest run <api-app>/src/engine/__tests__/loop.regression.test.ts --reporter=verbose --bail=1
 # PASS
 
-npx vitest run apps/api/src/engine/__tests__/ --reporter=verbose
+npx vitest run <api-app>/src/engine/__tests__/ --reporter=verbose
 # 10 passed
 
-npx vitest run apps/api/src/ --reporter=verbose
+npx vitest run <api-app>/src/ --reporter=verbose
 # 42 passed, 0 failed
 ```
 
@@ -268,11 +268,11 @@ npx vitest run apps/api/src/ --reporter=verbose
 - "재현 테스트를 못 만들겠다" → 사용자에게 재현 절차 구체적 질문 (입력, 환경, 이전 상태)
 - "AssertionError 가 아닌 다른 에러" → 테스트 코드 버그. import/mock 확인 후 Step 1 재작성
 - "수정했는데 다른 테스트가 깨진다" → 최소 변경 원칙 재적용. 깨진 테스트가 아닌 production 코드 수정 방법 변경
-- "Workers 에서만 실패" → `miniflare` 통합 테스트로 재현 후 `testing-infra` skill 의 Workers 환경 테스트 패턴 적용
+- "특정 runtime 에서만 실패" → runtime-specific test harness 통합 테스트로 재현 후 `testing-infra` skill 의 runtime 환경 테스트 패턴 적용 (instance 측 project-local skill 참조)
 - 위 가이드로 안 풀리면: `debug-session` skill 로 전환
 
 ## 관련 skill
 
 - 새 테스트 골격 필요 → `test-scaffold`
 - 테스트 오염·격리 → `test-cleanup`
-- Vitest 셋업 (Workers 환경 등) → `testing-infra`
+- Vitest 셋업 (runtime 환경 등) → `testing-infra`

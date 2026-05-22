@@ -1,6 +1,6 @@
 ---
 name: testing-infra
-description: apps/api 테스트 인프라 셋업 시 invoke. Vitest 설정 + Hono app.request 패턴 + Neon test branch 격리 + miniflare/wrangler dev 옵션.
+description: <api-app> 테스트 인프라 셋업 시 invoke. Vitest 설정 + <framework> in-process request 패턴 + DB test branch 격리 + runtime-호환 test harness 옵션.
 metadata:
   role: workflow
   scope: project
@@ -8,22 +8,22 @@ metadata:
 allowed-tools: Read, Write, Edit, Bash
 ---
 
-**적용된 §4.4 매트릭스 행**: pytest → vitest, fastapi.testclient.TestClient → app.request, conftest.py fixtures → Vitest beforeAll/beforeEach/vi.mock, 환경변수 (os.getenv → c.env)
+**적용된 §4.4 매트릭스 행**: pytest → vitest, fastapi.testclient.TestClient → framework in-process request helper, conftest.py fixtures → Vitest beforeAll/beforeEach/vi.mock, 환경변수 (os.getenv → `<framework env binding>`)
 
 ## Core Rules (CRITICAL — baseline already knows common Vitest patterns, these are the UNIQUE differentiators)
-1. MUST configure Vitest for Workers-compatible async (no `setInterval`, `Buffer`, `fs` direct use)
-2. MUST use `app.request(path, init)` (Hono in-process) — NOT a real HTTP server
+1. MUST configure Vitest for <runtime>-compatible async (no `setInterval`, `Buffer`, `fs` direct use when target runtime forbids)
+2. MUST use framework in-process request helper — NOT a real HTTP server
 3. Provider stream mock MUST be an async generator function, NOT `vi.fn().mockResolvedValue(...)`
 4. MUST define provider mock as FACTORY (takes events list)
-5. MUST define session/env factory with `c.env` simulation
-6. DB isolation = Neon branch per CI run OR in-memory better-sqlite3
+5. MUST define session/env factory with `<framework env binding>` simulation
+6. DB isolation = managed DB test branch per CI run OR in-memory better-sqlite3
 
 # testing-infra — Mock-based 테스트 인프라
 
 ## 이 skill은 언제 로드되는가
 
-- `apps/api/src/**/*.test.ts` 새 테스트 작성
-- `apps/api/src/test/setup.ts` 새 fixture/helper 추가
+- `<api-app>/src/**/*.test.ts` 새 테스트 작성
+- `<api-app>/src/test/setup.ts` 새 fixture/helper 추가
 - "test pollution between cases" 증상
 - "async mock not called" 에러
 - Vitest 설정 추가/변경
@@ -32,7 +32,7 @@ allowed-tools: Read, Write, Edit, Bash
 
 - VCR cassette / record-replay 작성 (별도 scope)
 - live API 호출 테스트
-- 통합/E2E 테스트 (Workers + `unstable_dev` 섹션 참조)
+- 통합/E2E 테스트 (runtime-specific test harness 섹션 참조)
 
 ## Testing Infra의 정체성
 
@@ -47,16 +47,16 @@ allowed-tools: Read, Write, Edit, Bash
 ## Vitest 설정
 
 ```ts
-// apps/api/vitest.config.ts
+// <api-app>/vitest.config.ts
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'node',       // Workers 단위 테스트: 'node' 충분
+    environment: 'node',       // 단위 테스트: 'node' 충분 (런타임-격리 환경은 별도 통합)
     setupFiles: ['./src/test/setup.ts'],
     reporters: ['verbose'],
-    pool: 'forks',             // Workers 호환 (threads pool 대신)
+    pool: 'forks',             // runtime-호환 (threads pool 대신, runtime-specific 결정)
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
@@ -66,13 +66,12 @@ export default defineConfig({
 })
 ```
 
-> **Workers 환경 격리 테스트** (Durable Objects, KV, R2 등): `wrangler dev` +
-> `unstable_dev` API 또는 `miniflare` 를 사용 — 하단 "Workers 환경 테스트" 섹션 참조.
+> **runtime-격리 테스트** (예: DB binding, KV, object storage 등): runtime-specific test harness (예: in-process dev server, miniflare-류 emulator) 를 사용 — 하단 "runtime-환경 테스트" 섹션 참조 (instance 측 project-local skill 참조).
 
 ## setup.ts 공통 helper
 
 ```ts
-// apps/api/src/test/setup.ts
+// <api-app>/src/test/setup.ts
 import { afterEach, vi } from 'vitest'
 
 // mock reset — 전체 테스트에 적용
@@ -84,7 +83,7 @@ afterEach(() => {
 ## Mock provider 스트림 (FACTORY 패턴)
 
 ```ts
-// apps/api/src/test/mock-provider.ts
+// <api-app>/src/test/mock-provider.ts
 import type { ProviderEvent } from '../providers/types'
 
 export interface MockProvider {
@@ -122,16 +121,16 @@ export function makeMockProvider(events: ProviderEvent[]): MockProvider {
 }
 ```
 
-## app.request 패턴 (Hono in-process)
+## in-process request 패턴 (framework in-process)
 
 ```ts
-// apps/api/src/test/helpers.ts
-import { app } from '../app'   // Hono app instance
+// <api-app>/src/test/helpers.ts
+import { app } from '../app'   // framework app instance
 import type { Env } from '../types'
 
 /**
- * Hono in-process request helper — no HTTP server needed.
- * c.env 시뮬레이션: Workers binding 을 test object 로 주입.
+ * Framework in-process request helper — no HTTP server needed.
+ * env binding 시뮬레이션: runtime binding 을 test object 로 주입.
  */
 export function makeTestEnv(overrides: Partial<Env> = {}): Env {
   return {
@@ -148,7 +147,8 @@ export async function apiRequest(
 ) {
   const { env: envOverrides, ...fetchInit } = init
   const env = makeTestEnv(envOverrides)
-  // Hono's app.request() accepts path + fetch init + optionally env bindings
+  // framework in-process request helper: path + fetch init + optionally env bindings
+  // 예: app.request(path, fetchInit, env) 또는 supertest(app).post(...) 등 framework-specific
   return app.request(path, fetchInit, env)
 }
 ```
@@ -156,7 +156,7 @@ export async function apiRequest(
 ## 사용 예시 — route 단위 테스트
 
 ```ts
-// apps/api/src/routes/__tests__/run.test.ts
+// <api-app>/src/routes/__tests__/run.test.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { apiRequest } from '../../test/helpers'
 import { makeMockProvider } from '../../test/mock-provider'
@@ -213,46 +213,37 @@ it('SSE: emits done event', async () => {
 })
 ```
 
-## Workers 환경 테스트 (unstable_dev / miniflare)
+## runtime-환경 테스트 (in-process dev server / emulator)
 
-단위 테스트에서 `app.request` 로 커버하기 어려운 Workers 바인딩 (Durable Objects,
-KV `list()`, R2 등) 은 **별도 통합 테스트** 파일에서 `miniflare` 또는 `unstable_dev`
-를 사용한다.
+단위 테스트에서 framework in-process request 로 커버하기 어려운 runtime binding (DB, KV, object storage 등) 은 **별도 통합 테스트** 파일에서 runtime-specific test harness 를 사용한다 (구체 API 는 instance 측 project-local skill 참조).
 
 ```ts
-// apps/api/src/test/workers-env.ts  (통합 테스트 전용)
-import { unstable_dev } from 'wrangler'
-
-export async function startWorker() {
-  const worker = await unstable_dev('src/index.ts', {
-    experimental: { disableExperimentalWarning: true },
-    vars: { OPENROUTER_API_KEY: 'test-key' },
-    kvNamespaces: [{ binding: 'KV', id: 'test-kv' }],
-  })
-  return worker  // { fetch, stop }
-}
+// <api-app>/src/test/runtime-env.ts  (통합 테스트 전용 — 의사코드)
+// import { <runtime devServer helper> } from '<runtime-test-package>'
+// export async function startServer() {
+//   const server = await <runtime devServer helper>('src/index.ts', {
+//     vars: { OPENROUTER_API_KEY: 'test-key' },
+//     bindings: { KV: 'test-kv' },
+//   })
+//   return server  // { fetch, stop }
+// }
 ```
 
 ```ts
-// miniflare 대안
-import { Miniflare } from 'miniflare'
-
-const mf = new Miniflare({
-  script: '', // 빌드된 worker 또는 inline
-  kvNamespaces: ['KV'],
-  modules: true,
-})
-const kv = await mf.getKVNamespace('KV')
+// emulator 대안 (의사코드) — runtime-specific emulator package
+// import { <RuntimeEmulator> } from '<runtime-emulator-package>'
+// const emu = new <RuntimeEmulator>({ script: '', bindings: ['KV'] })
+// const kv = await emu.getKVNamespace('KV')
 ```
 
-Workers 환경 테스트는 `*.integration.test.ts` 파일에 분리, CI 에서는 별도 단계 실행.
+runtime-환경 테스트는 `*.integration.test.ts` 파일에 분리, CI 에서는 별도 단계 실행.
 
 ## DB 격리 전략
 
 | 전략 | 언제 | 설정 |
 |---|---|---|
 | in-memory better-sqlite3 | 단위 테스트 | `drizzle(new Database(':memory:'))` |
-| Neon branch per CI run | CI 통합 테스트 | `neon branches create --parent main test-$GITHUB_RUN_ID` |
+| managed DB branch per CI run | CI 통합 테스트 | DB provider CLI 로 branch 생성 (예: `<db CLI> branches create --parent main test-$CI_RUN_ID`) — instance 측 project-local skill 참조 |
 | Transaction rollback | 각 테스트 | `await db.transaction(async tx => { ...; tx.rollback() })` |
 
 ```ts
@@ -271,7 +262,7 @@ export function createTestDb() {
 ```
 
 > Production 코드의 DB 타입: `PgDatabase` from `drizzle-orm/pg-core`
-> (Neon HTTP 경유). 테스트 helper 의 in-memory DB 는 별개.
+> (managed DB driver 경유 — instance 측 project-local skill). 테스트 helper 의 in-memory DB 는 별개.
 
 ## Vitest 마커 규칙 (vitest.config.ts 대신 파일명 + `describe` 레이블)
 
@@ -300,27 +291,27 @@ export function createTestDb() {
    `vi.mock(...)` 는 파일 최상단으로 호이스팅된다. factory 안에서 `vi.mock` 을
    동적으로 쓰려면 `vi.doMock` (호이스팅 없음) 사용.
 
-3. **Workers 비호환 패턴**
-   `setInterval`, `Buffer`, `fs` 모듈 직접 import 는 Workers runtime 에서 동작하지
-   않는다. 단위 테스트에서 동작해도 `wrangler deploy` 후 실패할 수 있으니, node
-   전용 API 사용 시 `vi.mock` 으로 격리.
+3. **runtime 비호환 패턴**
+   `setInterval`, `Buffer`, `fs` 모듈 직접 import 는 일부 runtime 에서 동작하지
+   않는다. 단위 테스트에서 동작해도 deploy 후 실패할 수 있으니, node
+   전용 API 사용 시 `vi.mock` 으로 격리 (runtime 호환성은 instance 측 project-local skill 참조).
 
 ## 검증 체크리스트
 
 - [ ] `vitest.config.ts` 에 `setupFiles`, `pool: 'forks'`, `globals: true` 설정
 - [ ] `src/test/setup.ts` 에 `afterEach(() => vi.restoreAllMocks())` 적용
 - [ ] `makeMockProvider` 가 async generator `callStream` 포함 (FACTORY 패턴)
-- [ ] `app.request(path, init, env)` Hono in-process 패턴 사용
-- [ ] DB 격리 전략 명시 (in-memory 또는 Neon branch)
-- [ ] Workers 환경 테스트: `unstable_dev` / `miniflare` 언급
+- [ ] framework in-process request helper 패턴 사용 (path + init + env)
+- [ ] DB 격리 전략 명시 (in-memory 또는 managed DB branch)
+- [ ] runtime 환경 테스트: runtime-specific test harness 언급 (instance 측 project-local skill)
 - [ ] SSE 응답 테스트 예시 1개
-- [ ] 동시성 함정 3개 (async generator / vi.mock hoisting / Workers 비호환)
+- [ ] 동시성 함정 3개 (async generator / vi.mock hoisting / runtime 비호환)
 
 ## 구현 중 막히면
 
 - "async mock이 안 된다" → `vi.fn()` 대신 async generator function 직접 정의
 - "test 가 다른 test 에 영향 준다" → `beforeEach(() => vi.restoreAllMocks())` 또는 module-level singleton 리셋
-- "Workers binding 이 필요하다" → `unstable_dev` 또는 `miniflare` 통합 테스트로 분리
+- "runtime binding 이 필요하다" → runtime-specific test harness 통합 테스트로 분리 (instance 측 project-local skill 참조)
 - "DB 테스트 격리가 필요하다" → `better-sqlite3` in-memory 또는 Drizzle transaction rollback
 - 위 가이드로 안 풀리면: 사용자에게 보고.
 

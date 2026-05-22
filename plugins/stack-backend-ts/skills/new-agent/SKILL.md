@@ -1,27 +1,27 @@
 ---
 name: new-agent
-description: 새 agent 정의 (`apps/api/src/agents/<name>.ts` + `apps/api/agents/<name>.yaml` + prompts/<name>.md) 추가 시 invoke. AgentDef interface + zod schema 검증 + tool allowlist 룰 (coordinator vs worker) + 등록/스모크 체크. agent-loop-invariants + run-policy-presets + spawn-limits invariant 자동 적용. Codex 의 .codex-plugin/agents/ 마커도 함께 생성.
+description: 새 agent 정의 (`<api-app>/src/agents/<name>.ts` + `<api-app>/agents/<name>.yaml` + prompts/<name>.md) 추가 시 invoke. AgentDef interface + zod schema 검증 + tool allowlist 룰 (coordinator vs worker) + 등록/스모크 체크. agent-loop-invariants + run-policy-presets + spawn-limits invariant 자동 적용. Codex 의 .codex-plugin/agents/ 마커도 함께 생성.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/new-agent
 ---
 
-**적용된 §4.4 매트릭스 행**: Python `ABC` / Protocol → TS `interface` (`AgentDef`), `async def step()` → `async function step()`, `pydantic BaseModel AgentConfig` → `zod schema`, `pytest @pytest.mark.asyncio` → `vitest`, `unittest.mock.AsyncMock` → `vi.fn().mockResolvedValue()`, `uvicorn backend.main:app` → `wrangler dev` (Workers) 또는 `tsx src/index.ts` (Node), `ruff check` + `ty check` → `tsc --noEmit` + `eslint` (또는 `biome check`)
+**적용된 §4.4 매트릭스 행**: Python `ABC` / Protocol → TS `interface` (`AgentDef`), `async def step()` → `async function step()`, `pydantic BaseModel AgentConfig` → `zod schema`, `pytest @pytest.mark.asyncio` → `vitest`, `unittest.mock.AsyncMock` → `vi.fn().mockResolvedValue()`, `uvicorn backend.main:app` → runtime-specific dev server CLI (instance 측 project-local skill 참조), `ruff check` + `ty check` → `tsc --noEmit` + `eslint` (또는 `biome check`)
 
 # new-agent — 에이전트 추가 청사진
 
 ## 이 skill 은 언제 invoke 되는가
 
-- `apps/api/agents/<name>.yaml` 또는 `apps/api/src/agents/<name>.ts` 최초 생성
-- `apps/api/agents/prompts/<name>.md` 시스템 프롬프트 작성
+- `<api-app>/agents/<name>.yaml` 또는 `<api-app>/src/agents/<name>.ts` 최초 생성
+- `<api-app>/agents/prompts/<name>.md` 시스템 프롬프트 작성
 - `new-agent-builder` sub-agent (Codex) 호출 시 자동 로드
 - 에이전트 로더 스키마 검증 — zod schema 변경 시
 - "새 sub-agent 추가하고 싶다" 사용자 요청
 
 ## 절차 (6 step)
 
-1. **`apps/api/src/agents/<name>.ts`** — `AgentDef` interface 구현 (코드 정의)
+1. **`<api-app>/src/agents/<name>.ts`** — `AgentDef` interface 구현 (코드 정의)
 2. `agent-loop-invariants` 확인 (RunOpts / LoopDeps 호환)
 3. `run-policy-presets` 확인 (preset 선택 또는 신규 RunPolicy)
 4. `spawn-limits` 확인 (sub-agent 사용 시 — MAX_SPAWN_DEPTH=3 가드)
@@ -58,7 +58,7 @@ export interface AgentDef {
 ## YAML 스키마 (Codex marker / Claude agent 양쪽 호환)
 
 ```yaml
-# apps/api/agents/<name>.yaml
+# <api-app>/agents/<name>.yaml
 name: <snake_case>               # 필수. loader 가 파일명과 대조
 description: <one-sentence>      # 필수. 에이전트 선택 UI / 로그에 노출
 system_prompt_file: prompts/<name>.md   # 필수. agents/ 기준 상대경로
@@ -91,7 +91,7 @@ zod `AgentConfigSchema` 가 boot 시 yaml 파싱 결과를 검증 — 오타 필
 ## 시스템 프롬프트 템플릿
 
 ```markdown
-<!-- apps/api/agents/prompts/<name>.md -->
+<!-- <api-app>/agents/prompts/<name>.md -->
 You are the <agent_name> agent.
 
 ## Role
@@ -117,12 +117,12 @@ You are the <agent_name> agent.
 
 ## 등록 체크리스트
 
-1. `apps/api/agents/<name>.yaml` 작성 (zod schema 준수)
-2. `apps/api/agents/prompts/<name>.md` 작성 (`base.md` 계승)
-3. `apps/api/config/providers.yaml` 의 `fallback_chains` 에 `model_preference` 값이 존재하는지 확인
+1. `<api-app>/agents/<name>.yaml` 작성 (zod schema 준수)
+2. `<api-app>/agents/prompts/<name>.md` 작성 (`base.md` 계승)
+3. `<api-app>/config/providers.yaml` 의 `fallback_chains` 에 `model_preference` 값이 존재하는지 확인
 4. 모든 도구명이 `ToolRegistry.names()` 에 등록되어 있는지 확인
-5. loader boot smoke: `wrangler dev` (Workers) 또는 `tsx src/index.ts` → 로그에서 새 agent 등록 확인
-6. 스모크 테스트: `apps/api/test/agents/<name>.test.ts` 작성
+5. loader boot smoke: runtime-specific dev server CLI 또는 `tsx src/index.ts` → 로그에서 새 agent 등록 확인 (instance 측 project-local skill 참조)
+6. 스모크 테스트: `<api-app>/test/agents/<name>.test.ts` 작성
    - mock provider (`vi.fn().mockResolvedValue(...)`) 가 간단한 text 반환
    - agent 로드 → 1 턴 실행 → `done` 이벤트 검증
 7. `tsc --noEmit` + `biome check` (또는 `eslint`) 통과
@@ -131,7 +131,7 @@ You are the <agent_name> agent.
 ## 스모크 테스트 스켈레톤
 
 ```typescript
-// apps/api/test/agents/<name>.test.ts
+// <api-app>/test/agents/<name>.test.ts
 import { describe, it, expect, vi } from 'vitest'
 import { loadAgent } from '../../src/agents/loader.ts'
 import { runAgentLoop } from '../../src/engine/loop.ts'
@@ -219,7 +219,7 @@ allowed-tools: Read, Grep, Glob, Bash  # write 가 필요한 경우만 Write/Edi
 ## 구현 중 막히면
 
 - 도구 이름이 런타임 에러 → `ToolRegistry` 등록 순서 확인. `/new-tool` 로 먼저 도구 등록
-- 모델 호출 실패 → `config/providers.yaml` 의 provider credentials 확인 (`c.env.<PROVIDER>_API_KEY`)
-- 로더가 agent 못 찾음 → 파일명 = YAML `name` 일치 + 디렉토리 위치 (`apps/api/agents/`) 확인
+- 모델 호출 실패 → `config/providers.yaml` 의 provider credentials 확인 (`<framework env binding>.<PROVIDER>_API_KEY`)
+- 로더가 agent 못 찾음 → 파일명 = YAML `name` 일치 + 디렉토리 위치 (`<api-app>/agents/`) 확인
 - 프롬프트가 너무 김 → 8000 토큰 초과 시 `TokenBudget.AGENT` 위반 (`token-budget-constants`). 축소 또는 `base.md` 로 이동
 - spawn 호출 시 `SpawnDepthExceeded` — 부모 agent 의 depth + 1 ≤ 3 검증 (`spawn-limits` invariant)

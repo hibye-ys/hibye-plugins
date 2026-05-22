@@ -1,13 +1,13 @@
 ---
 name: provider-catalog-sync
-description: apps/api 의 provider 모델 카탈로그 (bundled snapshot + FUZZY 별칭 + ENV default) 새로고침 시 invoke. 주요 provider 릴리스 직후 / `_meta.updated` 3개월 경과 / 새 provider 추가 직후 운영 절차. PROVIDER_SOURCES 표가 유일한 provider별 지식 — 새 provider 추가 = 행 1개 추가.
+description: <api-app> 의 provider 모델 카탈로그 (bundled snapshot + FUZZY 별칭 + ENV default) 새로고침 시 invoke. 주요 provider 릴리스 직후 / `_meta.updated` 3개월 경과 / 새 provider 추가 직후 운영 절차. PROVIDER_SOURCES 표가 유일한 provider별 지식 — 새 provider 추가 = 행 1개 추가.
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/provider-catalog-sync
 ---
 
-**적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` / `httpx.get` → `fetch(url, init)` (Node 또는 Workers — sync 스크립트는 보통 Node), `pyyaml` (`yaml.safe_load` / `yaml.safe_dump`) → **`yaml` (npm)** (`parse` / `stringify`), `difflib.unified_diff` → **`diff` (npm)** (`createTwoFilesPatch` / `createPatch`), `pydantic` 모델 → `zod` schema (`Z.parse`), `pytest` → `vitest` (테스트), `json.dump` (snapshot file) → `await writeFile(path, JSON.stringify(data, null, 2))`, `os.getenv("OPENROUTER_API_KEY")` → `process.env.OPENROUTER_API_KEY` (스크립트는 Node), `tenacity` → `p-retry` (네트워크 fetch 재시도), Python `WebFetch` (skill tool) → **Claude Code WebFetch tool** (동일 — 본 skill 실행 시 WebFetch 호출)
+**적용된 §4.4 매트릭스 행**: `httpx.AsyncClient` / `httpx.get` → `fetch(url, init)` (sync 스크립트는 Node), `pyyaml` (`yaml.safe_load` / `yaml.safe_dump`) → **`yaml` (npm)** (`parse` / `stringify`), `difflib.unified_diff` → **`diff` (npm)** (`createTwoFilesPatch` / `createPatch`), `pydantic` 모델 → `zod` schema (`Z.parse`), `pytest` → `vitest` (테스트), `json.dump` (snapshot file) → `await writeFile(path, JSON.stringify(data, null, 2))`, `os.getenv("OPENROUTER_API_KEY")` → `process.env.OPENROUTER_API_KEY` (스크립트는 Node), `tenacity` → `p-retry` (네트워크 fetch 재시도), Python `WebFetch` (skill tool) → **Claude Code WebFetch tool** (동일 — 본 skill 실행 시 WebFetch 호출)
 
 # provider-catalog-sync — 프로바이더 모델 카탈로그 동기화
 
@@ -21,16 +21,16 @@ metadata:
 ## 언제 invoke 되지 않는가
 
 - 단발 모델 capability 조회 → `provider-layer` workflow
-- fallback chain 순서 조정 → `apps/api/catalog/fallback-chains.yaml` 직접 편집 (런타임 hot reload 없음, 재배포 필요)
+- fallback chain 순서 조정 → `<api-app>/catalog/fallback-chains.yaml` 직접 편집 (런타임 hot reload 없음, 재배포 필요)
 - 새 provider **클래스** 추가 → `provider-scaffold` workflow (본 skill 은 그 다음 실행)
 
 ## 원칙
 
 - **Provider-agnostic**: 아래 `PROVIDER_SOURCES` 표가 유일한 provider 별 지식. 새 provider 추가 = 표에 행 하나 추가
 - **3 소스 교차검증**: 공식 문서 (WebFetch) + models.dev API (fallback) + live API listing (선택). 한 소스만 믿지 않음
-- **Config 는 운영자 결정**: `apps/api/catalog/fallback-chains.yaml` 변경은 **제안만** 출력. 본 skill 이 직접 쓰지 않음
+- **Config 는 운영자 결정**: `<api-app>/catalog/fallback-chains.yaml` 변경은 **제안만** 출력. 본 skill 이 직접 쓰지 않음
 - **Fail-safe**: diff 결과가 비어 있어도 `_meta.updated` 는 갱신 (sync 이력 보존)
-- **Workers 비호환 — Node 스크립트**: 본 sync 작업은 `pnpm tsx apps/api/scripts/sync-models.ts` 로 Node 에서 실행. Workers 런타임에서 실행 ✕
+- **runtime 비호환 — Node 스크립트**: 본 sync 작업은 `pnpm tsx <api-app>/scripts/sync-models.ts` 로 Node 에서 실행. 일부 runtime (예: edge / isolation 기반) 에서 실행 ✕ (instance 측 project-local skill 참조)
 
 ---
 
@@ -64,13 +64,13 @@ metadata:
 
 ```bash
 # 등록된 provider type 확인 (표 iteration 기준)
-rg "registerProviderClass\(['\"](\w+)['\"]" apps/api/src/ai/providers/
+rg "registerProviderClass\(['\"](\w+)['\"]" <api-app>/src/ai/providers/
 
 # bundled snapshot 메타 확인
-node -e "const d = require('./apps/api/catalog/bundled_models.json'); console.log(d._meta); console.log(Object.keys(d.models).sort())"
+node -e "const d = require('./<api-app>/catalog/bundled_models.json'); console.log(d._meta); console.log(Object.keys(d.models).sort())"
 
 # Router 별칭 + env default
-rg "FUZZY_MAP|ENV_DEFAULT_MODEL" apps/api/src/ai/
+rg "FUZZY_MAP|ENV_DEFAULT_MODEL" <api-app>/src/ai/
 ```
 
 ### Step 2. 각 provider 공식 문서 fetch (WebFetch)
@@ -101,12 +101,12 @@ node -e "const d = require('/tmp/models_dev.json'); console.log(Object.keys(d).f
 
 ### Step 5. 업데이트 적용
 
-1. `apps/api/catalog/bundled_models.json` — `_meta.updated` 를 오늘로 갱신 + `models` 엔트리 병합
-2. `apps/api/src/ai/router.ts` 의 `FUZZY_MAP` — 별칭 행 수정
-3. `apps/api/src/ai/bootstrap.ts` 의 `ENV_DEFAULT_MODEL` — provider 별 canonical default 수정
+1. `<api-app>/catalog/bundled_models.json` — `_meta.updated` 를 오늘로 갱신 + `models` 엔트리 병합
+2. `<api-app>/src/ai/router.ts` 의 `FUZZY_MAP` — 별칭 행 수정
+3. `<api-app>/src/ai/bootstrap.ts` 의 `ENV_DEFAULT_MODEL` — provider 별 canonical default 수정
 4. 테스트 실행 — 반드시 통과 확인:
    ```bash
-   pnpm exec vitest run apps/api/tests/ai/router.test.ts apps/api/tests/ai/modelResolution.test.ts apps/api/tests/providers/fallbackE2e.test.ts
+   pnpm exec vitest run <api-app>/tests/ai/router.test.ts <api-app>/tests/ai/modelResolution.test.ts <api-app>/tests/providers/fallbackE2e.test.ts
    ```
 5. **Report 출력** — 아래 템플릿 참조
 
@@ -115,7 +115,7 @@ node -e "const d = require('/tmp/models_dev.json'); console.log(Object.keys(d).f
 ## sync-models 스크립트 (참고 구현)
 
 ```typescript
-// apps/api/scripts/sync-models.ts
+// <api-app>/scripts/sync-models.ts
 import { readFile, writeFile } from 'node:fs/promises'
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml'
 import { createTwoFilesPatch } from 'diff'
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
   const apply = process.argv.includes('--apply')
 
   const remoteModels = await fetchOpenRouterModels(apiKey)
-  const localCatalogPath = 'apps/api/catalog/models.yaml'
+  const localCatalogPath = '<api-app>/catalog/models.yaml'
   const localCatalog = await loadLocalCatalog(localCatalogPath) as { models: unknown[] }
 
   const remoteText = yamlStringify({ models: remoteModels })
@@ -196,11 +196,11 @@ void main()
 
 ```bash
 # Dry-run (diff 출력만)
-pnpm tsx apps/api/scripts/sync-models.ts
+pnpm tsx <api-app>/scripts/sync-models.ts
 
 # 적용
-pnpm tsx apps/api/scripts/sync-models.ts --apply
-git diff apps/api/catalog/
+pnpm tsx <api-app>/scripts/sync-models.ts --apply
+git diff <api-app>/catalog/
 ```
 
 ---
@@ -222,20 +222,20 @@ git diff apps/api/catalog/
 | openrouter| (전체 prefix 위임)    | —                  | —                  |
 
 ## Files updated
-- apps/api/catalog/bundled_models.json  (+3 models, _meta.updated=2026-MM-DD)
-- apps/api/src/ai/router.ts             (FUZZY_MAP: "sonnet" → claude-sonnet-4-7)
-- apps/api/src/ai/bootstrap.ts          (ENV_DEFAULT_MODEL: openai → gpt-5.5)
+- <api-app>/catalog/bundled_models.json  (+3 models, _meta.updated=2026-MM-DD)
+- <api-app>/src/ai/router.ts             (FUZZY_MAP: "sonnet" → claude-sonnet-4-7)
+- <api-app>/src/ai/bootstrap.ts          (ENV_DEFAULT_MODEL: openai → gpt-5.5)
 
 ## Suggested operator actions (NOT applied)
-- apps/api/catalog/fallback-chains.yaml :: default — 1순위를 gpt-5.5 로 승격 검토
+- <api-app>/catalog/fallback-chains.yaml :: default — 1순위를 gpt-5.5 로 승격 검토
 - deprecated 알림: claude-opus-4-1 을 chain 에서 참조하는 운영자 있으면 마이그 필요
 
 ## Pricing changes (usage-tracking 영향)
 - anthropic: claude-sonnet-4-7 input 3.00 → 3.50 per M (요약 LLM 비용 +17%)
 
 ## Tests
-- pnpm exec vitest run apps/api/tests/ai/  →  42 passed
-- pnpm exec vitest run apps/api/tests/providers/  →  28 passed
+- pnpm exec vitest run <api-app>/tests/ai/  →  42 passed
+- pnpm exec vitest run <api-app>/tests/providers/  →  28 passed
 ```
 
 ---
@@ -252,13 +252,13 @@ git diff apps/api/catalog/
 
 ## 금지 사항
 
-- `apps/api/catalog/fallback-chains.yaml` 을 본 skill 이 직접 수정 (chain 순서 = 운영자 결정)
+- `<api-app>/catalog/fallback-chains.yaml` 을 본 skill 이 직접 수정 (chain 순서 = 운영자 결정)
 - 공식 문서 1개 소스만으로 업데이트 결정 (반드시 cross-check)
 - deprecated 모델을 bundled 에서 즉시 삭제 (마이그 기간 `_meta.deprecations` 에 기록 후 다음 sync 에서 제거)
 - 테스트 실패 상태로 커밋 시도
 - `PROVIDER_SOURCES` 표 업데이트 없이 새 provider 의 카탈로그를 수동 갱신 (추적성 저하)
 - live API listing 을 주 소스로 사용 (rate limit + 계정별 편차 — cross-check 용도에만)
-- Workers 런타임에서 sync 실행 (Node 스크립트 전용 — 큰 fetch / 파일 시스템 쓰기)
+- 일부 runtime (edge / isolation 기반) 에서 sync 실행 (Node 스크립트 전용 — 큰 fetch / 파일 시스템 쓰기)
 - API key 를 sync 스크립트에 하드코딩 (`process.env.<PROVIDER>_API_KEY` 만)
 
 ## 검증 체크리스트
@@ -285,4 +285,4 @@ git diff apps/api/catalog/
 - `provider-layer` (Provider interface / model resolution — 카탈로그 변경 시 영향)
 - `provider-retry-matrix` (PROVIDER_REGISTRY / FUZZY_MAP / ENV_DEFAULT_MODEL 정본)
 - `usage-tracking` (pricing 변경 시 비용 계산 / 일일 한도 영향)
-- runtime 호환성 (instance 측 project-local skill — sync 스크립트는 Node, 런타임은 Workers)
+- runtime 호환성 (instance 측 project-local skill — sync 스크립트는 Node, 런타임은 instance-specific)

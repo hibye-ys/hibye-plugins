@@ -1,6 +1,6 @@
 ---
 name: test-scaffold
-description: Template-driven test file generation for `apps/api/src/`. Creates unit + integration skeletons following the project's Vitest + Hono app.request patterns (FACTORY mocks, async generator streams). Load this skill when a new module needs tests or test-cleanup identifies coverage gaps.
+description: Template-driven test file generation for `<api-app>/src/`. Creates unit + integration skeletons following the project's Vitest + <framework> in-process request patterns (FACTORY mocks, async generator streams). Load this skill when a new module needs tests or test-cleanup identifies coverage gaps.
 metadata:
   role: workflow
   scope: project
@@ -8,7 +8,7 @@ metadata:
 allowed-tools: Read, Write, Edit, Bash
 ---
 
-**적용된 §4.4 매트릭스 행**: pytest fixture (conftest.py) → Vitest setup.ts, async test (pytest-asyncio) → it(..., async () => ...), HTTP 클라이언트 (TestClient → app.request)
+**적용된 §4.4 매트릭스 행**: pytest fixture (conftest.py) → Vitest setup.ts, async test (pytest-asyncio) → it(..., async () => ...), HTTP 클라이언트 (TestClient → framework in-process request helper)
 
 # test-scaffold — 테스트 스캐폴딩 가이드
 
@@ -32,7 +32,7 @@ allowed-tools: Read, Write, Edit, Bash
 ## 테스트 파일 기본 템플릿
 
 ```ts
-// apps/api/src/<module>/__tests__/<module>.test.ts
+// <api-app>/src/<module>/__tests__/<module>.test.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 // --- Vitest setup.ts 의 afterEach(vi.restoreAllMocks) 가 자동 적용된다 ---
@@ -74,14 +74,14 @@ describe('<ModuleName>', () => {
 
 ```bash
 # 테스트할 모듈의 public export 확인
-grep -n "^export " apps/api/src/<module>.ts | grep -v "^_"
+grep -n "^export " <api-app>/src/<module>.ts | grep -v "^_"
 ```
 
 ### Step 2: 기존 test helper 확인
 
 ```bash
 # 사용 가능한 helper / mock factory
-ls apps/api/src/test/
+ls <api-app>/src/test/
 # makeMockProvider, createTestDb, makeTestEnv, apiRequest 등
 ```
 
@@ -89,15 +89,15 @@ ls apps/api/src/test/
 
 ```bash
 # FACTORY 패턴 사용 예시
-grep -n "makeMockProvider\|vi.spyOn" apps/api/src/**/*.test.ts | head -10
+grep -n "makeMockProvider\|vi.spyOn" <api-app>/src/**/*.test.ts | head -10
 
 # async generator 패턴 확인
-grep -n "async \*" apps/api/src/test/ | head -10
+grep -n "async \*" <api-app>/src/test/ | head -10
 ```
 
 ### Step 4: 파일 생성
 
-- 경로: `apps/api/src/<module>/__tests__/<module>.test.ts`
+- 경로: `<api-app>/src/<module>/__tests__/<module>.test.ts`
 - 최소 3 시나리오: happy_path + invalid_input + permission/boundary
 - provider 모듈이면: streaming + 4 error types + circuit breaker
 - tool 모듈이면: validate + permissions + call 성공/실패
@@ -105,7 +105,7 @@ grep -n "async \*" apps/api/src/test/ | head -10
 ### Step 5: 실행 검증
 
 ```bash
-npx vitest run apps/api/src/<module>/__tests__/<module>.test.ts --reporter=verbose
+npx vitest run <api-app>/src/<module>/__tests__/<module>.test.ts --reporter=verbose
 ```
 
 ## 모듈 타입별 최소 시나리오
@@ -118,10 +118,10 @@ npx vitest run apps/api/src/<module>/__tests__/<module>.test.ts --reporter=verbo
 | Route | 200_ok, 401_unauth, 422_validation, 404_not_found |
 | Data/DB | write_ok, cache_invalidation, port_protocol_usage |
 
-## Route 테스트 골격 (Hono app.request)
+## Route 테스트 골격 (<framework> in-process request)
 
 ```ts
-// apps/api/src/routes/__tests__/my-route.test.ts
+// <api-app>/src/routes/__tests__/my-route.test.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { apiRequest } from '../../test/helpers'      // testing-infra SKILL.md
 import { makeMockProvider } from '../../test/mock-provider'
@@ -180,7 +180,7 @@ describe('POST /api/my-route', () => {
 ## Provider Mock 테스트 골격
 
 ```ts
-// apps/api/src/providers/__tests__/my-provider.test.ts
+// <api-app>/src/providers/__tests__/my-provider.test.ts
 import { describe, it, expect, vi } from 'vitest'
 import { makeMockProvider } from '../../test/mock-provider'
 
@@ -258,5 +258,5 @@ it('SSE — emits events as text/event-stream', async () => {
 
 - `src/test/` 없음 → `testing-infra` skill 로 먼저 setup.ts / helpers.ts 생성
 - 모듈 구조 복잡 → 먼저 `grep "^export "` 로 public API 파악
-- Mock 어떻게 → `grep "makeMockProvider\|vi.spyOn" apps/api/src/` 로 기존 패턴 참조
+- Mock 어떻게 → `grep "makeMockProvider\|vi.spyOn" <api-app>/src/` 로 기존 패턴 참조
 - SSE body 파싱 안 됨 → `res.text()` 후 `\n` split, `data:` prefix 필터링

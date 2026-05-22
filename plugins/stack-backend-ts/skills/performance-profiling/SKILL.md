@@ -1,6 +1,6 @@
 ---
 name: performance-profiling
-description: apps/api 백엔드 성능 baseline 확정 / 회귀 검출 / "느려졌다" 객관화 시 invoke. 4 시나리오 × 30 샘플 × p50/p95/p99 측정. 0x / clinic / node --inspect / heapdump 진단 순서. Pre-launch 또는 provider / agent loop / compaction 대대적 변경 후 회귀 검출 시.
+description: <api-app> 백엔드 성능 baseline 확정 / 회귀 검출 / "느려졌다" 객관화 시 invoke. 4 시나리오 × 30 샘플 × p50/p95/p99 측정. 0x / clinic / node --inspect / heapdump 진단 순서. Pre-launch 또는 provider / agent loop / compaction 대대적 변경 후 회귀 검출 시.
 metadata:
   role: workflow
   scope: project
@@ -13,7 +13,7 @@ metadata:
 
 ## 이 skill 은 언제 invoke 되는가
 
-- Pre-launch 성능 baseline 확정 (Workers prod + Node fallback)
+- Pre-launch 성능 baseline 확정 (<runtime> prod + Node fallback)
 - Provider / Agent Loop / Compaction 대대적 변경 후 회귀 검출
 - 사용자 리포트 "느려졌다" 객관화
 - `infra-performance-manager` sub-agent (benchmark 모드) 호출 시 자동 로드
@@ -45,14 +45,14 @@ metadata:
    # Chrome DevTools Memory → Load → 비교
    ```
 
-5. **Hono 라우트별 p99** — `app.use('*', timingMiddleware)` 또는 `hono/timing`
+5. **<framework> 라우트별 p99** — `<framework middleware registration>` 으로 timing middleware 등록 (예: framework timing helper)
    ```typescript
-   import { timing } from 'hono/timing'
-   app.use('*', timing())
+   // 의사코드: framework 가 제공하는 timing middleware 를 모든 경로에 등록
+   // <framework middleware registration>('*', timing())
    // Server-Timing 헤더 측정 → 모니터링
    ```
 
-> Workers 환경은 `0x` / `clinic` / `node --inspect` 불가 — **로컬 Node 빌드** 에서 측정 후 Workers 회귀 추적은 `wrangler tail` + Cloudflare Analytics Engine 로.
+> <runtime> 환경은 `0x` / `clinic` / `node --inspect` 불가 — **로컬 Node 빌드** 에서 측정 후 <runtime> 회귀 추적은 runtime live tail + analytics 로 (runtime-specific — instance 측 project-local skill 참조).
 
 ## 4 Scenario 정의
 
@@ -119,7 +119,7 @@ export const BaselineSchema = z.object({
 export type Baseline = z.infer<typeof BaselineSchema>
 ```
 
-저장 경로: `apps/api/benchmarks/baseline.json`.
+저장 경로: `<api-app>/benchmarks/baseline.json`.
 
 ## 회귀 임계값
 
@@ -137,7 +137,7 @@ export type Baseline = z.infer<typeof BaselineSchema>
 ## 측정 스크립트 (pseudo)
 
 ```typescript
-// apps/api/benchmarks/runScenarios.ts
+// <api-app>/benchmarks/runScenarios.ts
 import { performance } from 'node:perf_hooks'
 
 async function scenarioA(baseUrl: string, n = 30): Promise<{ p50: number; p95: number; p99: number }> {
@@ -187,7 +187,7 @@ Hit rate 급락은 대부분 system prompt cache key 무효화. 확인 순서:
 - [ ] Baseline JSON 형식 (`BaselineSchema.parse` 통과)
 - [ ] Regression 판정 임계값 기준 명시
 - [ ] `clinic doctor` 1회 이상 실행 (이벤트 루프 lag 추적)
-- [ ] Workers prod 측정은 `wrangler tail` + Analytics Engine 로 보강
+- [ ] <runtime> prod 측정은 runtime live tail + analytics 로 보강 (runtime-specific — instance 측 project-local skill 참조)
 
 ## 구현 중 막히면
 
@@ -195,7 +195,7 @@ Hit rate 급락은 대부분 system prompt cache key 무효화. 확인 순서:
 - 서버가 30 샘플 다 돌기 전 rate limit → 샘플 간 `await new Promise(r => setTimeout(r, 500))` 추가 또는 nock / msw 로 replay
 - 시간 측정 노이즈 과다 → 다른 프로세스 kill, 3 회 평균
 - Baseline 이 없음 → 첫 실행을 baseline 으로 저장, `NEW_BASELINE` 플래그
-- `0x` / `clinic` 실행 안 됨 (Workers) → 로컬 Node 빌드 (`apps/api/src/node-entry.ts`) 만들고 그 위에서 측정
+- `0x` / `clinic` 실행 안 됨 (<runtime>) → 로컬 Node 빌드 (`<api-app>/src/node-entry.ts`) 만들고 그 위에서 측정
 
 ## Cross-ref
 

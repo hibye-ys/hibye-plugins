@@ -1,13 +1,13 @@
 ---
 name: new-run
-description: 새 agent run 정의 시 invoke. `apps/api/runs/<name>.yaml` + `apps/api/runs/prompts/<name>.md` 스캐폴드 — 4 RunPolicy preset (interactive / classifier / tool-based / multi-agent) 중 선택. name pattern + full-form 필드명 + cross-field validation 강제. run-policy-presets + sse-lifecycle + token-budget-constants + spawn-limits invariant 자동 적용. new-agent 와 경계 분리 (agents 는 spawn 대상 / runs 는 `POST /run/<name>` 엔드포인트).
+description: 새 agent run 정의 시 invoke. `<api-app>/runs/<name>.yaml` + `<api-app>/runs/prompts/<name>.md` 스캐폴드 — 4 RunPolicy preset (interactive / classifier / tool-based / multi-agent) 중 선택. name pattern + full-form 필드명 + cross-field validation 강제. run-policy-presets + sse-lifecycle + token-budget-constants + spawn-limits invariant 자동 적용. new-agent 와 경계 분리 (agents 는 spawn 대상 / runs 는 `POST /run/<name>` 엔드포인트).
 metadata:
   role: workflow
   scope: project
   source: stack-backend-python/skills/new-run
 ---
 
-**적용된 §4.4 매트릭스 행**: `pydantic BaseModel RunPolicy` + `model_config = ConfigDict(extra="forbid", frozen=True)` → `zod schema` + `.strict()` + `Readonly<T>` (또는 `as const`), `@model_validator(mode="after")` → `zod refine()` / `superRefine()`, `asyncio.Task` → `Promise` + `AbortController`, `asyncio.CancelledError` → `AbortError`, `EventSourceResponse` (sse_starlette) → `streamSSE` (hono/streaming), `uvicorn backend.main:app --port 8001` → `wrangler dev` 또는 `tsx src/index.ts`, `curl -fs http://localhost:8001/health` 동일, `pytest` → `vitest`, env access `os.environ` → `c.env`
+**적용된 §4.4 매트릭스 행**: `pydantic BaseModel RunPolicy` + `model_config = ConfigDict(extra="forbid", frozen=True)` → `zod schema` + `.strict()` + `Readonly<T>` (또는 `as const`), `@model_validator(mode="after")` → `zod refine()` / `superRefine()`, `asyncio.Task` → `Promise` + `AbortController`, `asyncio.CancelledError` → `AbortError`, `EventSourceResponse` (sse_starlette) → `<framework SSE helper>`, `uvicorn backend.main:app --port 8001` → runtime-specific dev server CLI 또는 `tsx src/index.ts`, `curl -fs http://localhost:8001/health` 동일, `pytest` → `vitest`, env access `os.environ` → `<framework env binding>`
 
 # new-run — `POST /run/<name>` 엔드포인트 스캐폴드
 
@@ -15,27 +15,27 @@ metadata:
 
 - `/new-run <name>` Codex/Claude command 실행
 - 사용자가 "새 run endpoint", "POST /run/<name>" 추가 언급
-- `apps/api/runs/*.yaml` 파일 생성 / 복제 필요
+- `<api-app>/runs/*.yaml` 파일 생성 / 복제 필요
 - 새 RunPolicy preset 만들 때 (4종 외 신규)
 
 ## 경계 (vs new-agent vs new-tool)
 
 | Skill | 대상 경로 | 생성 결과 | 라우트 |
 |---|---|---|---|
-| `new-tool` | `apps/api/src/tools/<name>.ts` | Tool interface 구현 + 테스트 | N/A (ToolRegistry) |
-| `new-agent` | `apps/api/agents/<name>.yaml` + prompts | `AgentDef` + prompt (zod) | N/A (agent registry, spawn 대상) |
-| **`new-run` (본)** | `apps/api/runs/<name>.yaml` + prompts | `RunPolicy` + prompt | `POST /run/<name>` 자동 dispatch |
+| `new-tool` | `<api-app>/src/tools/<name>.ts` | Tool interface 구현 + 테스트 | N/A (ToolRegistry) |
+| `new-agent` | `<api-app>/agents/<name>.yaml` + prompts | `AgentDef` + prompt (zod) | N/A (agent registry, spawn 대상) |
+| **`new-run` (본)** | `<api-app>/runs/<name>.yaml` + prompts | `RunPolicy` + prompt | `POST /run/<name>` 자동 dispatch |
 
 ## 절차 (6 step)
 
-1. **`apps/api/src/runs/<name>.ts`** (또는 yaml-only 의 경우 yaml + 자동 dispatch) — Run handler 정의
+1. **`<api-app>/src/runs/<name>.ts`** (또는 yaml-only 의 경우 yaml + 자동 dispatch) — Run handler 정의
 2. `run-policy-presets` 적용 — 4 preset 중 선택 또는 cross-field 검증 통과 신규
-3. `sse-lifecycle` 룰 따라 SSE 스트림 (sse=true 인 경우) — `streamSSE` + 12 이벤트 + 종료 4 제약
+3. `sse-lifecycle` 룰 따라 SSE 스트림 (sse=true 인 경우) — `<framework SSE helper>` + 12 이벤트 + 종료 4 제약
 4. `token-budget-constants` 로 budget 체크 — TokenBudget.RUN 등 적용
 5. `AbortController` + onAbort 핸들러 — 클라이언트 끊김 / max_turns 초과 / spawn depth 초과 시 graceful abort
 6. `test-scaffold` + SSE 골격 — vitest + sse curl smoke
 
-## RunPolicy 정본 (`apps/api/src/engine/policy.ts`)
+## RunPolicy 정본 (`<api-app>/src/engine/policy.ts`)
 
 ```typescript
 import { z } from 'zod'
@@ -84,7 +84,7 @@ export type RunPolicy = Readonly<z.infer<typeof RunPolicySchema>>
 
 ### 1. `interactive` (default) — 대화형, **conservative**
 
-**중요**: `allowedTools` 는 `apps/api/src/tools/` 에 실제 등록된 **개별 이름** 만. zod `RunPolicySchema` + `run-policy-presets` invariant 가 boot 에 fail-fast. 등록된 도구 이름은 `apps/api/src/tools/index.ts` 의 `registerBuiltinTools()` + 각 `.ts` 의 `name: '...'` attribute 참조.
+**중요**: `allowedTools` 는 `<api-app>/src/tools/` 에 실제 등록된 **개별 이름** 만. zod `RunPolicySchema` + `run-policy-presets` invariant 가 boot 에 fail-fast. 등록된 도구 이름은 `<api-app>/src/tools/index.ts` 의 `registerBuiltinTools()` + 각 `.ts` 의 `name: '...'` attribute 참조.
 
 - **baseline (예시)**: `read_file`, `write_file`, `edit_file`, `spawn_agent`
 - **domain query / mutate 도구**: 도메인 boundary 룰 (`app-domain-boundary`) 에 따라 등록 — 실제 등록 리스트는 `src/tools/index.ts` 직접 확인
@@ -179,13 +179,12 @@ zod `RunPolicySchema.superRefine` 가 boot 시 검사:
 4. `compaction_enabled: false` + `max_turns > 10` → WARNING only (PTL 리스크)
 5. `sse: true` + `response_schema` 설정 → request-time 422 (boot 에선 통과, 실행 시 reject)
 
-## SSE 핸들러 골격 (`apps/api/src/routes/run.ts`)
+## SSE 핸들러 골격 (의사코드 — `<api-app>/src/routes/run.ts`)
+
+framework-neutral pseudo (구체 import / API 는 instance 측 project-local skill 참조):
 
 ```typescript
-import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
-import { HTTPException } from 'hono/http-exception'
-import { zValidator } from '@hono/zod-validator'
+// 의사코드 — 실제 framework API 로 치환
 import { z } from 'zod'
 import { getRunPolicy } from '../engine/runs.ts'
 import { runAgentLoop } from '../engine/loop.ts'
@@ -195,76 +194,69 @@ const RunRequestSchema = z.object({
   session_id: z.string().optional(),
 })
 
-const runRouter = new Hono<{ Bindings: Env }>()
-
-runRouter.post('/:name',
-  zValidator('json', RunRequestSchema),
-  async (c) => {
-    const runName = c.req.param('name')
-    const body = c.req.valid('json')
-
-    const policy = getRunPolicy(runName)
-    if (!policy) throw new HTTPException(404, { message: `run '${runName}' not found` })
-
-    if (policy.sse) {
-      return streamSSE(c, async (stream) => {
-        const abortController = new AbortController()
-        c.req.raw.signal.addEventListener('abort', () => abortController.abort())
-
-        try {
-          for await (const event of runAgentLoop({
-            policy,
-            userInput: body.message,
-            sessionId: body.session_id,
-            env: c.env,
-            signal: abortController.signal,
-          })) {
-            // sse-lifecycle invariant — 12 이벤트 / 종료 4 제약 / single-writer
-            await stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) })
-          }
-        } catch (err) {
-          // AbortError 는 graceful — error 이벤트 ✕ (client 가 끊음)
-          if ((err as Error).name !== 'AbortError') {
-            await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: String(err) }) })
-          }
-        }
-        // sse-lifecycle: done 이벤트는 runAgentLoop 내부 generator 가 보장
-      })
-    }
-
-    // non-SSE: 단일 JSON 응답 (response_schema 적용)
-    const events = []
-    for await (const event of runAgentLoop({
-      policy,
-      userInput: body.message,
-      sessionId: body.session_id,
-      env: c.env,
-    })) {
-      events.push(event)
-    }
-    return c.json({ events })
-  }
-)
-
-export default runRouter
+// <framework route definition>('/:name', <framework zod validator>('json', RunRequestSchema), async (ctx) => {
+//   const runName = <framework request accessor>(ctx).param('name')
+//   const body = <framework validated body>(ctx)
+//
+//   const policy = getRunPolicy(runName)
+//   if (!policy) throw new <framework HTTP error class>(404, { message: `run '${runName}' not found` })
+//
+//   if (policy.sse) {
+//     return <framework SSE helper>(ctx, async (stream) => {
+//       const abortController = new AbortController()
+//       <framework request abort signal>(ctx).addEventListener('abort', () => abortController.abort())
+//
+//       try {
+//         for await (const event of runAgentLoop({
+//           policy,
+//           userInput: body.message,
+//           sessionId: body.session_id,
+//           env: <framework env binding>(ctx),
+//           signal: abortController.signal,
+//         })) {
+//           // sse-lifecycle invariant — 12 이벤트 / 종료 4 제약 / single-writer
+//           await stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) })
+//         }
+//       } catch (err) {
+//         // AbortError 는 graceful — error 이벤트 ✕ (client 가 끊음)
+//         if ((err as Error).name !== 'AbortError') {
+//           await stream.writeSSE({ event: 'error', data: JSON.stringify({ message: String(err) }) })
+//         }
+//       }
+//       // sse-lifecycle: done 이벤트는 runAgentLoop 내부 generator 가 보장
+//     })
+//   }
+//
+//   // non-SSE: 단일 JSON 응답 (response_schema 적용)
+//   const events = []
+//   for await (const event of runAgentLoop({
+//     policy,
+//     userInput: body.message,
+//     sessionId: body.session_id,
+//     env: <framework env binding>(ctx),
+//   })) {
+//     events.push(event)
+//   }
+//   return <framework json response>(ctx, { events })
+// })
 ```
 
 ## 스캐폴드 절차
 
 1. **Parse args**: `$ARGUMENTS` 에서 `name` + optional `preset`
 2. **Validate name**: `/^[a-z0-9_]+$/` + 길이 1~64. 실패 시 "use underscore, not hyphen" 가이드
-3. **Check duplicate**: `apps/api/runs/<name>.yaml` 존재 시 abort
-4. **Ensure dirs**: `apps/api/runs/` + `apps/api/runs/prompts/` 없으면 생성 (`mkdir -p`)
-5. **Write YAML**: 선택된 preset 템플릿 → `apps/api/runs/<name>.yaml`
-6. **Write prompt**: 아래 템플릿 → `apps/api/runs/prompts/<name>.md`
+3. **Check duplicate**: `<api-app>/runs/<name>.yaml` 존재 시 abort
+4. **Ensure dirs**: `<api-app>/runs/` + `<api-app>/runs/prompts/` 없으면 생성 (`mkdir -p`)
+5. **Write YAML**: 선택된 preset 템플릿 → `<api-app>/runs/<name>.yaml`
+6. **Write prompt**: 아래 템플릿 → `<api-app>/runs/prompts/<name>.md`
 7. **Smoke**:
-   - `npx wrangler dev --port 8787 &` 또는 `npx tsx src/index.ts &` + 부팅 대기
-   - `curl -fs http://localhost:8787/health` — boot 확인
-   - `curl -fs http://localhost:8787/runs | jq` — `/runs` 에 새 이름 등장 확인
+   - runtime-specific dev server CLI 또는 `npx tsx src/index.ts &` + 부팅 대기 (instance 측 project-local skill 참조)
+   - `curl -fs http://localhost:<port>/health` — boot 확인
+   - `curl -fs http://localhost:<port>/runs | jq` — `/runs` 에 새 이름 등장 확인
    - 프로세스 정리 (`kill` + trap cleanup)
 8. **Report**: 생성 경로 + 다음 단계 안내
 
-## Prompt 템플릿 (`apps/api/runs/prompts/<name>.md`)
+## Prompt 템플릿 (`<api-app>/runs/prompts/<name>.md`)
 
 ```markdown
 # <name> system prompt
@@ -289,21 +281,21 @@ export default runRouter
 ## 완료 후 사용자 가이드
 
 ```
-✓ Scaffolded: apps/api/runs/<name>.yaml
-✓ Scaffolded: apps/api/runs/prompts/<name>.md
+✓ Scaffolded: <api-app>/runs/<name>.yaml
+✓ Scaffolded: <api-app>/runs/prompts/<name>.md
 ✓ Smoke PASS: /runs includes "<name>"
 
 다음 단계:
-  1. apps/api/runs/prompts/<name>.md 의 TODO 채우기
+  1. <api-app>/runs/prompts/<name>.md 의 TODO 채우기
   2. response_schema 를 사용했다면:
-     - zod schema 를 apps/api/src/routes/schemas.ts 에 선언 (또는 src/engine/types.ts)
-     - apps/api/src/engine/schemas.ts::registerResponseSchema('<Name>', <ZodSchema>) 호출 추가
+     - zod schema 를 <api-app>/src/routes/schemas.ts 에 선언 (또는 src/engine/types.ts)
+     - <api-app>/src/engine/schemas.ts::registerResponseSchema('<Name>', <ZodSchema>) 호출 추가
      - src/index.ts 부팅 시 registerResponseSchemas() 호출 — response_schema: <Name> 이 load-time 에 resolve
   3. allowed_tools 재검토 — 실 수요에 맞게 좁히기
   4. 테스트 추가:
-     apps/api/test/runs/<name>.test.ts
+     <api-app>/test/runs/<name>.test.ts
   5. 실제 호출:
-     curl -N -X POST http://localhost:8787/run/<name> \
+     curl -N -X POST http://localhost:<port>/run/<name> \
        -H 'Content-Type: application/json' \
        -d '{"message":"hello"}'
   6. Hot reload (선택):
@@ -315,8 +307,8 @@ export default runRouter
 - 자동으로 `POST /runs/reload` 호출 ✕ — scope 필요
 - zod schema 자동 생성 ✕ — 사용자가 `response_schema` 필드에 이름만 지정
 - 기존 파일 덮어쓰기 ✕ — 실수로 삭제 방지
-- 테스트 파일 자동 생성 ✕ — `apps/api/test/` 는 사용자가 별도 추가
-- `apps/api/src/index.ts` 수정 ✕ — 라우트는 RunRegistry 자동 dispatch
+- 테스트 파일 자동 생성 ✕ — `<api-app>/test/` 는 사용자가 별도 추가
+- `<api-app>/src/index.ts` 수정 ✕ — 라우트는 RunRegistry 자동 dispatch
 
 ## 절대 금지
 
@@ -341,7 +333,7 @@ export default runRouter
 ## 구현 중 막히면
 
 - boot 시 `ZodError` → 어느 필드인지 메시지 확인. 오타 / 누락 필드 / cross-field 위반
-- SSE 스트림이 흐르지 않음 → `streamSSE` 안 `stream.writeSSE` 가 generator pump 와 동기인지 확인
-- AbortController 전파 안 됨 → `c.req.raw.signal` 리스너 등록 위치 확인 (streamSSE 콜백 시작 시점)
+- SSE 스트림이 흐르지 않음 → `<framework SSE helper>` 안 `stream.writeSSE` 가 generator pump 와 동기인지 확인
+- AbortController 전파 안 됨 → framework request abort signal 리스너 등록 위치 확인 (SSE helper 콜백 시작 시점)
 - spawn 시 `SpawnDepthExceeded` → 부모 run 의 `max_spawn_depth` 확인 + `spawn-limits` invariant
 - response_schema 미해결 → boot 시 `registerResponseSchema('<Name>', schema)` 호출 누락. lifespan / on-boot 후크 확인

@@ -1,6 +1,6 @@
 ---
 name: test-cleanup
-description: Checklist + grep patterns for detecting stale, orphaned, or redundant tests in `apps/api/src/`. Load this skill to find tests referencing deleted symbols, duplicate scenarios, permanently-skipped tests, and git-diff-based coverage gaps. Also covers DB rollback, KV cleanup, and mock reset isolation patterns.
+description: Checklist + grep patterns for detecting stale, orphaned, or redundant tests in `<api-app>/src/`. Load this skill to find tests referencing deleted symbols, duplicate scenarios, permanently-skipped tests, and git-diff-based coverage gaps. Also covers DB rollback, KV cleanup, and mock reset isolation patterns.
 metadata:
   role: workflow
   scope: project
@@ -34,7 +34,7 @@ allowed-tools: Read, Bash
 ### A1. DB Rollback (Drizzle Transaction)
 
 ```ts
-// apps/api/src/db/__tests__/db-isolation.test.ts
+// <api-app>/src/db/__tests__/db-isolation.test.ts
 import { describe, it, afterEach } from 'vitest'
 import { createTestDb } from '../../test/helpers'
 
@@ -85,7 +85,7 @@ async function withRollback<T>(
 ### A2. KV Cleanup (test-prefix key)
 
 ```ts
-// apps/api/src/kv/__tests__/kv-cleanup.test.ts
+// <api-app>/src/kv/__tests__/kv-cleanup.test.ts
 import { describe, it, afterAll, beforeAll } from 'vitest'
 import { createTestKV } from '../../test/helpers'  // testing-infra SKILL.md 의 Map-backed KV stub
 
@@ -123,8 +123,8 @@ describe('KV cleanup', () => {
 })
 ```
 
-> Workers 실제 KV (`c.env.KV`) 테스트 시: `unstable_dev` 또는 `miniflare` 로
-> 격리된 KV namespace 사용. `afterAll(() => worker.stop())` 으로 정리.
+> 실제 runtime KV (`<framework env binding>.KV`) 테스트 시: runtime-specific test harness (in-process dev server / emulator) 로
+> 격리된 KV namespace 사용. `afterAll(() => server.stop())` 으로 정리 (instance 측 project-local skill 참조).
 
 ### A3. Mock Reset
 
@@ -158,12 +158,12 @@ afterEach(() => {
 
 ```bash
 # 테스트에서 import 하는 심볼이 소스에 존재하는지 확인
-grep -rn "^import " apps/api/src/**/*.test.ts | while IFS=: read file line content; do
+grep -rn "^import " <api-app>/src/**/*.test.ts | while IFS=: read file line content; do
   # from '../module' 패턴 추출
   module=$(echo "$content" | sed "s/.*from ['\"]\.\.\/\([^'\"]*\)['\"].*/\1/")
   symbol=$(echo "$content" | sed "s/.*{ \([A-Za-z_]*\) }.*/\1/")
   if [ -n "$module" ] && [ -n "$symbol" ]; then
-    target="apps/api/src/${module}.ts"
+    target="<api-app>/src/${module}.ts"
     grep -q "$symbol" "$target" 2>/dev/null || \
       echo "ORPHAN: $file:$line imports $symbol (not found in ${target})"
   fi
@@ -174,28 +174,28 @@ done 2>/dev/null | head -30
 
 ```bash
 # it.skip 이 이유 없이 방치된 것
-grep -rn "it\.skip\|test\.skip\|describe\.skip" apps/api/src/ | grep -v "//.*reason"
+grep -rn "it\.skip\|test\.skip\|describe\.skip" <api-app>/src/ | grep -v "//.*reason"
 
 # todo 마커 (구현 의도 있지만 방치)
-grep -rn "it\.todo\|test\.todo" apps/api/src/ | head -20
+grep -rn "it\.todo\|test\.todo" <api-app>/src/ | head -20
 ```
 
 ### 3. 빈 테스트 함수
 
 ```bash
 # expect 없는 테스트 (pass-through)
-grep -rn "^  it\|^  test" apps/api/src/**/*.test.ts -A 5 | \
+grep -rn "^  it\|^  test" <api-app>/src/**/*.test.ts -A 5 | \
   grep -B 3 "^\s*$\|^\s*\/\/" | grep "it\|test(" | head -20
 
 # ... (Ellipsis) 또는 빈 body
-grep -rn "it('[^']*',\s*async () => {}" apps/api/src/ | head -10
+grep -rn "it('[^']*',\s*async () => {}" <api-app>/src/ | head -10
 ```
 
 ### 4. 중복 시나리오 탐지
 
 ```bash
 # 같은 test 이름이 여러 파일에 존재
-grep -rn "^\s*it('[^']*'" apps/api/src/ | \
+grep -rn "^\s*it('[^']*'" <api-app>/src/ | \
   sed "s/.*it('\([^']*\)'.*/\1/" | sort | uniq -d | head -20
 ```
 
@@ -203,7 +203,7 @@ grep -rn "^\s*it('[^']*'" apps/api/src/ | \
 
 ```bash
 # __tests__/foo.test.ts 에 대응하는 ../foo.ts 가 없는 경우
-find apps/api/src -name "*.test.ts" | while read f; do
+find <api-app>/src -name "*.test.ts" | while read f; do
   dir=$(dirname "$f")
   parent=$(dirname "$dir")
   module=$(basename "$f" .test.ts)
@@ -216,7 +216,7 @@ done
 
 ```bash
 # 최근 변경된 소스 파일에 대응하는 테스트가 있는지
-git diff --name-only HEAD~10 -- apps/api/src/ | grep -v "\.test\.ts$" | while read src; do
+git diff --name-only HEAD~10 -- <api-app>/src/ | grep -v "\.test\.ts$" | while read src; do
   module=$(basename "$src" .ts)
   dir=$(dirname "$src")
   test -f "${dir}/__tests__/${module}.test.ts" || \
@@ -273,8 +273,8 @@ done
 
 ## 구현 중 막히면
 
-- `apps/api/src/` 없음 → "no tests directory" 보고
+- `<api-app>/src/` 없음 → "no tests directory" 보고
 - git history 없음 → git diff 단계 skip
 - 너무 많은 orphan → 상위 10개만 보고, 나머지는 "and N more"
 - DB 격리 방법 모름 → `testing-infra` skill 의 "DB 격리 전략" 참조
-- Workers KV 격리 필요 → `miniflare` 또는 `unstable_dev` 통합 테스트로 분리
+- runtime KV 격리 필요 → runtime-specific test harness 통합 테스트로 분리 (instance 측 project-local skill 참조)
