@@ -219,9 +219,9 @@ it('SSE: emits done event', async () => {
 
 ```ts
 // <api-app>/src/test/runtime-env.ts  (통합 테스트 전용 — 의사코드)
-// import { <runtime devServer helper> } from '<runtime-test-package>'
+// import { <runtime dev CLI> } from '<runtime-test-package>'
 // export async function startServer() {
-//   const server = await <runtime devServer helper>('src/index.ts', {
+//   const server = await <runtime dev CLI>('src/index.ts', {
 //     vars: { OPENROUTER_API_KEY: 'test-key' },
 //     bindings: { KV: 'test-kv' },
 //   })

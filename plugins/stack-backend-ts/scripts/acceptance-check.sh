@@ -27,12 +27,15 @@ for skill_dir in "$SKILLS_DIR"/*/; do
 done
 
 # 6. 캐시 심볼릭 링크 — plugin.json version 동적 + fallback path tolerant
+#    NOTE: 본 검증은 Claude Code cache 한정 (~/.claude/plugins/cache/...).
+#    Codex CLI 는 .agents/skills/ 디렉토리를 직접 스캔하므로 별도 cache 메커니즘 없음 — 검증 대상 아님.
 PLUGIN_JSON="$(dirname "$0")/../.claude-plugin/plugin.json"
 if command -v jq >/dev/null 2>&1 && [ -f "$PLUGIN_JSON" ]; then
   VERSION="$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null || echo "")"
 else
   VERSION=""
 fi
+#    Claude Code cache 경로 — Codex CLI 는 .agents/skills/ 직접 스캔이라 cache 미사용
 CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/stack-backend-ts"
 # 우선순위: (1) plugin.json version path  (2) plugin root 자체 (full symlink)  (3) 1.0.0 (legacy)
 # global CLAUDE.md 규칙: 캐시 디렉토리는 *심볼릭 링크* 강제 — 일반 dir 이면 fail

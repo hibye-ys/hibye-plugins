@@ -50,26 +50,73 @@ set -- "${ARGS[@]:-}"
 API_DIR="${1:-$(pwd)}"
 cd "$API_DIR" || { echo "error: API_DIR not found: $API_DIR" >&2; exit 2; }
 
-# Framework-specific audit patterns. default = Hono + Workers (가장 흔한 instance).
-# instance 가 다른 framework / runtime 이면 env var 로 override.
-#   예) Express: REQUEST_BODY_PATTERN='req\.(body|params|query)'
-#                ROUTE_MUTATION_PATTERN='(app|router)\.(post|put|patch)'
-#                KV_BINDING_PATTERN='process\.env\.[A-Z_]+'
-REQUEST_BODY_PATTERN="${REQUEST_BODY_PATTERN:-c\.req\.(json|valid|parseBody)}"
-KV_BINDING_PATTERN="${KV_BINDING_PATTERN:-c\.env\.[A-Z_]+}"
-# api-audit: mutation route 가 schema validator 미들웨어 보유 여부. default = Hono 의 zValidator.
-#   예) Express + express-validator: ZOD_VALIDATOR_PATTERN='checkSchema|validateRequest'
-ZOD_VALIDATOR_PATTERN="${ZOD_VALIDATOR_PATTERN:-zValidator}"
-# api-audit: route handler 정의 패턴 — POST/PUT/PATCH 만 (mutation). default = Hono.
-#   예) Express: ROUTE_MUTATION_PATTERN='(app|router)\.(post|put|patch)'
-ROUTE_MUTATION_PATTERN="${ROUTE_MUTATION_PATTERN:-app\.(post|put|patch)}"
-# session-audit: KV store 어휘 + TTL 필드 패턴. default = Hono+Workers (KV / expirationTtl).
-#   예) Express+Redis: KV_STORE_PATTERN='redis', TTL_FIELD_PATTERN='(EX|PX|ttl)'
-KV_STORE_PATTERN="${KV_STORE_PATTERN:-(KV|kv)}"
-TTL_FIELD_PATTERN="${TTL_FIELD_PATTERN:-expirationTtl}"
-# api-audit: protected route auth middleware 함수 이름. default = authMiddleware.
-#   예) Express: AUTH_MIDDLEWARE_NAME='requireAuth' 또는 'isAuthenticated'
-AUTH_MIDDLEWARE_NAME="${AUTH_MIDDLEWARE_NAME:-authMiddleware}"
+# Framework-specific audit patterns — framework-neutral 의무 (default 없음).
+#
+# 본 plugin (stack-backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
+# 패턴을 default 로 두지 않는다 (Codex round 6 review — Defect 3). instance 측은
+# 다음 중 하나로 7개 env var 를 모두 주입해야 한다:
+#
+#   (1) Preset 파일 source:
+#         source scripts/presets/hono-workers.env
+#         bash scripts/audit-all.sh apps/api
+#
+#   (2) STACK_BACKEND_TS_PRESET env 자동 로드:
+#         STACK_BACKEND_TS_PRESET=hono-workers bash scripts/audit-all.sh apps/api
+#
+#   (3) CI env block 에 직접 명시 (docs/ci-template.md 참조)
+#
+# Preset 추가: scripts/presets/<name>.env 작성 (기존 hono-workers.env 참고).
+
+# Optional: STACK_BACKEND_TS_PRESET 자동 로드
+if [ -n "${STACK_BACKEND_TS_PRESET:-}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  PRESET_FILE="$SCRIPT_DIR/presets/${STACK_BACKEND_TS_PRESET}.env"
+  if [ -f "$PRESET_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$PRESET_FILE"
+  else
+    echo "error: STACK_BACKEND_TS_PRESET=$STACK_BACKEND_TS_PRESET but $PRESET_FILE not found" >&2
+    exit 2
+  fi
+fi
+
+# 7개 required env var 검증 — 누락 시 helpful message 와 함께 즉시 exit 1
+REQUIRED_ENV_VARS=(
+  REQUEST_BODY_PATTERN
+  KV_BINDING_PATTERN
+  ZOD_VALIDATOR_PATTERN
+  ROUTE_MUTATION_PATTERN
+  KV_STORE_PATTERN
+  TTL_FIELD_PATTERN
+  AUTH_MIDDLEWARE_NAME
+)
+MISSING_VARS=()
+for var in "${REQUIRED_ENV_VARS[@]}"; do
+  if [ -z "${!var:-}" ]; then
+    MISSING_VARS+=("$var")
+  fi
+done
+if [ "${#MISSING_VARS[@]}" -gt 0 ]; then
+  cat >&2 <<EOF
+error: required framework-specific env vars missing:
+  ${MISSING_VARS[*]}
+
+본 plugin (stack-backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
+패턴을 default 로 두지 않는다. 다음 중 하나로 주입:
+
+  (1) Preset 파일 source (Hono + Workers instance):
+        source scripts/presets/hono-workers.env
+        bash scripts/audit-all.sh "$@"
+
+  (2) STACK_BACKEND_TS_PRESET 자동 로드:
+        STACK_BACKEND_TS_PRESET=hono-workers bash scripts/audit-all.sh "$@"
+
+  (3) CI env block 에 직접 명시 (docs/ci-template.md 참조).
+
+Preset 추가: scripts/presets/<name>.env 작성 (기존 hono-workers.env 참고).
+EOF
+  exit 1
+fi
 
 VIOLATIONS=0
 SKIP_COUNT=0
@@ -408,4 +455,6 @@ if [[ "$STRICT_AUDITS" = "1" && -z "$EXPECTED_AUDITS" ]]; then
   echo "WARN: STRICT_AUDITS=1 but EXPECTED_AUDITS is empty — no audits enforced." >&2
 fi
 
-exit $VIOLATIONS
+# bash exit code 는 0~255 범위 — VIOLATIONS=256 일 때 wrap 되어 0 (silent pass) 방지
+# CI gate 는 violation 개수가 아니라 violation 존재 여부 (0/non-zero) 만 본다
+[ "$VIOLATIONS" -gt 0 ] && exit 1 || exit 0

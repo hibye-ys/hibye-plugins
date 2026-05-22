@@ -168,7 +168,7 @@ export type Env = {
 
 ```bash
 # runtime secret 등록 (production) — runtime-specific CLI (instance 측 project-local skill 참조)
-# 예: <runtime CLI> secret put NEW_PROVIDER_API_KEY
+# 예: <runtime dev CLI> secret put NEW_PROVIDER_API_KEY
 
 # 로컬 개발 — local secret file (gitignored, path 는 runtime-specific)
 # echo 'NEW_PROVIDER_API_KEY=sk-...' >> <api-app>/<local-secret-file>
@@ -291,7 +291,7 @@ models:
 
 ```bash
 # runtime-specific CLI 로 secret 등록 (instance 측 project-local skill 참조)
-# 예: <runtime CLI> secret put VLLM_KEY
+# 예: <runtime dev CLI> secret put VLLM_KEY
 ```
 
 ```typescript
