@@ -10,6 +10,8 @@ metadata:
 
 # backend-overview — TS 백엔드 thin index
 
+> 본 skill = **디렉토리 → 서브시스템 매핑** 만 (어디에 무엇이 있나). invariant 룰은 [[architecture-invariants]] 정본, 상황별 묶음은 [[ts-agent-rules]] 정본 — 세 메타 catalog 의 역할 분리는 [[architecture-invariants]] §"세 메타 catalog 의 역할 분리" 참조.
+
 ## 이 skill은 언제 invoke 되는가
 
 - 세션 시작 시 (light load — 본 SKILL.md 만)
@@ -37,10 +39,25 @@ metadata:
 - 구조화 로그 스키마 → `structured-log-schema` invariant
 - CORS 정책 → `cors-policy` invariant
 - 미디어 job lifecycle → `media-job-lifecycle` invariant
+- env / secret 검증 → `config-env-validation` invariant
+- AbortSignal 전파 → `cancellation-propagation` invariant
 
 ## 디렉토리 구조 (TS 백엔드 표준 레이아웃)
 
 > framework 무관 — 어느 `<framework>` 에서나 동작. runtime 도 무관 (process-based runtime / edge runtime / 컨테이너 호스팅 등). 본 plugin 은 디렉토리 분류와 의존성 방향만 강제하고, framework/runtime 구체 어휘 (`<framework env binding>`, runtime config 파일 등) 는 별도 runtime/framework plugin 에서 다룬다.
+
+### Sub-area 변형 (instance 별 선택 — 화이트리스트 허용)
+
+기본 layout 외에 다음 sub-area 변형은 instance 의 도메인 / 규모 / 모노레포 구성에 따라 *허용*:
+
+| Sub-area | 의미 | 기본 layout 대안 |
+|---|---|---|
+| `agents/` (top-level) | agent 정의 / prompts 가 자체 디렉토리 (AI agent 백엔드 instance) | `ai/agents/` 중첩 |
+| `runs/` (top-level) | `POST /run/<name>` 정의 yaml + system prompt | `routes/runs/` 중첩 |
+| `providers/` (top-level) | LLM provider 가 top-level (다른 ai- 모듈과 분리) | `ai/providers/` 중첩 |
+| `db/` (top-level) | Drizzle/Kysely schema + migration 이 storage 와 분리 | `storage/db/` 중첩 |
+
+`full-architecture-audit` + `audit-all.sh` 화이트리스트는 기본 + 변형 모두 union 으로 허용. instance 의 CLAUDE.md 에서 어느 변형을 사용하는지 명시 권장 (미사용 변형 디렉토리는 비어 있어야 함).
 
 ```
 <backend-root>/
@@ -125,7 +142,7 @@ import { ToolRegistry } from './tools/registry.ts'
 | 11 | Auth / Secrets | `src/middleware/auth.ts` | auth |
 | 12 | Error Handling | `src/middleware/error.ts` | error-handling |
 | 13 | Debug | 로그 / 디버그 헬퍼 | debug-session |
-| 14 | Config / Env | env 어댑터 + runtime config | (runtime plugin) |
+| 14 | Config / Env | env 어댑터 + runtime config | config-env-validation (local invariant) + runtime plugin (runtime-specific config 파일만) |
 
 ## Runtime / framework 특화
 

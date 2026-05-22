@@ -25,13 +25,13 @@ suggestions, usage, done, error
 ## Lifecycle 순서
 
 ```
-session → agent → (text | thinking | tool_call | tool_result | action | notification)*
+session → agent → (text | thinking | tool_call | tool_result | action | notification | agent)*
         → suggestions? → usage → done | error
 ```
 
 - `session` 1회로 시작
-- `agent` 1회 (현재 active agent 메타)
-- 본문 이벤트 (text/thinking/tool_call/tool_result/action/notification) 0회 이상 반복
+- `agent` **1회 이상** (스트림 시작 직후 1회 + sub-agent spawn 시마다 추가 emit — 현재 active agent 메타 갱신)
+- 본문 이벤트 (text/thinking/tool_call/tool_result/action/notification) + 후속 `agent` 0회 이상 반복
 - `suggestions` 선택 (0 또는 1회)
 - `usage` 1회
 - `done` 또는 `error` 1회로 종료
@@ -52,22 +52,26 @@ session → agent → (text | thinking | tool_call | tool_result | action | noti
 
 별도 OS 프로세스 분리 (subprocess) 는 일부 런타임에서 지원되지 않으므로 instance 측에서 런타임 가용성을 확인하고 폴백 경로를 명시할 것.
 
-## 이벤트 카테고리
+## 이벤트 카테고리 + payload field
 
-| 이벤트 | 카테고리 | 빈도 | 설명 |
-|--------|---------|------|------|
-| `session` | lifecycle | 1 | 스트림 시작 — session_id, request_id 발행 |
-| `agent` | lifecycle | 1+ | 현재 turn 의 agent 메타 (sub-agent spawn 시 추가 emit) |
-| `text` | content | * | assistant text delta |
-| `thinking` | content | * | reasoning trace (provider 가 지원하는 경우) |
-| `tool_call` | content | * | tool 호출 시작 marker (id + name + input) |
-| `tool_result` | content | * | tool 결과 (id + content + is_error) |
-| `action` | content | * | UI 측 사용자 visible action (`<tool_output>` 등) |
-| `notification` | content | * | 비동기 알림 (background agent 완료, queued media job 등) |
-| `suggestions` | content | 0\|1 | 사용자 후속 입력 제안 |
-| `usage` | meta | 1 | input_tokens / output_tokens / cost / cache_creation / cache_read |
-| `done` | terminal | 0\|1 | 정상 종료 |
-| `error` | terminal | 0\|1 | 에러 종료 (`error_code` + 사용자 메시지) |
+| 이벤트 | 카테고리 | 빈도 | payload 주요 필드 |
+|--------|---------|------|-------------------|
+| `session` † | lifecycle | 1 | `session_id`, `request_id` |
+| `agent` † | lifecycle | 1+ | `agent`, `model` (sub-agent spawn 시 추가 emit) |
+| `text` | content | * | `text: string` (assistant text delta) |
+| `thinking` | content | * | `text: string` (reasoning trace — provider 지원 시) |
+| `tool_call` | content | * | `id`, `name`, `final_input: object` |
+| `tool_result` | content | * | `tool_use_id`, `content`, `is_error: boolean` |
+| `action` | content | * | `result_summary: string` (UI 사용자 visible action — `<tool_output>` 등) |
+| `notification` | content | * | free-form object (background spawn 완료, queued media job 등) |
+| `suggestions` | content | 0\|1 | `prompts: string[]` (사용자 후속 입력 제안) |
+| `usage` | meta | 1 | `input_tokens`, `output_tokens`, `cost_usd`, `cache_creation_input_tokens`, `cache_read_input_tokens` |
+| `done` | terminal | 0\|1 | `turn_count` 등 (정상 종료, `error` 와 배타) |
+| `error` | terminal | 0\|1 | `code: string`, `message: string` (scrubbed; 다른 필드 ✕) |
+
+**† lifecycle 이벤트 (`session` 1회 / `agent` 1회 이상 — sub-agent spawn 시 추가 emit) 의 payload 는 HTTP 헤더 (`X-App-Session-Id` / `X-Request-Id` / `X-App-Agent` / `X-App-Model`) 와 *의도적 중복*** — primary 전달 경로는 HTTP 헤더 (CORS expose 의무, [[cors-policy]] / [[http-error-sentinels]]). SSE payload 는 클라이언트 상태머신이 lifecycle transition 시점 (스트림 시작 + sub-agent spawn) 에 메타를 read 하기 위한 echo. 이는 §"종료 보장 4 제약" 의 *"session-wide 불변 메타 혼합 금지"* (token 수 / 비용 / 다른 이벤트에서의 session_id 재첨부) 와 [[sse-streaming]] §"헤더 분리" 의 *"content/meta/terminal payload 혼합 ✕"* 와 충돌하지 않음 — 금지는 **lifecycle 이외** 이벤트 (text / tool_call / usage / done / error 등) 에 session-wide 메타가 끼어드는 경우.
+
+scrub 대상 분류 (7 SCAN events vs 5 non-scan) 는 [[sse-streaming]] workflow §"SCAN_EVENTS — scrub 대상 7개" 참조.
 
 ## 변경 영향
 

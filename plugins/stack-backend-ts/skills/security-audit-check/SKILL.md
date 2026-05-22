@@ -18,6 +18,8 @@ metadata:
 4. **SQL injection** — raw template string 안 `${...}` 보간 (Drizzle / neon tagged template 안전 사용 제외)
 5. **SSRF** — 사용자 입력 URL 로 직접 fetch (예: `fetch(req.url)` / `fetch(body.url)` 형태)
 
+> ⚠️ **FAIL-SAFE — 패턴 PASS ≠ 완전 준수**: 본 audit 의 모든 패턴은 *file-level grep* — block-level / AST 검증 의무 ✕. PASS 출력은 *부분 신뢰* 만 의미. 정확한 invariant 준수 검증은 paired invariant SKILL.md 의 ## 실행 섹션 + 수동 review 의무. 자세한 한계는 §"audit 이 커버하지 않는 것" 참조.
+
 ## 실행
 
 ```bash

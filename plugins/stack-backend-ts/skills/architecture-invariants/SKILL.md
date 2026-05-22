@@ -1,6 +1,6 @@
 ---
 name: architecture-invariants
-description: TS 백엔드 작업 시 자동 로드. 18 invariant 의 overview + 어느 상황에 어느 invariant 가 적용되는지 라우팅 가이드. 새 invariant 추가 시 본 파일 갱신.
+description: TS 백엔드 작업 시 자동 로드. 20 invariant 의 overview + 어느 상황에 어느 invariant 가 적용되는지 라우팅 가이드. 새 invariant 추가 시 본 파일 갱신.
 metadata:
   role: invariant
   scope: project
@@ -8,8 +8,18 @@ metadata:
 
 # architecture-invariants (overview / meta)
 
-> 본 skill = TS 백엔드의 **18 invariant** 카탈로그 + 라우팅 가이드. 각 invariant 의 원칙·금지·grep 패턴은 개별 invariant SKILL.md 가 정본 — 본 파일은 *어디서 어떤 invariant 를 봐야 하는지* 만 안내한다.
-> Cited from: Python 측 14 invariant 카탈로그 (legacy). TS 측 = media-job-lifecycle / app-domain-boundary / rate-limit-policy / structured-log-schema / cors-policy 추가 → 18 invariant. 도메인 boundary invariant 는 `app-domain-boundary` 로 rename (메모리 룰 — 도메인 중립 식별자). Runtime-specific invariant 은 별도 runtime plugin 으로 이전 (instance 측 project-local skill 참조).
+> 본 skill = TS 백엔드의 **invariant 카탈로그** 만 (작업 영역 → invariant 매핑). 각 invariant 의 원칙·금지·grep 패턴은 개별 invariant SKILL.md 가 정본.
+
+## 세 메타 catalog 의 역할 분리
+
+| Catalog | 다루는 dimension | 무엇을 본다 |
+|---|---|---|
+| **architecture-invariants** (본 SKILL) | 작업 영역 → invariant 매핑 | "이 변경에 어느 invariant 가 걸리나" |
+| [[backend-overview]] | 디렉토리 → 서브시스템 매핑 | "이 코드는 어느 파일/디렉토리에 두나" |
+| [[ts-agent-rules]] | 상황 → invariant + workflow + audit 묶음 라우팅 | "이 상황에 어떤 skill 들을 함께 invoke 하나" |
+
+세 catalog 의 라우팅 표는 **다른 dimension** — invariant 만 / 디렉토리 / 상황별 묶음. 충돌 ✕ 의도된 분리.
+> Cited from: Python 측 14 invariant 카탈로그 (legacy). TS 측 = media-job-lifecycle / app-domain-boundary / rate-limit-policy / structured-log-schema / cors-policy / config-env-validation / cancellation-propagation 추가 → 20 invariant. 도메인 boundary invariant 는 `app-domain-boundary` 로 rename (메모리 룰 — 도메인 중립 식별자). Runtime-specific invariant 은 별도 runtime plugin 으로 이전 (instance 측 project-local skill 참조).
 
 ## 이 skill 은 언제 invoke 되는가
 
@@ -22,7 +32,7 @@ metadata:
 
 **불변식 본문 / 금지 사항 / grep 패턴 / 영향도** 는 모두 개별 invariant SKILL.md 안에 있다. 본 skill 은 **인덱스 + 라우팅** 만 담당한다. 충돌 시 개별 invariant SKILL.md 가 authoritative.
 
-## 18 invariant 카탈로그
+## 20 invariant 카탈로그
 
 | invariant | 적용 상황 |
 |---|---|
@@ -43,6 +53,8 @@ metadata:
 | rate-limit-policy | 사용자 요청 처리 시 — 토큰 버킷 / 슬라이딩 윈도우 정책 + 429 응답 형식 + per-user/per-ip 차원 |
 | structured-log-schema | 모든 로그 출력 시 — JSON 1-line + 고정 필드 집합 (timestamp / level / request_id / trace_id / ...) + PII scrub |
 | cors-policy | HTTP route 응답 시 — allowed origins 화이트리스트 + credentials 정책 + preflight (OPTIONS) 처리 |
+| **config-env-validation** | env / secret 접근 시 — `getSecret` 단일 진입점 + `assertRequiredSecrets` startup 검증 + `${VAR}` 치환 3-mode (raise/keep_placeholder/empty) caller 별 분기 |
+| **cancellation-propagation** | 비동기 호출 체인 — AbortSignal end-to-end 전파 + sub-agent cascade (`AbortSignal.any`) + AbortError graceful (error 이벤트 emit ✕) |
 | architecture-invariants | (본 skill 자체 = 메타 라우터 — 카탈로그 갱신용) |
 
 ## 적용 매핑 (작업 → invariant 묶음)
@@ -61,6 +73,8 @@ metadata:
 | 미디어 job 처리 (`src/media/`) | media-job-lifecycle + (single-writer 의 미디어 쓰기 부분) |
 | 도메인 영역 침범 검토 | app-domain-boundary (+ 모든 import 직접 grep) |
 | 관측성 / 로그 / 디버깅 | structured-log-schema (+ 로그 필드 추가/삭제 시 영향도) |
+| env / secret 접근 (`src/config/`, lifespan) | config-env-validation + secret-rotation (회전 절차) |
+| 비동기 호출 체인 작성 (provider / tool / storage) | cancellation-propagation + agent-loop-invariants (LoopTransition='aborted') |
 
 ## 새 invariant 추가 절차
 
@@ -97,7 +111,7 @@ metadata:
 
 ## 검증 체크리스트
 
-- [ ] 본 SKILL.md 카탈로그 행 수 = `ls plugins/stack-backend-ts/skills/ | rg -c '^(single-writer|provider-retry-matrix|token-budget-constants|sse-lifecycle|compaction-thresholds|http-error-sentinels|input-safety-gate-ordering|mcp-namespace|run-policy-presets|spawn-limits|tool-sort-order|agent-loop-invariants|app-domain-boundary|media-job-lifecycle|rate-limit-policy|structured-log-schema|cors-policy)$'` = 17 (본 skill 제외)
+- [ ] 본 SKILL.md 카탈로그 행 수 = `ls plugins/stack-backend-ts/skills/ | rg -c '^(single-writer|provider-retry-matrix|token-budget-constants|sse-lifecycle|compaction-thresholds|http-error-sentinels|input-safety-gate-ordering|mcp-namespace|run-policy-presets|spawn-limits|tool-sort-order|agent-loop-invariants|app-domain-boundary|media-job-lifecycle|rate-limit-policy|structured-log-schema|cors-policy|config-env-validation|cancellation-propagation)$'` = 19 (본 skill 제외)
 - [ ] 적용 매핑 표 = 작업 영역마다 *모든* 관련 invariant 명시 (누락 ✕)
 - [ ] 신규 invariant 추가 시 — 카탈로그 + 적용 매핑 동시 갱신
 - [ ] 모든 카탈로그 행에 frontmatter `name` 일치하는 SKILL.md 존재

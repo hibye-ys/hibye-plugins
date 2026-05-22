@@ -1,6 +1,6 @@
 ---
 name: ts-agent-rules
-description: TS 백엔드 작업 시 자동 로드. 18 invariant + 39 workflow + 21 audit 의 라우팅 + 자주 묶이는 룰 묶음 + core-infrastructure 흡수 보충 (타입 경계 / interface DI / Stateless / AsyncLocalStorage 10 필드 / 영향도 표). python-agent-rules 의 TS 동등 — 메모리 룰 rename.
+description: TS 백엔드 작업 시 자동 로드. 20 invariant + 39 workflow + 25 audit 의 라우팅 + 자주 묶이는 룰 묶음 + core-infrastructure 흡수 보충 (타입 경계 / interface DI / Stateless / AsyncLocalStorage 10 필드 / 영향도 표). python-agent-rules 의 TS 동등 — 메모리 룰 rename.
 metadata:
   role: workflow
   scope: project
@@ -10,7 +10,7 @@ metadata:
 
 # ts-agent-rules — TS 백엔드 공통 룰 카탈로그
 
-> 본 skill = TS 백엔드의 *룰 카탈로그* — 어디서 어떤 룰을 invoke 하는지 + core-infrastructure 의 Python 특화 원칙 중 TS 측에 분산 흡수되지 못한 잔여분을 직접 정의한다.
+> 본 skill = TS 백엔드의 **상황별 묶음 라우팅** + cross-cutting 룰 정본 (interface DI / AsyncLocalStorage / Stateless / 영향도 표). 20 invariant 카탈로그는 [[architecture-invariants]], 디렉토리 인덱스는 [[backend-overview]] — 세 메타 catalog 의 역할 분리는 [[architecture-invariants]] §"세 메타 catalog 의 역할 분리" 참조.
 > Cited from: Python 측 `python-agent-rules` (rename per 메모리 룰 — `python-` 도메인 prefix → `ts-`).
 
 ## 이 skill 은 언제 invoke 되는가
@@ -21,15 +21,15 @@ metadata:
 - code review — 변경된 영역에 걸리는 룰 묶음 확인
 - "Python 측에는 이 룰이 있는데 TS 측에서는?" 매핑 필요 시
 
-## 카탈로그 구조 (78 SKILL.md)
+## 카탈로그 구조 (84 SKILL.md)
 
 `plugins/stack-backend-ts/skills/` 아래에 분류별 SKILL.md 가 있다 — `metadata.role` 로 구분:
 
 | role | 개수 | 역할 |
 |---|---|---|
-| invariant | 18 (architecture-invariants 메타 포함) | 지속 강제 — 위반 시 큰 비용 |
+| invariant | 20 (architecture-invariants 메타 포함) | 지속 강제 — 위반 시 큰 비용 |
 | workflow | 39 | 작업 절차 + 구현 가이드 |
-| audit | 21 | grep 기반 점검 (Python 1:1 변환 + TS-only 신규 합산) |
+| audit | 25 | grep 기반 점검 (Python 1:1 변환 + TS-only 신규 합산) |
 
 본 SKILL.md 가 다루지 않는 것 = 개별 룰 본문 (각 SKILL.md 가 정본). 본 카탈로그는 **인덱스 + 자주 묶이는 룰 묶음 + core-infrastructure 잔여분 흡수** 만.
 
@@ -47,7 +47,7 @@ metadata:
 | 미디어 처리 | media-pipeline-patterns + media-job-lifecycle (R2 어댑터) |
 | 사용자 입력 처리 | input-safety-gate-ordering + input-safety-audit + http-error-sentinels |
 | 도메인 영역 분리 검증 | app-domain-boundary + app-domain-boundary-audit |
-| 배포 전 | scripts/audit-all.sh (21 audit 전체) |
+| 배포 전 | scripts/audit-all.sh (25 audit 전체) |
 
 ## core-infrastructure 흡수 보충
 
@@ -98,6 +98,40 @@ class OpenRouterProvider implements ProviderProtocol { ... }
 ```
 
 `@runtime_checkable` 동등은 TS 에 없음 — runtime 검사 필요 시 zod schema 또는 type guard 함수로 처리.
+
+### 2-A. interface + zod 페어링 (구조 계약 + 런타임 검증)
+
+interface 는 *컴파일 타임 구조 계약*, zod schema 는 *런타임 검증*. 외부 입력 (HTTP body / tool args / config) 은 둘 다 필요:
+
+```typescript
+// ✅ interface + zod 페어링 — 단일 source 에서 양쪽 동기
+import { z } from 'zod'
+
+// 1. zod schema 가 정본
+export const ToolInputSchema = z.object({
+  name: z.string(),
+  args: z.unknown(),
+}).strict()
+
+// 2. interface 는 z.infer 로 자동 도출 (drift ✕)
+export type ToolInput = z.infer<typeof ToolInputSchema>
+
+// 3. Port interface — 구현체가 implements 명시
+export interface ToolPort {
+  run(input: ToolInput): Promise<ToolResult>
+}
+
+// 4. 외부 입력 진입점에서 parse
+async function handleToolCall(rawInput: unknown, port: ToolPort): Promise<ToolResult> {
+  const input = ToolInputSchema.parse(rawInput)  // 런타임 검증 + ToolInput 타입 좁힘
+  return port.run(input)
+}
+```
+
+핵심:
+- zod schema 가 *컴파일 타임 + 런타임* 단일 source — `interface` 별도 선언 후 동기 유지 ✕ (drift 위험)
+- `.strict()` 의무 — 미정의 필드 reject (오타 / 추가 필드 silent 통과 방지)
+- 외부 입력은 반드시 `parse` (catch 안 함) 또는 `safeParse` (분기 처리) — 양쪽 다 직접 cast 금지
 
 ### 3. Stateless 서비스 — module-level mutable state ✕
 
@@ -242,7 +276,7 @@ prompt cache 무효화는 세션 전체 토큰 비용 수 배 상승. 아래 불
 | L1 구현 | `agent-loop`, `tool-system`, `provider-layer`, `context-assembly`, `sse-streaming` 등 | 특정 파일/모듈을 작성할 때 로드. 서브시스템별 계약 + 불변식 |
 | L2 정책 (본 skill) | `ts-agent-rules` | TS / 에이전트 공통 룰. 어느 파일을 작성하든 참고 |
 | L2 index | `backend-overview` | "어디에 무엇이 있는지" thin index |
-| L2 메타 | `architecture-invariants` | 18 invariant 카탈로그 + 라우팅 |
+| L2 메타 | `architecture-invariants` | 20 invariant 카탈로그 + 라우팅 |
 
 **로딩 순서 권장**:
 1. 세션 시작 시: `backend-overview` (어디에 무엇이 있는지) + `architecture-invariants` (어느 invariant 가 어디 적용) + 본 `ts-agent-rules` (어떻게 작성)
@@ -261,12 +295,12 @@ prompt cache 무효화는 세션 전체 토큰 비용 수 배 상승. 아래 불
 
 ## 검증 체크리스트
 
-이 skill 자체는 정적 카탈로그라 lint 의무는 없지만, 카탈로그가 78 SKILL.md 와 동기화돼야 한다:
+이 skill 자체는 정적 카탈로그라 lint 의무는 없지만, 카탈로그가 84 SKILL.md 와 동기화돼야 한다:
 
-- [ ] `plugins/stack-backend-ts/skills/` 안 SKILL.md 개수 = 78 (architecture-invariants + ts-agent-rules 포함)
-- [ ] 18 invariant SKILL.md 가 모두 `architecture-invariants` 카탈로그에 등재
+- [ ] `plugins/stack-backend-ts/skills/` 안 SKILL.md 개수 = 84 (architecture-invariants + ts-agent-rules 포함)
+- [ ] 20 invariant SKILL.md 가 모두 `architecture-invariants` 카탈로그에 등재
 - [ ] 39 workflow SKILL.md 가 모두 `backend-overview` 인덱스에 등재
-- [ ] 21 audit SKILL.md 가 모두 `scripts/audit-all.sh` 에 등재
+- [ ] 25 audit SKILL.md 가 모두 `scripts/audit-all.sh` 에 등재
 - [ ] 본 SKILL.md "자주 묶이는 룰 묶음" 표의 모든 룰명이 실제 SKILL.md 디렉토리로 존재
 - [ ] `core-infrastructure 흡수 보충` 6 항목 모두 본문에 명시 (TYPE_CHECKING / interface DI / Stateless / AsyncLocalStorage / 예외 / 캐시)
 

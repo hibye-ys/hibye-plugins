@@ -16,6 +16,8 @@ metadata:
 2. **migration 순서** — `<api-app>/drizzle/*.sql` 파일명이 사전식 정렬과 일치해야 함 (timestamp prefix 정합)
 3. **RLS policy** — Postgres row-level security 가 필요한 테이블에 `policy` 정의 (선택적 — 멀티테넌트 스키마만)
 
+> ⚠️ **FAIL-SAFE — 패턴 PASS ≠ 완전 준수**: 본 audit 의 모든 패턴은 *file-level grep* — block-level / AST 검증 의무 ✕. PASS 출력은 *부분 신뢰* 만 의미. 정확한 invariant 준수 검증은 paired invariant SKILL.md 의 ## 실행 섹션 + 수동 review 의무. 자세한 한계는 §"audit 이 커버하지 않는 것" 참조.
+
 ## 실행
 
 ```bash

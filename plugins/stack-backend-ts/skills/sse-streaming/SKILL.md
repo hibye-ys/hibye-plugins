@@ -21,36 +21,39 @@ metadata:
 `/run/:name` 엔드포인트 중 `policy.sse=true` 인 run 은 Agent Loop 의 진행 상황을 SSE 로 전송한다. 이 계층의 4가지 책임:
 
 1. **이벤트 변환** — Agent Loop 가 yield 하는 내부 Event 를 SSE wire format (`event: <name>\ndata: <json>\n\n`) 으로 직렬화
-2. **flush 타이밍** — 이벤트 write 는 즉시 flush. 느린 클라이언트는 disconnect 시그널 (abort) 로 감지
+2. **flush 타이밍** — 이벤트 write 는 즉시 flush. 느린 클라이언트는 disconnect 시그널 ([[cancellation-propagation]]) 로 감지
 3. **secret scanning** — `SCAN_EVENTS` (7 이벤트) 발신 전 `scrubDict()` 통과 의무
-4. **종료 보장** — `done` 또는 `error` 이벤트가 반드시 마지막에 단 한 번 전송
+4. **종료 보장** — `done` 또는 `error` 이벤트가 반드시 마지막에 단 한 번 전송 ([[sse-lifecycle]] 종료 4 제약)
 
-## 12 SSE 이벤트 집합
+## 12 SSE 이벤트 — sse-lifecycle 정본 참조
 
-`sse-lifecycle` skill 의 정본 12 이벤트 집합을 참조한다. 본 skill 은 SCAN 대상 분류만 정의한다.
+12 이벤트 집합 / 순서 / 종료 4 제약은 **[[sse-lifecycle]] invariant** 가 단일 source. 본 workflow 는 **SCAN 대상 분류** 만 정의 (구현 관점):
 
-| event | 시점 | 주요 payload 필드 | scrub 대상? |
-|---|---|---|---|
-| `session` | 스트림 시작 첫 이벤트 | `session_id: string` | ✗ |
-| `agent` | resolved agent/model 메타 | `agent: string, model: string` | ✗ |
-| `text` | LLM text delta | `text: string` | ✅ |
-| `thinking` | extended-thinking block | `text: string` | ✅ |
-| `tool_call` | tool_use block (이름 + 최종 input) | `name: string, final_input: object` | ✅ (dict 재귀) |
-| `tool_result` | 도구 실행 완료 | `tool_name, result, is_error` | ✅ (dict 재귀) |
-| `action` | 구조화된 action 요약 | `result_summary: string` | ✅ |
-| `notification` | background spawn 완료 등 | free-form object | ✅ (dict 재귀) |
-| `suggestions` | 후속 제안 | `prompts: string[]` | ✗ |
-| `usage` | 토큰 / 비용 — `done` 직전 | `input_tokens, output_tokens, cost_usd` | ✗ |
-| `done` | 정상 종료 (error 와 배타) | `turn_count` 등 | ✗ |
-| `error` | 비정상 종료 (done 과 배타) | `code: string, message: string` | ✅ (message only) |
+### SCAN_EVENTS — scrub 대상 7개
 
-`SSEEventType` union 과 `SCAN_EVENTS` 집합 (정확히 7개: `text`, `thinking`, `tool_call`, `tool_result`, `action`, `error`, `notification`) 은 SSE 직렬화 모듈에서 단일 source 로 export 한다.
+발신 전 `scrubEventPayload` 통과 의무:
+
+| 이벤트 | scrub 범위 |
+|---|---|
+| `text` | `text` string |
+| `thinking` | `text` string |
+| `tool_call` | `final_input` dict 재귀 |
+| `tool_result` | `result` dict 재귀 |
+| `action` | `result_summary` string |
+| `notification` | free-form object 재귀 |
+| `error` | `message` 만 (다른 필드 ✕) |
+
+### NON-SCAN 이벤트 5개 (scrub 불요)
+
+`session` / `agent` / `suggestions` / `usage` / `done` — payload 가 서버 생성 메타 (시크릿 / 사용자 입력 ✕).
+
+`SSEEventType` union (12) + `SCAN_EVENTS` 집합 (7) 은 SSE 직렬화 모듈에서 단일 source 로 export. 12 이벤트 정의 자체는 [[sse-lifecycle]] 참조.
 
 ## SSE 응답 구현 원칙
 
 프레임워크/런타임 독립적인 SSE 핸들러는 다음 4 단계를 따른다:
 
-1. **헤더 분리** — `session_id`, `model`, `agent` 등 session-wide 메타는 HTTP response 헤더 (`X-App-*`) 로 emit. SSE payload 와 혼합 금지.
+1. **헤더 분리** — `session_id`, `model`, `agent` 등 session-wide 메타는 HTTP response 헤더 (`X-App-*`) 로 emit (primary). content/meta/terminal 이벤트 (text/tool_call/usage/done/error) payload 와 혼합 ✕. **단, lifecycle 이벤트 (`session` / `agent`) 의 payload field 는 헤더와 의도적 중복** — 클라이언트 상태머신이 lifecycle transition 시점에 메타를 read 하기 위함 ([[sse-lifecycle]] §"이벤트 카테고리 + payload field" footnote 참조).
 2. **abort 감지** — 클라이언트 disconnect 시그널을 구독하여 종료 플래그를 세팅. 이후 write 시도는 silent swallow.
 3. **이벤트 루프** — Agent Loop generator 를 순회하며 각 이벤트마다 `SCAN_EVENTS` 멤버이면 `scrubEventPayload` 통과 후 wire format 으로 write.
 4. **종료 안전망** — `try / catch / finally` 로 감싸고, `doneSeen` 플래그가 false 인 채 빠져나오면 `error` 이벤트를 합성한다 (`done` 합성 금지).
@@ -88,7 +91,7 @@ scrub 함수는 3 단계로 구성:
 
 ## HTTP 헤더 분리 원칙
 
-세션 수명 동안 불변인 메타 정보는 HTTP response 헤더로 전달. SSE payload 혼합 금지.
+세션 수명 동안 불변인 메타 정보는 HTTP response 헤더로 전달 (primary). content/meta/terminal 이벤트 payload 에 혼입 ✕. lifecycle 이벤트 (`session` / `agent`) 는 헤더와 *의도적 중복* — [[sse-lifecycle]] 의 payload field 표 footnote 참조.
 
 | 헤더 | 값 | 시점 |
 |---|---|---|
@@ -108,16 +111,16 @@ CORS `expose_headers` 에 위 헤더 + `X-Request-Id` 포함 필수 (프론트�
 
 ## 검증 체크리스트
 
-- [ ] 12 이벤트 타입 모두 `SSEEventType` union 에 명시
-- [ ] `SCAN_EVENTS` 가 정확히 7개
+- [ ] 12 이벤트 타입은 [[sse-lifecycle]] 정본 — 본 workflow 는 SCAN 분류만
+- [ ] `SCAN_EVENTS` 가 정확히 7개 (text/thinking/tool_call/tool_result/action/notification/error)
 - [ ] SSE wire format (`event: <name>\ndata: <json>\n\n`) 생성기 단일 진입점 사용
-- [ ] 클라이언트 abort 시그널 구독으로 disconnect 처리 (런타임 미지원 timer 사용 안 함)
+- [ ] 클라이언트 abort 시그널 구독으로 disconnect 처리 ([[cancellation-propagation]])
 - [ ] `scrubSecrets` 가 7 패턴 커버
 - [ ] `scrubDict` 로 `tool_call.final_input` + `tool_result` + `notification` 재귀 스캔
-- [ ] HTTP 헤더로 session_id / model / agent 분리
-- [ ] CORS `expose_headers` 에 X-App-* 헤더 포함
+- [ ] HTTP 헤더로 session_id / model / agent 분리 (CORS expose_headers — [[cors-policy]])
 - [ ] `doneSeen` 플래그 + finally 안전망으로 **error 합성** (done 합성 금지)
-- [ ] `sse-lifecycle` invariant 의 12 이벤트 순서 준수
+- [ ] AbortError 시 error 이벤트 emit ✕ — transition='aborted' 만 ([[cancellation-propagation]])
+- [ ] [[sse-lifecycle]] invariant 의 종료 4 제약 준수
 
 ## 구현 중 막히면
 

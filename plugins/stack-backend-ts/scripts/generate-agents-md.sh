@@ -128,9 +128,9 @@ render() {
   echo ""
   echo "## 검증 명령 요약"
   echo ""
-  echo "- \`bash scripts/acceptance-check.sh\` — 78 skill frontmatter / scope / link 검증"
+  echo "- \`bash scripts/acceptance-check.sh\` — 84 skill frontmatter / scope / link 검증"
   echo "- \`bash scripts/forbidden-scan.sh\` — 도메인 / framework 어휘 누수 검출"
-  echo "- \`bash scripts/audit-all.sh\` — 21 audit skill 일괄 실행"
+  echo "- \`bash scripts/audit-all.sh\` — 25 audit skill 일괄 실행"
 }
 
 if [ "$MODE" = "check" ]; then

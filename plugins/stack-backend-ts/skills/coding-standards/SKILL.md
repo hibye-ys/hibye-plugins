@@ -68,16 +68,7 @@ import { z } from 'zod';
 - 모든 public 함수는 명시적 반환 타입 (`function foo(): Promise<Result>`). 내부 함수는 추론 허용
 - `any` 금지 — 외부 SDK 경계에서 불가피하면 즉시 `zod` parse 또는 명시 type guard 로 좁히기
 - `unknown` 은 외부 입력 / `JSON.parse` 결과 받을 때만. 사용 전 `z.parse` 또는 type guard
-- DI: TS `interface` (Python `Protocol` 대응). 구현체는 `implements` 명시 권장 (덕 타이핑은 IDE jump-to 약함)
-
-```typescript
-// ✅ interface + zod 분리 (구조 계약 + 런타임 검증)
-export interface ToolPort {
-  run(input: ToolInput): Promise<ToolResult>;
-}
-export const ToolInputSchema = z.object({ name: z.string(), args: z.unknown() });
-export type ToolInput = z.infer<typeof ToolInputSchema>;
-```
+- DI: TS `interface` 기반 — 구현체 `implements` 명시 권장. 자세한 패턴 + 외부 SDK 타입 경계 처리는 [[ts-agent-rules]] §"타입 경계" / §"interface 기반 DI" 정본 참조
 
 ### 비동기 (Promise)
 
@@ -120,7 +111,7 @@ export type ToolInput = z.infer<typeof ToolInputSchema>;
 
 - `console.log` 프로덕션 코드 (디버그 잔여물) — 구조화 로깅 경유 필수
 - wildcard import (`import * as x`) — tree-shake / 가독성 저해
-- global mutable state — module-scoped const 또는 DI 로 주입
+- global mutable state — module-scoped const 또는 DI 로 주입 (자세한 패턴 + 런타임 인스턴스 재사용 이슈는 [[ts-agent-rules]] §"Stateless 서비스")
 - `try { } catch { }` 빈 catch (조용한 swallowing) — 최소 `console.warn` + 의도 주석
 - 블로킹 I/O 를 async 내부에서 await 없이 호출
 - 하드코드 절대 경로 — `<framework env binding>` / config object 주입

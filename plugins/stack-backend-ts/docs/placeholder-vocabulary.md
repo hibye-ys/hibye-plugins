@@ -22,7 +22,7 @@ instance 측 CLAUDE.md 의 매핑 표에서 *반드시* 정의해야 하는 plac
 | Placeholder | 의미 | iyaki-rebuild 예시 매핑 |
 |-------------|------|-------------------------|
 | `<framework>` | HTTP framework 명 (general) | `Hono` |
-| `<framework env binding>` | request handler context 의 환경 변수 접근 | `c.env` |
+| `<framework env binding>` | env 변수 접근 — **두 형태 모두 의도됨** (사용 컨텍스트에 따라). 자세한 형태별 매핑은 §"`<framework env binding>` 두 형태" 참조 | `c.env` (Hono) |
 | `<framework HTTP error class>` | framework 의 HTTP 에러 throwable 클래스 | `HTTPException` |
 | `<framework SSE helper>` | SSE 응답 헬퍼 함수 | `streamSSE` |
 | `<framework json response>` | JSON 응답 헬퍼 | `c.json` |
@@ -127,6 +127,35 @@ instance 측 CLAUDE.md 의 매핑 표에서 *반드시* 정의해야 하는 plac
 - 일반 클라우드 추상 (Postgres, Redis, S3-compatible)
 
 ---
+
+## `<framework env binding>` 두 형태
+
+본 placeholder 는 사용 컨텍스트에 따라 **두 형태** 가 의도됨. instance 측에서 framework 에 맞게 매핑:
+
+| 형태 | 사용처 | Hono 예시 매핑 | 의미 |
+|---|---|---|---|
+| **Callable** `<framework env binding>(ctx).X` | request handler 안 (ctx 보유) | `c.env.X` | request-scoped env binding 접근 |
+| **값** `<framework env binding>.X` | middleware setup / lifespan / 모듈 레벨 | `env.X` (별도 주입) | bootstrap 시점 env 접근 (ctx 없음) |
+
+| 구분 | callable form | 값 form |
+|---|---|---|
+| 호출 시점 | 매 request 마다 | 부팅 / 첫 요청 / 모듈 로드 |
+| ctx 의존 | 있음 | 없음 (별도 주입) |
+| 예시 | `const apiKey = <framework env binding>(ctx).OPENROUTER_API_KEY` | `assertRequiredSecrets(<framework env binding>)` |
+| Hono 매핑 | `c.env.X` | middleware 의 `c.env` 를 lifespan 객체에 한 번 set 후 사용 |
+
+**framework 별 매핑 가이드** (instance 측 CLAUDE.md 에서 두 형태 모두 매핑):
+
+- **Hono**: 둘 다 `c.env.X` — callable 은 `c` 가 ctx 역할, 값은 setup 시 1회 read 후 module-scoped const 보관 (runtime 별 binding 객체 = `c.env`)
+- **Express**: callable = `req.app.locals.env.X` (lifespan 시점에 `app.locals.env = parseEnv()` 로 주입). 값 form = lifespan 안에서 한 번 read 한 `env` 변수 (module-scoped const). **`process.env.X` 직접 ✕** — `parseEnv()` 같은 명시적 zod-validated env 객체 경유
+- **Fastify**: callable = `request.server.env.X` (단, `@fastify/env` plugin 또는 `fastify.decorate('env', ...)` 등록 의무 — Fastify 는 default 로 `server.env` 미보유). 값 form = lifespan 의 `fastify.env` (decoration 후)
+
+원칙:
+- request handler 안에서는 항상 **callable form** (ctx 경유). 모듈 레벨 캐시 ✕
+- bootstrap / lifespan 안에서는 **값 form**. 1회 read 후 module-scoped const 에 보관
+- **`process.env.X` 직접 사용 ✕** — 모든 framework 에서 부팅 시 1회 zod-validated env 객체 (`parseEnv()` 등) 경유. 일부 runtime (예: edge function) 은 `process.env` 가 undefined — `<framework env binding>` 으로만 접근 (runtime-specific, instance 측 project-local skill 참조). [[config-env-validation]] invariant 의 `getSecret` / `assertRequiredSecrets` 와 연계
+
+자세한 startup 검증 패턴은 [[config-env-validation]] invariant.
 
 ## Forbidden 어휘 (재유입 차단 대상)
 

@@ -37,7 +37,7 @@ Claude Code `.claude/commands/` ↔ Codex `.codex-plugin/commands/` 동등 매�
 | `/agent-debug` | `debug-session` |
 | `/agent-test` | `testing-infra` + command reference 의 vitest 플래그 |
 | `/agent-verify` | runtime 검증 audit (instance 측 project-local skill) |
-| `/audit-all` | `app-domain-boundary-audit` + 13 audit batch (scripts/audit-all.sh) |
+| `/audit-all` | `app-domain-boundary-audit` + 25 audit batch (scripts/audit-all.sh) |
 | `/incident` | `incident-triage` (workflow — 09d 대상, 미존재 시 reference 만) |
 | `/new-agent` | `new-agent` skill |
 | `/new-run` | `new-run` skill |

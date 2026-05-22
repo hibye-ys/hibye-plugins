@@ -64,24 +64,14 @@ TS 백엔드에서 **DB 엔진 / ORM / driver 선택**과 **StoragePort 추상�
 
 ---
 
-## StoragePort 추상화 원칙
+## StoragePort 추상화 — data-layer 정본 참조
 
-DB 구현체는 **Port (interface)** 뒤로 격리한다. 호출자는 구체 구현체 import 금지, interface 만 참조.
+Port (interface) 격리 원칙 + 새 Port 추가 절차 + 구체 코드 예시 (`SessionPort` / `MediaJobPort` / `SessionHistoryPort`) 는 **[[data-layer]] workflow** 가 단일 source. 본 workflow 는 *선택 가이드* 만 보유 — DB / ORM / driver 결정.
 
-| 원칙 | 이유 |
-|------|------|
-| 각 도메인 영속 자원당 Port 1개 (e.g., `SessionPort`, `MediaJobPort`) | 단일 책임, 테스트 가능성 |
-| Port 마다 **2개 구현체 이상 제공** (InMemory + DB) | 테스트 격리, runtime 전환 가능 |
-| Port 우회한 직접 SQL 금지 | single writer 원칙, 감사 일관성 |
-| 구현체 선택은 DI / lifespan 에서 결정 | 호출자 무지 (loose coupling) |
-
-### 새 Port 추가하기 (concept)
-
-1. `ports.ts` 에 `interface` 선언 (DB 중립적 시그니처)
-2. InMemory 구현체 + DB 구현체 2개 제공
-3. provider / lifespan 분기에 추가 (config flag 로 토글)
-4. 호출자는 구체 구현체 import 금지 — **interface 만 참조**
-5. 테스트: 두 구현체 모두에서 동일 시나리오 통과 (parametrize)
+핵심 원칙만 (자세한 코드: data-layer §"Port / Interface 패턴"):
+- 각 도메인 영속 자원당 Port 1개
+- 구현체 ≥ 2개 (InMemory + DB) — 테스트 격리
+- 호출자는 interface 만 참조, 구체 구현체 import ✕
 
 ---
 
@@ -132,3 +122,10 @@ DB 구현체는 **Port (interface)** 뒤로 격리한다. 호출자는 구체 �
 ---
 
 *Port 추상화 / 단일 writer / KV-DB 분리 / 트랜잭션 일관성 — 4대 원칙 준수.*
+
+## Cross-ref
+
+- [[data-layer]] — Port / interface 구체 코드 (`SessionPort` / `MediaJobPort` 등) 정본
+- [[single-writer]] — write 단일 진입점 invariant
+- [[migration-rollback]] — schema 변경 절차
+- [[app-domain-boundary]] — `public.*` vs `ai_backend.*` 분리

@@ -14,6 +14,8 @@ metadata:
 
 - **CVE** — `pnpm audit --audit-level=high` 가 high/critical 취약점 0개
 
+> ⚠️ **FAIL-SAFE — 패턴 PASS ≠ 완전 준수**: 본 audit 은 **`pnpm audit` 호출** (또는 `npm audit` / `yarn npm audit` / `bun audit` — package manager 자동 감지). file-level grep 아님. PASS 출력은 *고위험 CVE 0건* 만 의미 — medium/low CVE 는 별도 검토, license 위반 / supply-chain (postinstall script) / runtime 비호환 driver / lockfile 변조 등은 별도 감사 의무. 자세한 한계는 §"audit 이 커버하지 않는 것" + §"Supply-chain hardening" 참조.
+
 ## 실행
 
 ```bash

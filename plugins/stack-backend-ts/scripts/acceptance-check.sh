@@ -20,7 +20,7 @@ for skill_dir in "$SKILLS_DIR"/*/; do
   grep -qE "^description:\s*\S" "$md" || { echo "FAIL $skill: empty description"; FAIL=$((FAIL+1)); }
   # 3. role 유효
   grep -qE "^\s*role:\s*(invariant|workflow|audit)\s*\$" "$md" || { echo "FAIL $skill: invalid role"; FAIL=$((FAIL+1)); }
-  # 4. scope = project (본 plugin 의 78 skill 은 전부 project scope)
+  # 4. scope = project (본 plugin 의 84 skill 은 전부 project scope)
   grep -qE "^\s*scope:\s*project\s*\$" "$md" || { echo "FAIL $skill: invalid scope"; FAIL=$((FAIL+1)); }
   # NOTE: source 필드는 v3.4 부터 제거 — frontmatter lineage 는 git log 로 추적 ([[rule-linting]] 참조)
 done

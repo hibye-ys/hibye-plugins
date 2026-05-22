@@ -19,6 +19,8 @@ framework route 는 *thin layer* — 입력 검증 + 인증 + 핸들러 호출�
 
 > 본 audit 는 middleware *순서* 를 자체 정의하지 않는다. 순서 정본은 [[api-routing]] 의 "Middleware 등록 순서 원칙" 섹션. 입력측 안전 게이트 (jailbreak / moderation 등) 의 *내부* 순서는 [[input-safety-gate-ordering]] invariant 참조 — middleware registration 순서와는 다른 개념.
 
+> ⚠️ **FAIL-SAFE — 패턴 PASS ≠ 완전 준수**: 본 audit 의 모든 패턴은 *file-level grep* — block-level / AST 검증 의무 ✕. PASS 출력은 *부분 신뢰* 만 의미. 정확한 invariant 준수 검증은 paired invariant SKILL.md 의 ## 실행 섹션 + 수동 review 의무. 자세한 한계는 §"audit 이 커버하지 않는 것" 참조.
+
 ## 실행
 
 > 아래 패턴의 `<framework route definition>` / `<framework request accessor>` / `<framework json response>`

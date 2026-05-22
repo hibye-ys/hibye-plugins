@@ -9,7 +9,7 @@ TypeScript backend (AI agent + 일반 백엔드) 룰. Framework / runtime / doma
 - 자세한 어휘 사양: `docs/placeholder-vocabulary.md` (Task 1.3 에서 생성)
 - Instance CLAUDE.md 작성 템플릿: `docs/instance-claude-md-template.md` (Task 1.4 에서 생성)
 
-## 상시 적용 invariant 18개
+## 상시 적용 invariant 20개
 
 @./skills/single-writer/SKILL.md
 @./skills/provider-retry-matrix/SKILL.md
@@ -29,6 +29,8 @@ TypeScript backend (AI agent + 일반 백엔드) 룰. Framework / runtime / doma
 @./skills/rate-limit-policy/SKILL.md
 @./skills/structured-log-schema/SKILL.md
 @./skills/cors-policy/SKILL.md
+@./skills/config-env-validation/SKILL.md
+@./skills/cancellation-propagation/SKILL.md
 
 ## On-demand workflow skills 39개
 
@@ -72,12 +74,13 @@ TypeScript backend (AI agent + 일반 백엔드) 룰. Framework / runtime / doma
 @./skills/ts-agent-rules/SKILL.md
 @./skills/usage-tracking/SKILL.md
 
-## Audit skills 21개
+## Audit skills 25개
 
 @./skills/agent-verify-def/SKILL.md
 @./skills/api-audit/SKILL.md
 @./skills/app-domain-boundary-audit/SKILL.md
 @./skills/compaction-thresholds-audit/SKILL.md
+@./skills/cors-policy-audit/SKILL.md
 @./skills/data-audit/SKILL.md
 @./skills/dependency-scanning/SKILL.md
 @./skills/full-architecture-audit/SKILL.md
@@ -85,7 +88,9 @@ TypeScript backend (AI agent + 일반 백엔드) 룰. Framework / runtime / doma
 @./skills/input-safety-audit/SKILL.md
 @./skills/loop-audit/SKILL.md
 @./skills/mcp-namespace-audit/SKILL.md
+@./skills/media-job-lifecycle-audit/SKILL.md
 @./skills/provider-retry-audit/SKILL.md
+@./skills/rate-limit-policy-audit/SKILL.md
 @./skills/rule-linting/SKILL.md
 @./skills/run-policy-presets-audit/SKILL.md
 @./skills/security-audit-check/SKILL.md
@@ -93,5 +98,6 @@ TypeScript backend (AI agent + 일반 백엔드) 룰. Framework / runtime / doma
 @./skills/single-writer-audit/SKILL.md
 @./skills/spawn-limits-audit/SKILL.md
 @./skills/sse-lifecycle-audit/SKILL.md
+@./skills/structured-log-schema-audit/SKILL.md
 @./skills/token-budget-audit/SKILL.md
 @./skills/tool-sort-order-audit/SKILL.md

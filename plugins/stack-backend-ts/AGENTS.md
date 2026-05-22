@@ -9,7 +9,7 @@
 2. **Placeholder 매핑**: 본 plugin 의 SKILL.md 본문은 `<framework>`, `<api-app>`, `<runtime>`, `<domain>`, `<DOMAIN_VOCAB>` 등 placeholder 로 작성됨. instance 측 CLAUDE.md 의 매핑 표를 참조해 해석한다 (`docs/instance-claude-md-template.md` 참고).
 3. **검증**: `scripts/acceptance-check.sh` + `scripts/forbidden-scan.sh` + `scripts/audit-all.sh` 가 모든 invariant / 어휘 / 도메인 누수를 차단.
 
-## 상시 적용 invariant 18개
+## 상시 적용 invariant 20개
 
 | Skill | Description |
 |-------|-------------|
@@ -25,12 +25,14 @@
 | [`spawn-limits`](skills/spawn-limits/SKILL.md) | Sub-agent spawn 상한 (`MAX_SPAWN_DEPTH=3`), 3 mode, coordinator/worker 분리, state isolation, CacheSafeParams invariant. |
 | [`tool-sort-order`](skills/tool-sort-order/SKILL.md) | Tool API 배열 정렬 순서 (built-in → MCP, 각 그룹 알파벳), is_concurrency_safe 입력 기반 동적 결정, ToolProtocol 8 멤버 invariant. |
 | [`agent-loop-invariants`](skills/agent-loop-invariants/SKILL.md) | Agent loop 6-stage 순서 (Context Prep → Model Call → Error Recovery → Tool Exec → Context Merge → Loop Decision), LoopTransition 8종 invariant. Stage 순서 변경 금지. |
-| [`architecture-invariants`](skills/architecture-invariants/SKILL.md) | TS 백엔드 작업 시 자동 로드. 18 invariant 의 overview + 어느 상황에 어느 invariant 가 적용되는지 라우팅 가이드. 새 invariant 추가 시 본 파일 갱신. |
+| [`architecture-invariants`](skills/architecture-invariants/SKILL.md) | TS 백엔드 작업 시 자동 로드. 20 invariant 의 overview + 어느 상황에 어느 invariant 가 적용되는지 라우팅 가이드. 새 invariant 추가 시 본 파일 갱신. |
 | [`app-domain-boundary`](skills/app-domain-boundary/SKILL.md) | 앱 도메인 경계 invariant — AI 백엔드 (`ai_backend.*`) 와 웹서비스 도메인 (`public.*` — instance 측 `<domain>` 웹서비스) 사이 데이터 소유권 + 쓰기 3 조건 규약. 도메인 row 를 ORM 모델로 매핑 금지. instance 별 `<domain>` placeholder 해석은 본 SKILL.md 끝의 `## Placeholder 해석` 섹션 참조. |
 | [`media-job-lifecycle`](skills/media-job-lifecycle/SKILL.md) | Media job 상태 전이 monotone 보장 (pending → processing → succeeded|failed|canceled|dlq), jobId = idempotency key, terminal 후 result immutable, canceled = soft signal. MediaJobStatus 정본 + TERMINAL_JOB_STATUSES (언어 무관). 위반 = 즉시 차단. |
 | [`rate-limit-policy`](skills/rate-limit-policy/SKILL.md) | TS 백엔드 rate limit invariant — per-user / per-IP / per-endpoint 3-axis 기본, 429 응답 envelope, Retry-After 헤더 필수, token bucket / sliding window 알고리즘 선택, rate limit 키 충돌 / bypass 방지. |
 | [`structured-log-schema`](skills/structured-log-schema/SKILL.md) | 구조화 로그 invariant — 10 trace 필드 (request_id / trace_id / span_id / session_id / user_id / run_name / agent / model / turn_count / spawn_depth), log level 매트릭스, 메시지 명명 규약, scrub 의무, log injection 방어. |
 | [`cors-policy`](skills/cors-policy/SKILL.md) | CORS invariant — origin allowlist, credentials, preflight cache, expose_headers FE contract, vary 헤더. wildcard origin 금지, credentials + wildcard 조합 금지, Origin reflect 금지. |
+| [`config-env-validation`](skills/config-env-validation/SKILL.md) | <api-app> 의 모든 환경변수 / 시크릿 접근에 적용되는 정본 invariant. startup fail-fast (assertRequiredSecrets 단일 진입점), Env Bindings 타입 + 코드 접근 정합, ${VAR} 치환 정책의 3-mode (raise / keep_placeholder / empty) caller 별 분기, ConfigurationError 통일. 누락 시 startup 실패 또는 첫 요청 실패. |
+| [`cancellation-propagation`](skills/cancellation-propagation/SKILL.md) | <api-app> 의 모든 비동기 호출 체인에 적용되는 정본 invariant. 라우트 → engine → provider/tool/storage 까지 AbortSignal end-to-end 전파, 자식 sub-agent 로 cascade (AbortSignal.any), AbortError graceful 처리 (error 이벤트 emit 금지), 외부 SDK 가 signal 미지원 시 timeout 보강. 누락 시 클라이언트 disconnect 후에도 비용 발생. |
 
 ## On-demand workflow skills 39개
 
@@ -44,14 +46,14 @@
 | [`codex-commands`](skills/codex-commands/SKILL.md) | Codex 환경에서 stack-backend-ts plugin 의 slash command 호출 시 invoke. `.codex-plugin/commands/` 카탈로그 + arg 파싱 + 출력 포맷. Claude Code 의 `.claude/commands/` 와 contract 호환 — Codex 측 mirror. |
 | [`codex-subagents`](skills/codex-subagents/SKILL.md) | Codex 환경에서 stack-backend-ts plugin 의 subagent 정의/호출 시 invoke. `.codex-plugin/agents/` 카탈로그 + Claude Code 의 Agent tool contract 호환. Codex 가 named agent 를 직접 로드하지 못해 reference md 로 mirror. |
 | [`coding-standards`](skills/coding-standards/SKILL.md) | <api-app> TS 코드 작성 시 invoke. 네이밍 (camelCase / PascalCase / UPPER_SNAKE / kebab-case 파일명), 타입 (strict TS + zod 경계), async (Promise / fetch / Promise.all), 로깅 (pino + AsyncLocalStorage / edge runtime JSON.stringify), SRP / DRY / KISS / YAGNI 원칙 안내. |
-| [`commit-rules`](skills/commit-rules/SKILL.md) | <api-app> 변경 사항 commit 작성 시 invoke. Conventional Commits 7 접두사 + scope 카탈로그 (stack-backend-ts / <api-app> / sub-area) + 제목 / 본문 / Co-Authored-By 트레일러 규약 안내. |
+| [`commit-rules`](skills/commit-rules/SKILL.md) | <api-app> / plugins/stack-backend-ts/ 변경 commit 작성 시 invoke. Conventional Commits 사용 — 7 접두사 자체는 표준 지식. 본 workflow 는 이 plugin 의 **scope 카탈로그** (stack-backend-ts / <api-app> / sub-area 매핑) 와 도메인 어휘 금지 같은 로컬 룰에 집중. |
 | [`compaction`](skills/compaction/SKILL.md) | <api-app> 에서 토큰 한계 접근 시 conversation 요약·압축 트리거 시 invoke. 5 전략 에스컬레이션 (snip/micro/session_memory/auto/reactive), CompactionResult 타입, COMPACTABLE_TOOLS frozenset, autoCompactThreshold 계산 안내. "context window exceeded" 에러, auto compaction 미발동 디버깅 시에도 invoke. |
 | [`context-assembly`](skills/context-assembly/SKILL.md) | <api-app> 에서 컨텍스트 조립 (system prompt + history + retrieved + tools) 추가/수정 시 invoke. TokenBudget 상수, AssembledContext 타입, static system prompt 원칙, context_hint 주입 패턴 안내. token budget 초과, cache 적중률 하락, memory block 유실 디버깅 시에도 invoke. |
 | [`data-layer`](skills/data-layer/SKILL.md) | 데이터 계층 추상 (Repository / Port 패턴, transaction boundary, optimistic locking) 결정 시 invoke. Drizzle ORM + serverless Postgres (예: Neon) — runtime 호환성은 instance 측에서 결정. |
 | [`database`](skills/database/SKILL.md) | TS 백엔드 DB 선택 / ORM 선택 / runtime 호환성 / StoragePort 추상 결정 시 invoke. DB·ORM·driver 선택 trade-off matrix + Port 추상 원칙. 구체 DB/driver는 instance 측 결정. |
 | [`debug-session`](skills/debug-session/SKILL.md) | "<api-app> 에서 무언가 깨졌는데 원인을 모를 때 invoke. Vitest 실패 / agent loop hang / tool not firing / context window exceeded / dev server 500 / 사용자가 '왜 안 돼' · 'stuck' · 'debug me' 라고 할 때. <framework>+<runtime> 특화 단서 포함 5단계 디버깅 워크플로를 제공한다." |
 | [`design-principles`](skills/design-principles/SKILL.md) | <api-app> 설계 결정 시 7가지 핵심 원칙 (Safe Defaults / Cheapest First / Cache Stability First / Isolation Default / Structured Errors to Model / Dynamic Context Injection / Partial Loading) 검토. PR 리뷰 자가체크 + 원칙 간 충돌 trade-off 안내. |
-| [`error-handling`](skills/error-handling/SKILL.md) | <api-app> 에서 에러 sentinel 매핑 / 전역 에러 핸들러 / structured logging 추가 수정 시 invoke. 4 표준 패턴, 예외 계층, tool result 에러 반환 패턴 안내. "에러가 노출됨", "에러 처리 패턴 불일치" 디버깅 시에도 invoke. |
+| [`error-handling`](skills/error-handling/SKILL.md) | <api-app> 의 에러 처리 4 표준 패턴 분류 + 예외 계층 (TypeScript) + Tool 에러 wrap 패턴 + Tool result 절단 + SSE 에러 emit. 전역 핸들러의 sentinel 매핑 / envelope shape / route-edge 발신 매트릭스는 [[http-error-sentinels]] invariant 가 정본 — 본 workflow 는 구현 분류만. |
 | [`idempotency-key`](skills/idempotency-key/SKILL.md) | 클라이언트 재시도 안전성 workflow — POST/PATCH/DELETE 의 Idempotency-Key 헤더 처리, 응답 캐싱 TTL 24h, key 중복 + 같은 body → replay, 다른 body → 409 conflict. |
 | [`incident-triage`](skills/incident-triage/SKILL.md) | 배포 후 incident 1차 진단 dispatch. 사용자 증상 ("느림", "응답 이상", "tool 실패") → 7 symptom class 분류 → 1차 진단 도구 / 증거 수집 체크리스트로 dispatch. runtime live tail / Sentry / log aggregator 라이브 로그 + AsyncLocalStorage 10 필드 상관관계. |
 | [`lsp-server`](skills/lsp-server/SKILL.md) | <api-app> LSP 서버 (`<workspace-entity>` 언어 지능 — 예 prose editor / code editor / blog mention) 최초 작성 / 4-class 구조 (LSPManager / LSPRegistry / LSPInstance / LSPBridge) 추가 / completion·diagnostic·hover·definition 핸들러 수정 시 invoke. "completion 이 안 뜬다", "diagnostic 이 stale 텍스트에 걸려있다", "IDE 클라이언트가 30초 후 disconnect" 디버깅 시에도 invoke. |
@@ -73,10 +75,10 @@
 | [`test-scaffold`](skills/test-scaffold/SKILL.md) | Template-driven test file generation for `<api-app>/src/`. Creates unit + integration skeletons following the project's Vitest + <framework> in-process request patterns (FACTORY mocks, async generator streams). Load this skill when a new module needs tests or test-cleanup identifies coverage gaps. |
 | [`testing-infra`](skills/testing-infra/SKILL.md) | <api-app> 테스트 인프라 셋업 시 invoke. Vitest 설정 + <framework> in-process request 패턴 + DB test branch 격리 + runtime-호환 test harness 옵션. |
 | [`tool-system`](skills/tool-system/SKILL.md) | <api-app> 에 새 LLM tool 추가 / ToolRegistry 수정 / tool concurrency 정책 변경 시 invoke. tool 등록 규칙, is_concurrency_safe 분기, ToolContext dataclass, dispatch_tool_calls orchestration 포함. "tool not registered", "tool schema validation 실패", race condition 디버깅 시에도 invoke. |
-| [`ts-agent-rules`](skills/ts-agent-rules/SKILL.md) | TS 백엔드 작업 시 자동 로드. 18 invariant + 39 workflow + 21 audit 의 라우팅 + 자주 묶이는 룰 묶음 + core-infrastructure 흡수 보충 (타입 경계 / interface DI / Stateless / AsyncLocalStorage 10 필드 / 영향도 표). python-agent-rules 의 TS 동등 — 메모리 룰 rename. |
+| [`ts-agent-rules`](skills/ts-agent-rules/SKILL.md) | TS 백엔드 작업 시 자동 로드. 20 invariant + 39 workflow + 25 audit 의 라우팅 + 자주 묶이는 룰 묶음 + core-infrastructure 흡수 보충 (타입 경계 / interface DI / Stateless / AsyncLocalStorage 10 필드 / 영향도 표). python-agent-rules 의 TS 동등 — 메모리 룰 rename. |
 | [`usage-tracking`](skills/usage-tracking/SKILL.md) | <api-app> 의 LLM 호출 usage 이벤트 정합성 / 토큰·비용 집계 / 일일 한도 검사 추가 수정 시 invoke. provider 응답 (OpenAI / Anthropic / OpenRouter) 정규화, Postgres `llm_usage` insert, KV pre-call cache + DB post-call tx, runtime cron 일일 집계. "usage 이벤트 누락", "비용 폭증", "한도 검사 누락" 디버깅. |
 
-## Audit skills 21개
+## Audit skills 25개
 
 | Skill | Description |
 |-------|-------------|
@@ -84,14 +86,17 @@
 | [`api-audit`](skills/api-audit/SKILL.md) | 새 framework route 추가 후 또는 배포 전 invoke. POST/PUT/PATCH 핸들러가 schema validator 미들웨어 없음 / 보호 path 가 authMiddleware 없음 / handler 응답 명시 부재를 grep 으로 검증. input-safety-gate-ordering + auth 가 함께 동작하는지 정합성 체크. |
 | [`app-domain-boundary-audit`](skills/app-domain-boundary-audit/SKILL.md) | 모듈 추가/이동 후. app-domain-boundary invariant — 코어 (provider/sse/storage 등 generic) 디렉토리에 도메인-specific 어휘 누출 검출 (구체 어휘는 `scripts/forbidden-terms.txt` 정의). |
 | [`compaction-thresholds-audit`](skills/compaction-thresholds-audit/SKILL.md) | compaction 코드 변경 후. compaction-thresholds invariant (CompactAt%, EmergencyCompactAt% 등) 상수 import 검증. |
+| [`cors-policy-audit`](skills/cors-policy-audit/SKILL.md) | CORS middleware / route 응답 변경 후 invoke. cors-policy invariant 의 wildcard origin 금지 / credentials+wildcard 금지 / expose_headers FE contract / Vary 헤더 / preflight cache TTL 강제를 grep 으로 검증. |
 | [`data-audit`](skills/data-audit/SKILL.md) | schema 변경 후 또는 새 migration 추가 후 invoke. Drizzle schema 의 FK 컬럼에 인덱스 정의가 함께 있는지 / migration 파일 순서가 정렬되어 있는지 / RLS policy 누락을 grep 으로 검증. data-layer + database invariant 와 짝. |
 | [`dependency-scanning`](skills/dependency-scanning/SKILL.md) | 의존성 lockfile 변경 후 또는 배포 전 invoke. npm/pnpm audit 으로 high/critical CVE 를 검출. |
-| [`full-architecture-audit`](skills/full-architecture-audit/SKILL.md) | 대규모 리팩토링 후 또는 정기 점검 시 invoke. 21 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. deploy 전 체크의 6-step 체인 안에서도 호출됨 (instance 측 project-local skill 참조). |
+| [`full-architecture-audit`](skills/full-architecture-audit/SKILL.md) | 대규모 리팩토링 후 또는 정기 점검 시 invoke. 25 audit 일괄 실행 + 디렉토리 구조 정합 + madge import cycle ✕ + spec §11 4-layer 경계를 통합 검증. deploy 전 체크의 6-step 체인 안에서도 호출됨 (instance 측 project-local skill 참조). |
 | [`http-error-sentinels-audit`](skills/http-error-sentinels-audit/SKILL.md) | route handler 또는 error path 수정 후. http-error-sentinels invariant 의 status ↔ sentinel 매핑 따르는지. |
 | [`input-safety-audit`](skills/input-safety-audit/SKILL.md) | route handler 추가/수정 후. input-safety-gate-ordering invariant (입력측 안전 게이트 chain — tombstone → jailbreak → moderation) 위반 검출. middleware 등록 순서는 [[api-routing]] invariant 가 정본. |
-| [`loop-audit`](skills/loop-audit/SKILL.md) | agent loop / run executor 코드 변경 후 invoke. <api-app>/src/agents/ + src/runs/ 안 while(true) 가 break / abort signal / turn 카운터 같은 종료 조건 없이 도는 경우를 검출. runtime CPU time 초과 / 사용자 abort 무시 / 무한 비용 누출 방지. |
+| [`loop-audit`](skills/loop-audit/SKILL.md) | agent loop / run executor 코드 변경 후 invoke. <api-app>/src/agents/ + src/runs/ + src/engine/loop.ts 의 (1) 무한 while 종료 조건 (2) 6-stage 순서 (3) LoopTransition 8 enum 완전성 (4) Stage 1 산출물 immutability 를 grep + awk 으로 검출. runtime CPU time 초과 / 사용자 abort 무시 / 비용 폭주 / 관측성 누락 방지. |
 | [`mcp-namespace-audit`](skills/mcp-namespace-audit/SKILL.md) | MCP 서버 추가 후. namespace prefix 규칙 위반·충돌 검출. |
+| [`media-job-lifecycle-audit`](skills/media-job-lifecycle-audit/SKILL.md) | media job 코드 변경 후 또는 새 op 추가 후 invoke. media-job-lifecycle invariant 의 4 invariant (monotone 전이 / jobId idempotency / terminal immutable / soft cancel) 위반을 grep 으로 검출. <api-app>/src/media/ + <api-app>/src/services/media/ 대상. |
 | [`provider-retry-audit`](skills/provider-retry-audit/SKILL.md) | 배포 전 또는 새 LLM provider 추가 후 invoke. <api-app>/src/ai/providers/**/*.ts 안 retry 로직이 provider-retry-matrix invariant (재시도 가능 / 즉시 fatal 구분) 따르는지 grep 검증. |
+| [`rate-limit-policy-audit`](skills/rate-limit-policy-audit/SKILL.md) | rate limit middleware / 새 라우트 추가 후 invoke. rate-limit-policy invariant 의 3-axis 강제 / Retry-After 헤더 / 멀티 인스턴스 in-memory 금지 / anonymous DDoS 가드를 grep 으로 검증. |
 | [`rule-linting`](skills/rule-linting/SKILL.md) | 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증. |
 | [`run-policy-presets-audit`](skills/run-policy-presets-audit/SKILL.md) | AI run / job 설정 코드 변경 후. run-policy-presets invariant 의 timeout / max-turn / retry preset 우회 검출. |
 | [`security-audit-check`](skills/security-audit-check/SKILL.md) | 배포 전 또는 외부 입력 처리 코드 변경 후 invoke. secret 하드코딩 / eval / new Function / 동적 require / SQL injection / SSRF 6가지 패턴을 grep 으로 일괄 검출. |
@@ -99,11 +104,12 @@
 | [`single-writer-audit`](skills/single-writer-audit/SKILL.md) | 동시 쓰기 위험 코드 변경 후. <api-app> 안 동일 리소스 (DB row, KV key, object storage object) 에 lock/transaction 없이 다중 writer 접근하는 패턴 grep. |
 | [`spawn-limits-audit`](skills/spawn-limits-audit/SKILL.md) | sub-agent / parallel call 코드 변경 후. spawn-limits invariant 의 max-parallel 상수 + MAX_SPAWN_DEPTH depth 가드 우회 검출. |
 | [`sse-lifecycle-audit`](skills/sse-lifecycle-audit/SKILL.md) | SSE 라우트 추가/수정 후 invoke. <api-app>/src/sse/**/*.ts 안 4-state (open/heartbeat/drain/close) 라이프사이클 + abort signal 처리 검증. |
+| [`structured-log-schema-audit`](skills/structured-log-schema-audit/SKILL.md) | 로깅 코드 / middleware 변경 후 invoke. structured-log-schema invariant 의 필수 3 필드 (timestamp/level/event) / request_id 자동 주입 / PII 필터 / JSON 단일 라인 / level enum 일치를 grep 으로 검증. |
 | [`token-budget-audit`](skills/token-budget-audit/SKILL.md) | context-assembly 또는 prompt 코드 변경 후. <api-app> 안 token-budget-constants 상수 (MAX_HISTORY_TOKENS 등) 우회·하드코딩 검출. |
 | [`tool-sort-order-audit`](skills/tool-sort-order-audit/SKILL.md) | tool 등록 코드 변경 후. tools/registry.ts 안 tool 정렬 순서가 invariant tool-sort-order 따르는지. |
 
 ## 검증 명령 요약
 
-- `bash scripts/acceptance-check.sh` — 78 skill frontmatter / scope / link 검증
+- `bash scripts/acceptance-check.sh` — 84 skill frontmatter / scope / link 검증
 - `bash scripts/forbidden-scan.sh` — 도메인 / framework 어휘 누수 검출
-- `bash scripts/audit-all.sh` — 21 audit skill 일괄 실행
+- `bash scripts/audit-all.sh` — 25 audit skill 일괄 실행

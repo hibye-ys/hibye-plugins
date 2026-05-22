@@ -17,6 +17,8 @@ metadata:
 - `step` — agentic loop step 구현 함수
 - `modelMix` — provider 선택 정책 (provider-retry-matrix 와 짝)
 
+> ⚠️ **FAIL-SAFE — 패턴 PASS ≠ 완전 준수**: 본 audit 의 모든 패턴은 *file-level grep* — block-level / AST 검증 의무 ✕. PASS 출력은 *부분 신뢰* 만 의미. 정확한 invariant 준수 검증은 paired invariant SKILL.md 의 ## 실행 섹션 + 수동 review 의무. 자세한 한계는 §"audit 이 커버하지 않는 것" 참조.
+
 ## 실행
 
 ```bash
