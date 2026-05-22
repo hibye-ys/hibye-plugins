@@ -123,10 +123,18 @@ spawn_limits_check() {
 }
 spawn_limits_check
 
-# 12. app-domain-boundary-audit (core 에 도메인 어휘)
-for dir in src/ai src/sse src/storage src/middleware; do
-  [[ -d "$dir" ]] && run_audit "app-domain-boundary-$dir" '\b(writer|author|scenario|novel|character|persona)\b' "$dir"
-done
+# 12. app-domain-boundary-audit (envvar 기반, instance 측 정의)
+# DOMAIN_VOCAB envvar 는 instance 측에서 export (pipe-separated alternation):
+#   - iyaki 예: export DOMAIN_VOCAB='writer|author|scenario|novel|character|persona'
+#   - blog 예:  export DOMAIN_VOCAB='post|comment|tag|category'
+# 미정의 시 SKIP (audit fail 아님 — instance-specific 어휘이므로).
+if [[ -n "${DOMAIN_VOCAB:-}" ]]; then
+  for dir in src/ai src/sse src/storage src/middleware; do
+    [[ -d "$dir" ]] && run_audit "app-domain-boundary-$dir" "\\b(${DOMAIN_VOCAB})\\b" "$dir"
+  done
+else
+  echo "SKIP [app-domain-boundary]: DOMAIN_VOCAB envvar 미정의 — instance 측에서 export 필요"
+fi
 
 # 13. d1-forbidden-audit (spec §1.2 enforce)
 if [[ -f wrangler.toml ]]; then
