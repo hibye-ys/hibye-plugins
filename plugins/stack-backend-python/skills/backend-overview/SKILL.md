@@ -13,7 +13,7 @@ allowed-tools: Read, Grep, Glob
 
 ## 아키텍처 불변식은 어디에
 
-본 skill 은 **"어디에 뭐가 있는지" 위치 인덱스** 만 담당. 아키텍처 불변식 / 단일 작성자 / StoragePort / iyaki 도메인 경계 등 **"왜 이렇게 짰나, 어떻게 지켜야 하나"** 는 `.agents/rules/python_agent_rules/` 에 있다.
+본 skill 은 **"어디에 뭐가 있는지" 위치 인덱스** 만 담당. 아키텍처 불변식 / 단일 작성자 / StoragePort / 외부 도메인 경계 등 **"왜 이렇게 짰나, 어떻게 지켜야 하나"** 는 `.agents/rules/python_agent_rules/` 에 있다.
 
 - 계층 / import 방향 / cross-cutting — `rules/python_agent_rules/architecture.md`
 - 7 설계 원칙 (safe defaults, cache stability 등) — `rules/python_agent_rules/design-principles.md`

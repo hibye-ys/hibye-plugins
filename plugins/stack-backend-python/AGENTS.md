@@ -20,7 +20,7 @@ App 내부 서브시스템과 각각의 Python 구현 경로, 담당 skill.
 | Sub-agent Spawn  | backend/tools/agents.py, engine/subagent.py                                | sub-agent-spawn     |
 | LSP Server       | backend/lsp/ (pygls)                                                       | lsp-server          |
 | MCP Integration  | backend/services/mcp/                                                      | mcp-integration     |
-| iyaki Domain Access | backend/tools/_iyaki_db.py, tools/iyaki_query.py, tools/iyaki_mutate.py, tools/iyaki/, tools/iyaki_project.py (project lifecycle — lock_project exception) | (rule: database-patterns + data-layer-patterns) |
+| External Domain Access | backend/tools/_iyaki_db.py, tools/iyaki_query.py, tools/iyaki_mutate.py, tools/iyaki/, tools/iyaki_project.py (project lifecycle — lock_project exception). 이 instance 의 외부 도메인 사례 = `iyaki` 웹서비스 | (rule: database-patterns + data-layer-patterns) |
 
 ## 작업 규율
 해당 서브시스템 작업을 시작하기 전에 담당 skill을 먼저 로드한다.
@@ -73,7 +73,7 @@ Layer 2 policy는 `.agents/skills/backend-overview` 로드 시 주입됨.
 
 ### 활성 불변식 경고
 - **Single writer path**: `backend/data/media/**` 쓰기는 WriteCoordinator 싱글턴 경유 (media 전용 scope — user-state overlay 는 제거됨)
-- **iyaki domain boundary**: 도메인 데이터는 웹서비스(iyaki) 소유. AI 백엔드는 자체 엔티티 테이블 미보관. 동일 Postgres 인스턴스의 `public.*` (iyaki 스키마) 에 **직접 SELECT/UPDATE 허용**하되, 쓰기는 `lock_project` advisory lock + `ai_backend.iyaki_mutations` 감사 append 필수. 접근은 전용 pool (`backend/tools/_iyaki_db.py`) 경유
+- **external domain boundary** (이 instance = `iyaki` 웹서비스): 도메인 데이터는 외부 application 소유. AI 백엔드는 자체 엔티티 테이블 미보관. 동일 Postgres 인스턴스의 `public.*` 스키마에 **직접 SELECT/UPDATE 허용**하되, 쓰기는 `lock_project` advisory lock + `ai_backend.iyaki_mutations` 감사 append 필수. 접근은 전용 pool (`backend/tools/_iyaki_db.py`) 경유
 - **StoragePort abstraction**: `data/writer.py` 와 `state/session.py` 는 Port Protocol 로 추상화 — 호출자는 Protocol 에만 의존
 
 ### 경로 권한 (Layer 2)
@@ -94,11 +94,11 @@ Python 코드 작성/수정 시 다음 규약을 준수. 상세는 각 파일 �
 - @.agents/rules/python_agent_rules/config-management.md — `${VAR}` 시크릿 + 시작 검증
 - @.agents/rules/python_agent_rules/context-assembly-patterns.md — 3-layer prompt + TokenBudget + memory>history + attachment 순서
 - @.agents/rules/python_agent_rules/sse-streaming-patterns.md — wire format + ping=15 + scrub_secrets + 종료 보장
-- @.agents/rules/python_agent_rules/data-layer-patterns.md — 미디어 파이프라인 단일 작성자 (`WriteCoordinator`). iyaki 도메인 접근은 database-patterns.md, session/history 도 database-patterns.md
+- @.agents/rules/python_agent_rules/data-layer-patterns.md — 미디어 파이프라인 단일 작성자 (`WriteCoordinator`). external 도메인 접근은 database-patterns.md, session/history 도 database-patterns.md
 - @.agents/rules/python_agent_rules/run-policy.md — `/run/<name>` RunPolicy + runs/*.yaml 선언
 - @.agents/rules/python_agent_rules/media-pipeline-patterns.md — `/media/*` job 큐 + data/media/ 저장
 - @.agents/rules/python_agent_rules/api-routing-patterns.md — thin routes + 인증 + 에러 변환 + prefix 규약
-- @.agents/rules/python_agent_rules/database-patterns.md — Postgres + StoragePort 추상화 + iyaki 경계
+- @.agents/rules/python_agent_rules/database-patterns.md — Postgres + StoragePort 추상화 + external domain 경계
 - @.agents/rules/python_agent_rules/design-principles.md — 7 핵심 원칙 (safe defaults, cheapest first, cache stability, isolation, structured errors, dynamic context, partial loading)
 - @.agents/rules/python_agent_rules/agent-loop-patterns.md — 6-stage 루프 + LoopState + LoopTransition + error recovery
 - @.agents/rules/python_agent_rules/tool-system-patterns.md — build_tool() + validateInput/checkPermissions + 도구 정렬 캐시 안정성

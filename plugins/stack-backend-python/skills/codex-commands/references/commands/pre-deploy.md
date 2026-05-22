@@ -1,5 +1,5 @@
 ---
-description: Pre-deploy composite gate — Tier 1 static + optional --integration (iyaki Postgres smoke) + --live-openai (OpenAI provider smoke) + --live-anthropic (Anthropic prompt-cache smoke). Tier 1 covers uv sync/pip-audit/ruff/ty, dev-server boot, /health polling, /runs validation, alembic current check, conditional MCP probe. Does NOT wrap /audit-all (run that separately in CI).
+description: Pre-deploy composite gate — Tier 1 static + optional --integration (external domain Postgres (e.g. iyaki) smoke) + --live-openai (OpenAI provider smoke) + --live-anthropic (Anthropic prompt-cache smoke). Tier 1 covers uv sync/pip-audit/ruff/ty, dev-server boot, /health polling, /runs validation, alembic current check, conditional MCP probe. Does NOT wrap /audit-all (run that separately in CI).
 argument-hint: [--integration] [--live-openai] [--live-anthropic]
 ---
 
@@ -8,7 +8,7 @@ Pre-deploy composite gate for the App AI backend. Run before releasing.
 ## Usage
 
 `/pre-deploy`                              — Tier 1 static only (cheap, deterministic, no infra)
-`/pre-deploy --integration`                — Tier 1 + Tier 2 (iyaki Postgres + integration-smoke.sh)
+`/pre-deploy --integration`                — Tier 1 + Tier 2 (외부 도메인 Postgres (예: iyaki) + integration-smoke.sh)
 `/pre-deploy --live-openai`                — Tier 1 + Tier 3 (OpenAI real-provider smoke)
 `/pre-deploy --live-anthropic`             — Tier 1 + Tier 3b (Anthropic prompt-cache smoke)
 `/pre-deploy --integration --live-openai`  — All three tiers
@@ -130,7 +130,7 @@ fi
 
 # ========== Tier 2: --integration ==========
 if [ $INTEGRATION -eq 1 ] && [ $FAILED -eq 0 ]; then
-    echo "== Tier 2: integration (requires iyaki Postgres + APP_DATABASE_URL + IYAKI_DATABASE_URL) =="
+    echo "== Tier 2: integration (requires external domain Postgres + APP_DATABASE_URL + IYAKI_DATABASE_URL) =="
     # Kill the Tier 1 uvicorn — integration-smoke.sh boots its own
     kill $UVICORN_PID 2>/dev/null || true
     trap - EXIT

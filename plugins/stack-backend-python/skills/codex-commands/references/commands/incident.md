@@ -11,7 +11,7 @@ Dispatch a reported incident to the right first-line diagnostic tool.
 `/incident "responses slower than 10s"`                 — perf + provider diagnosis
 `/incident "quality dropped 2 days ago"`                — prompt cache + provider diagnosis
 `/incident "cost spike in last 24h"`                    — usage + catalog diagnosis
-`/incident "DB errors for user X"`                      — data + iyaki audit diagnosis
+`/incident "DB errors for user X"`                      — data + external domain audit diagnosis
 `/incident "MCP tool not firing"`                       — MCP state diagnosis
 `/incident "tool X fails every time"`                   — tool + agent-loop diagnosis
 `/incident` (no args)                                   — show triage matrix + prompt for more info

@@ -17,7 +17,7 @@ allowed-tools: Read, Bash, Grep, Glob
 | 측면 | `/agent-verify` (runtime-verify) | `/pre-deploy` (this skill) |
 |------|-------------------------------|---------------------------|
 | 시점 | 코드 변경 직후 | 릴리스 직전 |
-| 범위 | 개별 모듈 (7-step: ruff/ty/pytest/boot/health/E2E/logs) | 전체 시스템 (deps/lint/boot + iyaki + provider) |
+| 범위 | 개별 모듈 (7-step: ruff/ty/pytest/boot/health/E2E/logs) | 전체 시스템 (deps/lint/boot + 외부 도메인 + provider) |
 | Tier | 고정 3-tier (Static/Boot/E2E) | 가변 3-tier (default + 2 opt-in) |
 | 비용 | 항상 local only | `--live-openai` 과 `--live-anthropic` 은 실 토큰 소비 |
 | 실패 시 | 해당 모듈 debug | 릴리스 blocker |
@@ -43,12 +43,12 @@ allowed-tools: Read, Bash, Grep, Glob
 - `APP_AUTH_REQUIRED=false` (또는 `app_env != prod`) 전제 — dev anonymous 허용 경로. prod 환경에서는 이 tier 가 맞지 않음 (별도 CI)
 - `/runs/reload` 는 Tier 1 에서 **호출 안 함** — `runs:admin` scope 필요 + 배포 직전에는 파일 정적 확인으로 충분
 
-### Tier 2: `--integration` (iyaki Postgres + 테스트 DB 환경에서만)
+### Tier 2: `--integration` (외부 도메인 Postgres (예: iyaki) + 테스트 DB 환경에서만)
 
-- **Precondition**: iyaki Postgres 기동 + `APP_DATABASE_URL` + `IYAKI_DATABASE_URL` 설정
+- **Precondition**: 외부 도메인 Postgres (예: iyaki) 기동 + `APP_DATABASE_URL` + `IYAKI_DATABASE_URL` 설정
 - **실행**: `bash scripts/integration-smoke.sh` orchestrate
 - 이 스크립트는 full boot + integration pytest + cleanup 수행
-- iyaki pool 실동작 (`SELECT 1` from `IYAKI_DATABASE_URL`) 포함
+- 외부 도메인 pool 실동작 (`SELECT 1` from `IYAKI_DATABASE_URL`) 포함
 - Tier 1 의 uvicorn 은 kill 하고 이 스크립트가 자체 boot
 
 ### Tier 3: `--live-openai` (OpenAI API key 있는 환경에서만, OpenAI 한정)
@@ -57,7 +57,7 @@ allowed-tools: Read, Bash, Grep, Glob
 - **실행**: `uv run python scripts/smoke_real_provider.py`
 - 이 스크립트는 **OpenAI 전용** — `openai` provider 등록 assert, 다른 provider 이면 skip
 - `--live-openai` 를 명시했는데 `OPENAI_API_KEY` unset 이면 **NO-GO (FAIL)** — opt-in gate semantics: "요청했는데 precondition 불충족" 은 실패. 해당 환경에서 의도적으로 스킵하고 싶으면 `--live-openai` 플래그 자체를 생략하면 됨
-- iyaki DB probe 는 여기서 제외 — `--integration` 담당
+- 외부 도메인 DB probe 는 여기서 제외 — `--integration` 담당
 - 각 provider fallback chain 첫 모델 live ping 은 range 밖 (future: `--live-google`)
 
 ### Tier 3b: `--live-anthropic` (ANTHROPIC_API_KEY 있는 환경에서만, Anthropic 한정)

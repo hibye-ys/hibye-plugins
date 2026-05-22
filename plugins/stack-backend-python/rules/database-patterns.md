@@ -7,7 +7,7 @@ paths:
 ---
 
 > App backend rules — Database + StoragePort patterns (SQLAlchemy 2.0 async + Postgres primary, SQLite fallback for isolated smoke tests).
-> 관련: `architecture.md` (단일 작성자, StoragePort, iyaki 경계), `data-layer-patterns.md` (파일 기반 writer),
+> 관련: `architecture.md` (단일 작성자, StoragePort, 외부 도메인 경계), `data-layer-patterns.md` (파일 기반 writer),
 >       `config-management.md` (DATABASE_URL), `error-handling.md` (4 패턴)
 
 # database-patterns — DB + StoragePort 규약
@@ -18,7 +18,7 @@ paths:
 
 | 대상 | 위치 | 방식 |
 |------|------|------|
-| 도메인 엔티티 (entity/block/note/episode/…) | **iyaki 웹서비스의 `public.*` 스키마** (동일 Postgres 인스턴스) | AI 백엔드가 소유 안 함 (iyaki 도메인 경계). 접근은 `backend/tools/_iyaki_db.py` 전용 pool + `iyaki_*` 도구. 쓰기 시 `ai_backend.iyaki_mutations` 감사 append 필수 |
+| 도메인 엔티티 (entity/block/note/episode/…) | **외부 application 웹서비스 (예: `iyaki`) 의 `public.*` 스키마** (동일 Postgres 인스턴스) | AI 백엔드가 소유 안 함 (외부 도메인 경계). 접근은 `backend/tools/_iyaki_db.py` 전용 pool + `iyaki_*` 도구. 쓰기 시 `ai_backend.iyaki_mutations` 감사 append 필수 |
 | 도메인 쓰기 감사 | `ai_backend.iyaki_mutations` (AI 소유 스키마) | `iyaki_mutate.py` 의 도구들이 raw SQL (`INSERT INTO ai_backend.iyaki_mutations`) 로 트랜잭션 내부 append. ORM 모델 **없음** — 테이블 스키마는 Alembic migration 에서 직접 관리 |
 | 세션 identity/counters | 인메모리 OrderedDict 또는 DB | `SessionPort` (InMemory or Db) |
 | 세션 메시지 이력 | 인메모리 deque 또는 DB | `SessionHistoryPort` (InMemory or Db) |
@@ -74,7 +74,7 @@ backend/db/
 | `SessionHistoryPort` | 메시지 이력 (`get_messages` / `append_messages` / `clear`) — identity 와 분리 |
 | `MediaJobPort` | job state CRUD + 큐 디스패치 (`create_if_capacity` / `dequeue` SKIP LOCKED / claim-guarded terminal writes / `reset_stale_leases`). 바이너리는 Port 비대상 (single writer 로 파일 직접). 상세 큐 패턴은 `media-pipeline-patterns.md` |
 
-> AI 백엔드 자체 유저 데이터 (예: AI 세션 선호도, cost alerts) 가 필요해지면 **그 요구사항 전용 Port + ORM** 을 `ai_backend.*` 스키마에 새로 추가한다 (YAGNI). iyaki 도메인 데이터 (character / block / note 등) 는 `public.*` 소유 — 복제 금지.
+> AI 백엔드 자체 유저 데이터 (예: AI 세션 선호도, cost alerts) 가 필요해지면 **그 요구사항 전용 Port + ORM** 을 `ai_backend.*` 스키마에 새로 추가한다 (YAGNI). 외부 도메인 데이터 (character / block / note 등) 는 `public.*` 소유 — 복제 금지.
 
 **Port 시그니처 (스냅샷 — 코드가 정본):**
 
@@ -163,7 +163,7 @@ class MediaJobPort(Protocol):
 
 | 도메인 | namespace key | 목적 |
 |--------|---------------|------|
-| iyaki 도메인 쓰기 | `lock_project(project_id)` (SHA-256("iyaki:project:<id>") 앞 8바이트) | 프로젝트 단위 직렬화 — iyaki 사용자 쓰기와 interleave 방지 |
+| 외부 도메인 쓰기 | `lock_project(project_id)` (SHA-256("iyaki:project:<id>") 앞 8바이트, 식별자 = 이 instance 의 reference) | 프로젝트 단위 직렬화 — 외부 application 사용자 쓰기와 interleave 방지 |
 | Media queue 큐 깊이 캡 | `hashtext('media_jobs_cap:<category>')` (`db_store.py::create_if_capacity`) | category 별 cap 체크 + insert TOCTOU 방지 (race-safe 429 변환) |
 
 - SQLite fallback 환경에서는 advisory lock 미지원 — 엔진 레벨 write serialization 으로 자동 처리되므로 dialect 분기 필요
@@ -183,14 +183,14 @@ class MediaJobPort(Protocol):
 - `APP_DB_SCHEMA: str | None = None` — Postgres 에서 스키마 네임스페이스 (예: `ai_backend`). SQLite 에서는 무시
 - **prod 에서 약한 값 거부**: `auth._assert_prod_secret_strength` 와 동일 fail-fast 패턴 (향후)
 
-**도메인 데이터 — iyaki 웹서비스 (iyaki 도메인 경계):**
+**도메인 데이터 — 외부 application 웹서비스 (외부 도메인 경계, 이 instance 의 사례 = `iyaki`):**
 
-> **정본:** `_shared/iyaki-domain-boundary.md` (스키마 분리 / 3 쓰기 조건 / project lifecycle 예외 /
+> **정본:** `_shared/external-domain-boundary.md` (스키마 분리 / 3 쓰기 조건 / project lifecycle 예외 /
 > 마이그레이션 격리 / DSN 분리 — 언어 무관). 본 섹션은 Python 구현 세부 (asyncpg pool / Alembic
 > include_object 필터) 만 추가.
 
-- AI 백엔드는 도메인 엔티티 테이블을 **소유하지 않는다**. ground truth 는 iyaki 웹서비스의 `public.*` 스키마. 동일 Postgres 인스턴스를 공유하되 스키마는 `ai_backend` / `public` 으로 분리 (`APP_DB_SCHEMA=ai_backend`)
-- 접근 경로: `backend/tools/_iyaki_db.py` 의 전용 asyncpg pool. **DSN 은 `IYAKI_DATABASE_URL` env 전용 — 누락 시 `RuntimeError("IYAKI_DATABASE_URL is not set")` 로 즉시 실패** (`_iyaki_db.py:96-98`). `APP_DATABASE_URL` fallback 없음 (`.env.example` 에 별도 DSN 항목 유지). SQLAlchemy 엔진과 분리된 별도 asyncpg pool 을 사용하는 이유: (1) iyaki 가 SQLAlchemy ORM 이 아닌 raw SQL 중심, (2) advisory lock / jsonb codec 등 asyncpg 고유 기능 필요
+- AI 백엔드는 도메인 엔티티 테이블을 **소유하지 않는다**. ground truth 는 외부 application 웹서비스 (예: `iyaki`) 의 `public.*` 스키마. 동일 Postgres 인스턴스를 공유하되 스키마는 `ai_backend` / `public` 으로 분리 (`APP_DB_SCHEMA=ai_backend`)
+- 접근 경로: `backend/tools/_iyaki_db.py` 의 전용 asyncpg pool (식별자 = 이 instance 의 reference). **DSN 은 `IYAKI_DATABASE_URL` env 전용 — 누락 시 `RuntimeError("IYAKI_DATABASE_URL is not set")` 로 즉시 실패** (`_iyaki_db.py:96-98`). `APP_DATABASE_URL` fallback 없음 (`.env.example` 에 별도 DSN 항목 유지). SQLAlchemy 엔진과 분리된 별도 asyncpg pool 을 사용하는 이유: (1) 외부 도메인이 SQLAlchemy ORM 이 아닌 raw SQL 중심, (2) advisory lock / jsonb codec 등 asyncpg 고유 기능 필요
 - 직접 SELECT 허용, UPDATE/INSERT 허용 **단 조건** (도메인 row 변경 — entity / block / episode / category / graph_edge 등 `project_id` FK 보유 row):
   1. `lock_project(project_id)` advisory lock 내부 (`pg_advisory_xact_lock(bigint)` — lock key 는 SHA-256("iyaki:project:<id>") 앞 8바이트)
   2. 동일 트랜잭션에 `ai_backend.iyaki_mutations` prev/new append (raw SQL `INSERT`, ORM 모델 없음)
@@ -200,7 +200,7 @@ class MediaJobPort(Protocol):
   audit 는 `iyaki_mutations` 가 아니라 `structlog.info("<tool_name>", ...)` 로 대체.
   적용 도구: `iyaki_create_project`, `iyaki_switch_project` (V0 신규)
 - Alembic autogenerate 는 `public.*` 를 건드리면 안 됨. `env.py` 의 `include_object` 로 `schema='ai_backend'` 만 허용
-- AI 백엔드 자체 확장 데이터 (AI 세션 선호도, cost alerts 등) 는 `ai_backend.*` 스키마에 새 ORM + Port 추가. iyaki 도메인 테이블 복제 금지
+- AI 백엔드 자체 확장 데이터 (AI 세션 선호도, cost alerts 등) 는 `ai_backend.*` 스키마에 새 ORM + Port 추가. 외부 도메인 테이블 복제 금지
 
 ---
 
@@ -224,7 +224,7 @@ class MediaJobPort(Protocol):
 
 ## Postgres ↔ SQLite 전환
 
-- **Postgres (primary, dev + prod)**: `APP_DATABASE_URL=postgresql+asyncpg://...` + `APP_DB_ENABLED=true` (default). `APP_DB_SCHEMA=ai_backend` 로 스키마 네임스페이스 분리. iyaki 도메인 `public.*` 는 별도 asyncpg pool (`IYAKI_DATABASE_URL`)
+- **Postgres (primary, dev + prod)**: `APP_DATABASE_URL=postgresql+asyncpg://...` + `APP_DB_ENABLED=true` (default). `APP_DB_SCHEMA=ai_backend` 로 스키마 네임스페이스 분리. 외부 도메인 `public.*` 는 별도 asyncpg pool (`IYAKI_DATABASE_URL`)
 - **SQLite fallback (CI / isolated smoke 테스트)**: `APP_DATABASE_URL` 미설정 → `sqlite+aiosqlite:///<data_dir>/app.db` 자동 생성. `APP_DB_SCHEMA` 무시됨 (SQLite 는 스키마 개념 없음)
 - **완전 DB off (드문 경우)**: `APP_DB_ENABLED=false` → Port 들이 InMemory/File 구현체로 fallback. Lifespan 이 engine 초기화 skip
 - Alembic 은 같은 revision 으로 양쪽에 적용 (`backend/db/upsert.py` 의 dialect-aware helper 덕에 호출자 코드 변경 없음)
@@ -238,12 +238,12 @@ class MediaJobPort(Protocol):
 | Port 시그니처 변경 | 모든 구현체 + DI 주입 + 테스트 mock 동시 수정 |
 | ORM 모델 컬럼 추가/삭제 | Alembic revision 필요, 기존 데이터 migration path |
 | `APP_DB_ENABLED` 기본값 변경 | 부팅 시 구현체 선택 — 기존 dev 환경의 `.env` 명시 없으면 분기 뒤바뀜. 기존 File/InMemory 상태는 migration 필요 |
-| `IYAKI_DATABASE_URL` → `APP_DATABASE_URL` fallback 복원 | iyaki pool 이 실수로 AI 스키마에 붙을 위험 (경계 위반). 현재 설계상 **분리 유지** 필수 |
+| `IYAKI_DATABASE_URL` → `APP_DATABASE_URL` fallback 복원 | 외부 도메인 pool 이 실수로 AI 스키마에 붙을 위험 (경계 위반). 현재 설계상 **분리 유지** 필수 |
 | UPSERT 방언 변경 | SQLite/Postgres 동시 테스트 필요 |
 | 트랜잭션 경계 변경 | 일관성 / 동시성 trade-off |
-| 도메인 엔티티를 `ai_backend.*` 에 복제 시도 | iyaki 도메인 경계 위반 — iyaki `public.*` 가 정본, 필요시 직접 조회 |
-| `iyaki_mutations` 감사 생략한 `public.*` UPDATE | iyaki 도메인 경계 위반 — rollback 불가 + prototype UI 캐시 invalidation 신호 누락 |
-| `lock_project` 없이 `public.*` UPDATE | iyaki 의 사용자 쓰기와 interleave → 데이터 손상 위험 |
+| 도메인 엔티티를 `ai_backend.*` 에 복제 시도 | 외부 도메인 경계 위반 — 외부 application 의 `public.*` 가 정본, 필요시 직접 조회 |
+| `iyaki_mutations` 감사 생략한 `public.*` UPDATE | 외부 도메인 경계 위반 — rollback 불가 + prototype UI 캐시 invalidation 신호 누락 |
+| `lock_project` 없이 `public.*` UPDATE | 외부 application 의 사용자 쓰기와 interleave → 데이터 손상 위험 |
 | SessionHistoryPort 구현 추가 | 인메모리 모드에서 history 미지원 → policy.session_enabled 제약 |
 
 ## 금지 사항
@@ -253,8 +253,8 @@ class MediaJobPort(Protocol):
 - Long-running 트랜잭션 (스트리밍 중 open 유지)
 - `execute(f"... {user_input}")` — parametrized 강제 (SQL injection)
 - Alembic 우회한 스키마 변경
-- iyaki 도메인 엔티티를 `ai_backend.*` 에 복제해 두 곳에서 관리 (iyaki 도메인 경계 — `public.*` 가 정본)
-- `public.*` UPDATE/INSERT 시 `lock_project` + `iyaki_mutations` 감사 생략 (iyaki 도메인 경계)
+- 외부 도메인 엔티티를 `ai_backend.*` 에 복제해 두 곳에서 관리 (외부 도메인 경계 — `public.*` 가 정본)
+- `public.*` UPDATE/INSERT 시 `lock_project` + `iyaki_mutations` 감사 생략 (외부 도메인 경계)
 - `iyaki_mutations` 를 `public.*` 와 같은 트랜잭션 밖에서 append (감사 누수)
 - `SessionHistoryPort` 를 `SessionPort` 에 병합 — identity/counter vs history 분리 원칙 (StoragePort)
 - 구체 구현체 이름 (e.g. `DbSessionStore`) 을 호출자 코드에서 import — Protocol 만 참조

@@ -1,12 +1,12 @@
-> App backend-overview capsule. Source: `.agents/rules/python_agent_rules/data-layer-patterns.md` (media single-writer) + `database-patterns.md` (StoragePort + iyaki boundary).
+> App backend-overview capsule. Source: `.agents/rules/python_agent_rules/data-layer-patterns.md` (media single-writer) + `database-patterns.md` (StoragePort + external domain boundary).
 
 # Subsystem 08 — Data Layer
 
 ## 목적 (1줄)
 
 미디어 바이너리 + job state 단일 작성자 (WriteCoordinator) + StoragePort Protocol
-뒤에 숨은 인메모리/파일/DB 구현체 라우팅. 도메인 엔티티는 소유하지 않음 (iyaki
-웹서비스 `public.*` 스키마 소유 — `database-patterns.md` 참조).
+뒤에 숨은 인메모리/파일/DB 구현체 라우팅. 도메인 엔티티는 소유하지 않음 (외부
+application 웹서비스 (예: iyaki) `public.*` 스키마 소유 — `database-patterns.md` 참조).
 
 ## 파일 / 모듈
 
@@ -96,6 +96,6 @@ DataCache.invalidate(key)                     # File 모드만 (DB 모드는 DB 
 ## 관련 rule
 
 - `data-layer-patterns.md` — 미디어 파이프라인 단일 작성자 (본 서브시스템)
-- `database-patterns.md` — StoragePort 3종, SQLAlchemy 2.0 async, iyaki 경계
+- `database-patterns.md` — StoragePort 3종, SQLAlchemy 2.0 async, 외부 도메인 경계
 - `media-pipeline-patterns.md` — MediaJobPort 의 소비자 측 설계 (services/media/)
 - `architecture.md` — 계층 분리 (data/ vs db/), 단일 작성자 원칙 상위

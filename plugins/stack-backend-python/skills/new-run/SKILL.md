@@ -52,8 +52,8 @@ class RunPolicy(BaseModel):
 **중요**: `allowed_tools` 는 `backend/tools/` 에 실제 등록된 **개별 이름** 만 써야 함. pydantic + `run-policy.md` invariant 가 startup 에 fail-fast. 2026-04 기준 정본 (`backend/tools/__init__.py::register_builtin_tools` + 각 `.py` 의 `name="..."` attribute):
 
 - **baseline**: `read_file`, `write_file`, `edit_file`, `spawn_agent`
-- **iyaki query (6)**: `iyaki_query_character`, `iyaki_query_world_item`, `iyaki_query_note`, `iyaki_query_timeline_entry`, `iyaki_query_block`, `iyaki_query_episode`
-- **iyaki mutate (20+ 개별 액션)**: `iyaki_edit_block_prose`, `iyaki_create_entity`, `iyaki_update_entity`, `iyaki_create_category`, `iyaki_update_category`, `iyaki_create_section`, `iyaki_rename_section`, `iyaki_move_episode_to_section`, `iyaki_create_group`, `iyaki_update_group`, `iyaki_add_graph_edge`, `iyaki_update_graph_edge`, `iyaki_create_area_label`, `iyaki_update_area_label`, `iyaki_delete_area_label`, `iyaki_create_era`, `iyaki_update_era`, `iyaki_create_timeline_entry`, `iyaki_update_timeline_entry`, `iyaki_create_wb_category`, `iyaki_update_wb_category`, `iyaki_create_wb_item`, `iyaki_update_wb_item`, `iyaki_delete_note`, ...
+- **ì¸ë¶ ëë©ì¸ query (6)**: `iyaki_query_character`, `iyaki_query_world_item`, `iyaki_query_note`, `iyaki_query_timeline_entry`, `iyaki_query_block`, `iyaki_query_episode`
+- **ì¸ë¶ ëë©ì¸ mutate (20+ 개별 액션)**: `iyaki_edit_block_prose`, `iyaki_create_entity`, `iyaki_update_entity`, `iyaki_create_category`, `iyaki_update_category`, `iyaki_create_section`, `iyaki_rename_section`, `iyaki_move_episode_to_section`, `iyaki_create_group`, `iyaki_update_group`, `iyaki_add_graph_edge`, `iyaki_update_graph_edge`, `iyaki_create_area_label`, `iyaki_update_area_label`, `iyaki_delete_area_label`, `iyaki_create_era`, `iyaki_update_era`, `iyaki_create_timeline_entry`, `iyaki_update_timeline_entry`, `iyaki_create_wb_category`, `iyaki_update_wb_category`, `iyaki_create_wb_item`, `iyaki_update_wb_item`, `iyaki_delete_note`, ...
 
 **aggregate 이름 (`iyaki_query`, `iyaki_mutate`, `search_files`, `glob_files`) 은 실존하지 않으니 금지.** 파일명과 tool name 이 다르므로 항상 `backend/tools/*.py` 의 `name="..."` 을 직접 확인.
 

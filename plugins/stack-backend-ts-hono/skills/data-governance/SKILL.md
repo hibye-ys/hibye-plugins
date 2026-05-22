@@ -1,6 +1,6 @@
 ---
 name: data-governance
-description: 데이터 거버넌스 정책 (retention / PII 분리 / export portability) 결정 시 invoke. CCv3 / SillyTavern Lorebook / MCP 호환 + 구독 해지 시 read-only 락인 ✕ 룰 적용.
+description: 데이터 거버넌스 정책 (retention / PII 분리 / export portability) 결정 시 invoke. 도메인-적합 portable 포맷 + open MCP 호환 + 구독 해지 시 read-only 락인 ✕ (vendor lock-in 회피) 룰 적용.
 metadata:
   role: workflow
   scope: apps/api
@@ -177,11 +177,11 @@ type Env = {
 }
 ```
 
-### Export portability (CCv3 / SillyTavern / MCP 호환)
+### Export portability (portable formats + open MCP)
 
-- 작가 자산은 **언제든 export 가능** — GET /users/me/data/export
-- 구독 해지 시 read-only 락인 ✕ (NovelCrafter 식 회피)
-- Export 포맷: CCv3 JSON + SillyTavern Lorebook JSON + MCP 호환 스키마
+- 사용자 소유 자산은 **언제든 export 가능** — GET /users/me/data/export
+- 구독 해지 시 read-only 락인 ✕ (벤더 lock-in 회피)
+- Export 포맷: 도메인-적합 portable schemas (예: 캐릭터 도메인이라면 CCv3 JSON + Lorebook JSON, 일반 entity 도메인이라면 jsonl/csv) + MCP 호환 스키마
 
 ---
 

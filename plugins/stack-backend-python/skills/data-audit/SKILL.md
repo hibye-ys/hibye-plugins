@@ -1,6 +1,6 @@
 ---
 name: data-audit
-description: Consolidated checklist for auditing `backend/data/` (media single-writer) + `backend/state/` (SessionPort family) + `backend/db/` (SQLAlchemy async + iyaki boundary). Covers StoragePort Protocol conformance, WriteCoordinator media scope, cache invalidation (FileMediaJob LRU), 5-state media job lifecycle, and `lock_project` + `iyaki_mutations` audit coverage. Does NOT restate invariants — those live in `.agents/rules/python_agent_rules/data-layer-patterns.md` and `database-patterns.md`. Absorbs the former `data-layer` skill (deleted 2026-04-24 after the user-state overlay concept was retired).
+description: Consolidated checklist for auditing `backend/data/` (media single-writer) + `backend/state/` (SessionPort family) + `backend/db/` (SQLAlchemy async + external domain boundary). Covers StoragePort Protocol conformance, WriteCoordinator media scope, cache invalidation (FileMediaJob LRU), 5-state media job lifecycle, and `lock_project` + `iyaki_mutations` audit coverage. Does NOT restate invariants — those live in `.agents/rules/python_agent_rules/data-layer-patterns.md` and `database-patterns.md`. Absorbs the former `data-layer` skill (deleted 2026-04-24 after the user-state overlay concept was retired).
 allowed-tools: Read, Bash, Grep, Glob
 ---
 
@@ -17,12 +17,12 @@ allowed-tools: Read, Bash, Grep, Glob
 
 - 세션 관리 전용 감사 (→ `session-audit` skill — SessionPort 메서드 커버리지, LRU, user_id 전파)
 - Media pipeline 구현 (→ `tools-manager` agent `media-audit` 모드가 본 skill + `media-pipeline-patterns.md` rule 동시 참조)
-- iyaki 도메인 쓰기 도구 구현 (→ `database-patterns.md` rule 직접 참조)
+- 외부 도메인 쓰기 도구 구현 (→ `database-patterns.md` rule 직접 참조)
 
 ## 원칙은 Rule 에 있다
 
 - `.agents/rules/python_agent_rules/data-layer-patterns.md` — 미디어 single writer, `data/` vs `db/` 분리
-- `.agents/rules/python_agent_rules/database-patterns.md` — SQLAlchemy 2.0 async, StoragePort (3종), iyaki 경계, Alembic
+- `.agents/rules/python_agent_rules/database-patterns.md` — SQLAlchemy 2.0 async, StoragePort (3종), 외부 도메인 경계, Alembic
 
 본 skill 은 grep/ls 레시피만 제공. 불변식 해석이 필요하면 위 rule 을 먼저 읽는다.
 
@@ -144,7 +144,7 @@ rg -n "AsyncSession.*execute|session\.execute" backend/ -g '!backend/db/*' -g '!
 
 DB 쓰기는 Port 경유 → Port 구현 내부에서만 session_scope.
 
-## 8. iyaki 도메인 경계
+## 8. 외부 도메인 경계 (이 instance = `iyaki`)
 
 ```bash
 # public.* UPDATE/INSERT 시 lock_project 감쌌는지
@@ -166,7 +166,7 @@ rg -n "IYAKI_DATABASE_URL|APP_DATABASE_URL" backend/tools/_iyaki_db.py
 rg -n "include_object|schema.*ai_backend" backend/db/migrations/env.py
 ```
 
-iyaki 도메인 테이블을 backend autogenerate 가 건드리면 안 됨.
+외부 도메인 테이블을 backend autogenerate 가 건드리면 안 됨.
 
 ## 10. 구개념 경고 grep (retired 2026-04)
 
@@ -209,7 +209,7 @@ rg -n "UserStatePort|PatchOperation|ExtractedRecord" backend/ .agents/
 - [OK/FAIL] All DB writes inside session_scope() context manager
 - [OK/FAIL] No direct AsyncSession.execute outside backend/db/ and backend/tests/
 
-### iyaki boundary
+### external domain boundary
 - [OK/FAIL] public.* mutations wrapped in lock_project
 - [OK/FAIL] Every mutation appends ai_backend.iyaki_mutations in same txn
 - [OK/FAIL] backend/tools/_iyaki_db.py reads IYAKI_DATABASE_URL only (no APP_DATABASE_URL fallback)
@@ -225,7 +225,7 @@ rg -n "UserStatePort|PatchOperation|ExtractedRecord" backend/ .agents/
 ## 검증 체크리스트
 
 - [ ] 10 개 체크 블록 실행
-- [ ] Single writer / StoragePort / iyaki boundary 위반은 CRITICAL 표시
+- [ ] Single writer / StoragePort / external domain boundary 위반은 CRITICAL 표시
 - [ ] rule 참조로 근거 제시 (`data-layer-patterns.md` 또는 `database-patterns.md` §섹션명)
 - [ ] 구개념 잔존 발견 시 삭제 제안 (재도입 금지 — `data-layer-patterns.md:86`)
 

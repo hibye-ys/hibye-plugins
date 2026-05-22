@@ -16,7 +16,7 @@
 - `backend/tools/iyaki_query.py` / `iyaki_mutate.py` — iyaki 도메인 도구 (iyaki 도메인 경계)
 - `backend/tools/agents.py` — spawn_agent
 - `backend/tools/_security.py` — path guard + deny list
-- `backend/tools/_iyaki_db.py` — 전용 asyncpg pool (iyaki public.*)
+- `backend/tools/_iyaki_db.py` — 전용 asyncpg pool (ì¸ë¶ ëë©ì¸ public.*)
 
 ## 주요 타입 / 함수
 
@@ -31,14 +31,14 @@
 
 ### 읽기 도구 (병렬 안전)
 
-iyaki domain 읽기: `iyaki_query_entities`, `iyaki_query_blocks` 등
+external domain 읽기: `iyaki_query_entities`, `iyaki_query_blocks` 등
 (`backend/tools/iyaki_query.py`). 파일 읽기: `read_file`.
 
 `is_concurrency_safe=True` → `asyncio.gather` 로 동시 실행.
 
 ### 쓰기/실행 도구 (순차)
 
-iyaki domain 쓰기: `iyaki_mutate_*` (`backend/tools/iyaki_mutate.py`).
+external domain 쓰기: `iyaki_mutate_*` (`backend/tools/iyaki_mutate.py`).
 파일 쓰기: `write_file`, `edit_file`. 모두 `is_concurrency_safe=False` → 순차 실행.
 
 ## 병렬 실행 오케스트레이션
@@ -62,7 +62,7 @@ tool_use 블록들 수신
 
 ## 범위
 
-- Tool Protocol + Registry + 모든 iyaki_* 도구
+- Tool Protocol + Registry + 모든 외부 도메인 도구 (`iyaki_*` prefix)
 - 병렬/순차 오케스트레이션
 - `read_file` / `write_file` / `edit_file` (샌드박스 + deny list 적용)
 - `spawn_agent` (coordinator → worker fork)

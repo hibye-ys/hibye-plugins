@@ -28,7 +28,7 @@ references under `references/agents/`.
 | `api-manager` | routes, RunPolicy, schema sync |
 | `architecture-reviewer` | layer/import direction and single-writer checks |
 | `architecture-validator` | top-level architecture coordination |
-| `data-state-manager` | data, state, DB, iyaki boundary |
+| `data-state-manager` | data, state, DB, external domain boundary |
 | `infra-performance-manager` | benchmark, concurrency, resources |
 | `invariant-compliance-checker` | cross-rule invariant compliance |
 | `new-agent-builder` | runtime agent scaffold and verification |

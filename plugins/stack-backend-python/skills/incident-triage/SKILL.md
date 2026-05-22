@@ -96,9 +96,9 @@ run_name, agent, model, turn_count, spawn_depth
   - [ ] compaction AUTO 전략 폭증? (요약 LLM 호출 비용)
   - [ ] 특정 user_id 에 집중된 요청?
 
-### Class 5: DB / iyaki 이상
+### Class 5: DB / 외부 도메인 이상
 
-- **키워드**: "DB 에러", "data 저장 안 됨", "iyaki 변경 반영 안 됨", "session 사라짐"
+- **키워드**: "DB 에러", "data 저장 안 됨", "외부 도메인 변경 반영 안 됨", "session 사라짐"
 - **1차 도구**:
   1. `data-state-manager` (data-audit 모드) — WriteCoordinator, StoragePort, 단일 writer
   2. raw SQL 확인: `SELECT ... FROM ai_backend.iyaki_mutations ORDER BY created_at DESC LIMIT 50`

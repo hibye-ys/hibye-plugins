@@ -29,8 +29,8 @@ metadata:
 
 ## LSP server 의 정체성
 
-프론트엔드 prose 에디터 (Monaco / CodeMirror) 에 **서사 텍스트 편집 지능** 을 제공한다.
-코드 편집기의 LSP 와 같은 프로토콜이지만 대상이 **세계관 서사 텍스트** 다.
+프론트엔드 prose 에디터 (Monaco / CodeMirror) 에 **도메인 텍스트 편집 지능** 을 제공한다.
+코드 편집기의 LSP 와 같은 프로토콜이지만 대상이 **코드 외 도메인 텍스트** (서사, 문서, 구조화 노트 등) 다.
 
 4 core capabilities:
 

@@ -7,7 +7,7 @@ paths:
 ---
 
 > App backend rules — Data Governance (right-to-erasure + export + audit) Phase 1 invariants.
-> 관련: `database-patterns.md` (StoragePort + iyaki 경계), `data-layer-patterns.md` (single writer),
+> 관련: `database-patterns.md` (StoragePort + 외부 도메인 경계), `data-layer-patterns.md` (single writer),
 >       `media-pipeline-patterns.md` (job queue 패턴 재사용), `api-routing-patterns.md` (auth + 410 envelope),
 >       `error-handling.md` (`user_data_pending_deletion` → HTTP 410)
 
@@ -114,11 +114,11 @@ CREATE UNIQUE INDEX uq_gov_jobs_active_per_user_op
 - 중복 POST → `IntegrityError` → port 가 catch + 기존 row 반환 (200, not 201)
 - SQLite path: 부분 unique index 미지원 — 앱 레이어 가드 + 테스트로 enforce
 
-**Lock_project advisory lock (iyaki domain integration):**
+**Lock_project advisory lock (external domain integration):**
 
 - soft delete 가 user 의 각 project 에 대해 `pg_try_advisory_xact_lock` (5s timeout × 3 retry)
 - 충돌 시 `governance.delete_lock_contended` structlog 이벤트 + 다음 worker iteration 으로 미루기
-- iyaki 쓰기와 같은 lock namespace (SHA-256("iyaki:project:<id>") 앞 8바이트)
+- 외부 도메인 쓰기와 같은 lock namespace (SHA-256("iyaki:project:<id>") 앞 8바이트, 식별자 = 이 instance 의 reference)
 
 ## 새 audit event 추가하기
 

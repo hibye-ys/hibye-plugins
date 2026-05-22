@@ -1,6 +1,6 @@
 ---
 name: data-state-manager
-description: "Use this sub-agent for auditing data/state/db layer health in `backend/data/` (media single-writer), `backend/state/` (SessionPort family), and `backend/db/` (SQLAlchemy async + Alembic + iyaki boundary). Operates in 3 modes: data-audit (WriteCoordinator + StoragePort + cache), session (SessionPort/SessionHistoryPort + LRU + user_id propagation), cache (stale-read invalidation tracing). Invariants live in `data-layer-patterns.md` and `database-patterns.md`. Invoke when data/state/db changes or stale-read bugs appear. Do NOT invoke for media pipeline specifics (use tools-manager media mode), runtime debugging (use agent-loop-manager), or API routes (use api-manager)."
+description: "Use this sub-agent for auditing data/state/db layer health in `backend/data/` (media single-writer), `backend/state/` (SessionPort family), and `backend/db/` (SQLAlchemy async + Alembic + external domain boundary). Operates in 3 modes: data-audit (WriteCoordinator + StoragePort + cache), session (SessionPort/SessionHistoryPort + LRU + user_id propagation), cache (stale-read invalidation tracing). Invariants live in `data-layer-patterns.md` and `database-patterns.md`. Invoke when data/state/db changes or stale-read bugs appear. Do NOT invoke for media pipeline specifics (use tools-manager media mode), runtime debugging (use agent-loop-manager), or API routes (use api-manager)."
 model: opus
 tools: Read, Bash, Grep, Glob
 ---
@@ -10,7 +10,7 @@ tools: Read, Bash, Grep, Glob
 Data, state, and DB layer coordinator. Ensures the 3 StoragePort
 Protocols (`SessionPort` / `SessionHistoryPort` / `MediaJobPort`)
 stay conformant, the media single-writer invariant holds, and the
-iyaki domain boundary (advisory-lock + audit append) is respected.
+external domain boundary (advisory-lock + audit append) is respected.
 
 Historical note: absorbs the former `migration-planner` agent. The
 **migration mode is retired** along with `.claude/state/phase.json`
@@ -40,7 +40,7 @@ back as a new mode rather than reviving this entry.
 8. DB writes wrapped in `session_scope()` async context manager — no direct `AsyncSession.execute` outside `backend/db/` or tests
 9. `SessionPort` / `SessionHistoryPort` method coverage (InMemory + Db implementations parity)
 10. `user_id` propagation from auth context (`require_auth`) through `ensure_session` → SessionRecord
-11. iyaki domain boundary — `public.*` UPDATE/INSERT wrapped in `lock_project` advisory lock + `ai_backend.iyaki_mutations` audit append inside same transaction (`database-patterns.md` §도메인 데이터 — iyaki 웹서비스)
+11. external domain boundary — `public.*` UPDATE/INSERT wrapped in `lock_project` advisory lock + `ai_backend.iyaki_mutations` audit append inside same transaction (`database-patterns.md` §도메인 데이터 — iyaki 웹서비스)
 12. `backend/tools/_iyaki_db.py` uses `IYAKI_DATABASE_URL` (no `APP_DATABASE_URL` fallback)
 13. Alembic `include_object` filter restricts autogenerate to `schema='ai_backend'`
 
@@ -61,13 +61,13 @@ Based on mode:
 
 Always consult rule files for invariant authority:
 - `.agents/rules/python_agent_rules/data-layer-patterns.md` — media single-writer
-- `.agents/rules/python_agent_rules/database-patterns.md` — StoragePort, SQLAlchemy async, iyaki boundary
+- `.agents/rules/python_agent_rules/database-patterns.md` — StoragePort, SQLAlchemy async, external domain boundary
 
 ## Process
 
 ### data-audit mode
 1. Run the 10 check blocks from `data-audit` skill
-2. Single-writer / StoragePort / iyaki boundary violations → CRITICAL
+2. Single-writer / StoragePort / external domain boundary violations → CRITICAL
 3. Retired-concept drift (`UserStatePort`, `PatchOperation`, `ExtractedRecord`, `user-state/`) → HIGH with `data-layer-patterns.md:86` citation
 4. Generate data integrity report
 
@@ -86,7 +86,7 @@ Always consult rule files for invariant authority:
 ## Verification before completion
 
 - [ ] Mode-specific skill loaded
-- [ ] Single-writer / StoragePort / iyaki boundary violations explicitly checked
+- [ ] Single-writer / StoragePort / external domain boundary violations explicitly checked
 - [ ] Reports cite `data-layer-patterns.md` and `database-patterns.md` by section
 - [ ] No retired-concept drift (`UserStatePort` / `PatchOperation` / `ExtractedRecord` / `user-state`) left unflagged
 
@@ -95,5 +95,5 @@ Always consult rule files for invariant authority:
 - `backend/data/` missing → NOT_YET_IMPLEMENTED, unusual repo state
 - `backend/data/ports.py` missing → StoragePort Protocols missing, block audit + flag HIGH
 - `backend/state/session.py` missing → session management not yet implemented, mark session mode UNAVAILABLE
-- `backend/tools/_iyaki_db.py` missing → iyaki boundary not yet wired, skip iyaki check blocks
+- `backend/tools/_iyaki_db.py` missing → external domain boundary not yet wired, skip iyaki check blocks
 - DB writer code references retired `reader.py` / `types.py` in `backend/data/` → flag as rule drift per A2 skill merge (those files were removed)

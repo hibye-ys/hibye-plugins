@@ -1,6 +1,6 @@
 ---
 name: invariant-compliance-checker
-description: Use this sub-agent to audit `backend/` code for invariant violations declared in `.agents/rules/python_agent_rules/*.md` — cache-stability (3-layer prompt / tools sort / attachment order / CacheSafeParams), RunPolicy cross-field rules, SSE secret-scanner coverage, 6-stage loop order + LoopTransition, provider single-conversion + retryable-error matrix, compaction 4-stage escalation, tool concurrency flags, MCP `mcp__<server>__<tool>` naming, media job 5-state lifecycle, and iyaki boundary (lock_project + iyaki_mutations audit). Read-only. Output is a categorized violation list with file:line + rule reference. Do NOT invoke for layer/import direction (use `architecture-reviewer`), rule structural integrity (use `rule-consistency-auditor`), or rule↔implementation drift by subsystem (use `spec-diff-auditor`).
+description: Use this sub-agent to audit `backend/` code for invariant violations declared in `.agents/rules/python_agent_rules/*.md` — cache-stability (3-layer prompt / tools sort / attachment order / CacheSafeParams), RunPolicy cross-field rules, SSE secret-scanner coverage, 6-stage loop order + LoopTransition, provider single-conversion + retryable-error matrix, compaction 4-stage escalation, tool concurrency flags, MCP `mcp__<server>__<tool>` naming, media job 5-state lifecycle, and external domain boundary (lock_project + iyaki_mutations audit). Read-only. Output is a categorized violation list with file:line + rule reference. Do NOT invoke for layer/import direction (use `architecture-reviewer`), rule structural integrity (use `rule-consistency-auditor`), or rule↔implementation drift by subsystem (use `spec-diff-auditor`).
 model: opus
 tools: Read, Grep, Glob, Bash
 ---
@@ -32,7 +32,7 @@ any one subsystem's own specialized auditor. Covered topics:
 | Tool concurrency flags + factory | `tool-system-patterns.md` | `build_tool()` used (no direct `ToolProtocol` instantiation); `is_concurrency_safe` is a method (input-based), not class attribute |
 | MCP naming + transport | `mcp-patterns.md` | all MCP tools registered via `bridge.py::make_mcp_tool`; qualified name `mcp__<server>__<tool>` with server name matching `^[a-zA-Z0-9_-]+$`; `${VAR}` substitution uses `on_missing="empty"` |
 | Media job lifecycle | `media-pipeline-patterns.md` | `TERMINAL_JOB_STATUSES` used for cancel/skip; `scrub_secrets` applied on `error.message`; bin writes via `WriteCoordinator.write_media_output` |
-| iyaki boundary | `database-patterns.md` | `public.*` UPDATE/INSERT paths wrapped in `lock_project` + `ai_backend.iyaki_mutations` append; `IYAKI_DATABASE_URL` resolved (no `APP_DATABASE_URL` fallback) |
+| external domain boundary | `database-patterns.md` | `public.*` UPDATE/INSERT paths wrapped in `lock_project` + `ai_backend.iyaki_mutations` append; `IYAKI_DATABASE_URL` resolved (no `APP_DATABASE_URL` fallback) |
 | Structured logging + ContextVar whitelist | `coding-standards.md`, `core-infrastructure.md` | no direct `structlog.contextvars.bind_contextvars` calls outside `bind_log_context` helper; 10-field `ALL_FIELDS` respected |
 | Settings `frozen` + `extra="forbid"` | `config-management.md` | pydantic Settings classes use `ConfigDict(frozen=True, extra="forbid")`; prod-secret validators present on `AuthSettings` |
 

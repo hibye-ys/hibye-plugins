@@ -1,8 +1,8 @@
 > App backend rules — Architecture invariants, extension guide, impact map.
-> **정본:** `_shared/iyaki-domain-boundary.md` (스키마 분리 + 3 쓰기 조건 — 언어 무관),
+> **정본:** `_shared/external-domain-boundary.md` (스키마 분리 + 3 쓰기 조건 — 언어 무관),
 >           `_shared/input-safety-gate-ordering.md` (V3 ordering / two-port jailbreak / orthogonal moderation — 언어 무관). 본 파일은 Python 측 import 방향 적용만.
 > 관련: `design-principles.md` (전체), `core-infrastructure.md` (타입 경계),
->       `data-layer-patterns.md` (단일 작성자 상세), `database-patterns.md` (StoragePort + iyaki 경계)
+>       `data-layer-patterns.md` (단일 작성자 상세), `database-patterns.md` (StoragePort + 외부 도메인 경계)
 
 # architecture — 계층 구조 + import 방향
 
@@ -62,12 +62,12 @@ tests → (모든 계층)
 - 이유: 경쟁 조건 단일 지점 처리, audit trail 집중, 저장 백엔드 교체 용이
 - 상세: `data-layer-patterns.md`, `user-skill-patterns.md`
 
-**iyaki 도메인 경계:**
+**외부 도메인 경계 (이 instance = `iyaki`):**
 
-> **정본:** `_shared/iyaki-domain-boundary.md` (스키마 분리 / 3 쓰기 조건 / project lifecycle 예외 /
+> **정본:** `_shared/external-domain-boundary.md` (스키마 분리 / 3 쓰기 조건 / project lifecycle 예외 /
 > 마이그레이션 격리 / DSN 분리 — 언어 무관). 본 섹션은 Python 측 적용 지점만.
 
-- 접근 pool 위치: `backend/tools/_iyaki_db.py` (전용 asyncpg pool)
+- 접근 pool 위치: `backend/tools/_iyaki_db.py` (전용 asyncpg pool, 식별자 = 이 instance 의 reference)
 - project lifecycle 예외 시 audit 로깅: `structlog.info("<tool_name>", ...)` (Python)
 - 마이그레이션 격리: Alembic `env.py` 의 `include_object` 필터로 `schema='ai_backend'` 만 허용
 - 상세: `database-patterns.md`
@@ -98,7 +98,7 @@ tests → (모든 계층)
 - routes 가 provider 직접 호출 (engine 우회)
 - tool 이 `data/writer.py` 우회하여 `data/media/**` 직접 파일 쓰기
 - 호출자 코드가 `DbSessionStore` / `FileMediaJob` 같은 concrete 구현체 import (Port Protocol 만 참조)
-- `public.*` (iyaki) UPDATE/INSERT 시 `lock_project` 또는 `iyaki_mutations` 감사 생략
+- `public.*` (외부 도메인) UPDATE/INSERT 시 `lock_project` 또는 `iyaki_mutations` 감사 생략
 - cross-cutting 모듈 (`observability`, `utils`, `constants`) 이 backend 의 다른 모듈 import — 순환 위험
 
 ## 새 모듈 추가하기

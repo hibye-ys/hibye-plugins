@@ -9,7 +9,7 @@ paths:
 >       `database-patterns.md` (§StoragePort — SessionPort / SessionHistoryPort / MediaJobPort),
 >       `media-pipeline-patterns.md` (§WriteCoordinator 바이너리 출력)
 
-> **Scope 경계:** 본 rule 은 **미디어 파이프라인 파일 쓰기** (`WriteCoordinator.write_media_job` / `write_media_output`) 의 단일 작성자 규율을 담당한다. 도메인 entity ground truth 는 iyaki 웹서비스의 `public.*` 스키마 소유 (iyaki 도메인 경계 — 접근은 `backend/tools/_iyaki_db.py` 전용 pool + `iyaki_*` 도구 + `ai_backend.iyaki_mutations` 감사 테이블 경유, `database-patterns.md` 참조). Session/history 저장은 `state/session.py` + `database-patterns.md` 참조.
+> **Scope 경계:** 본 rule 은 **미디어 파이프라인 파일 쓰기** (`WriteCoordinator.write_media_job` / `write_media_output`) 의 단일 작성자 규율을 담당한다. 도메인 entity ground truth 는 외부 application 웹서비스 (이 instance = `iyaki`) 의 `public.*` 스키마 소유 (외부 도메인 경계 — 접근은 `backend/tools/_iyaki_db.py` 전용 pool + `iyaki_*` 도구 + `ai_backend.iyaki_mutations` 감사 테이블 경유, `database-patterns.md` 참조). Session/history 저장은 `state/session.py` + `database-patterns.md` 참조.
 
 # data-layer-patterns — 데이터 레이어 (media writes)
 
@@ -29,7 +29,7 @@ paths:
 
 **`backend/data/` 가 담당하지 않는 것:**
 
-- 도메인 entity ground truth → iyaki 웹서비스의 `public.*` 스키마 (iyaki 도메인 경계). 접근은 `backend/tools/_iyaki_db.py` pool + `iyaki_*` 도구군, 쓰기는 `ai_backend.iyaki_mutations` 감사 필수. LSP adapter (`services/lsp_entities.py`) 는 같은 pool 을 read-only 로 경유하도록 교체 예정
+- 도메인 entity ground truth → 외부 application 웹서비스 (예: `iyaki`) 의 `public.*` 스키마 (외부 도메인 경계). 접근은 `backend/tools/_iyaki_db.py` pool + `iyaki_*` 도구군, 쓰기는 `ai_backend.iyaki_mutations` 감사 필수. LSP adapter (`services/lsp_entities.py`) 는 같은 pool 을 read-only 로 경유하도록 교체 예정
 - Session/turn 이력 → `state/session.py` + `SessionHistoryPort`
 - Media job CRUD → `services/media/{file,db}_store.py` + `MediaJobPort` (state 만; 바이너리는 writer 경유)
 
@@ -69,7 +69,7 @@ media/    (런타임 데이터 위치 — 파일/디렉토리)
 4. 호출자는 **구체 구현체 import 금지**. 오직 Protocol 만 참조
 5. `__all__` 에 Port 이름 추가
 
-## iyaki 웹서비스 연동 체크리스트
+## 외부 도메인 웹서비스 연동 체크리스트 (이 instance = `iyaki`)
 
 1. `backend/tools/_iyaki_db.py` — 전용 asyncpg pool + `lock_project(project_id)` advisory lock + `resolve_active_project_id()` 헬퍼. `IYAKI_DATABASE_URL` env (기본은 `APP_DATABASE_URL` 공유)
 2. 도구는 `backend/tools/iyaki_query.py` (read) + `backend/tools/iyaki_mutate.py` (write). 쓰기는 반드시 advisory lock 내부 + 트랜잭션 내 `ai_backend.iyaki_mutations` append
@@ -89,7 +89,7 @@ media/    (런타임 데이터 위치 — 파일/디렉토리)
 ## 금지 사항
 
 - `data/media/**` 에 WriteCoordinator 우회 직접 write
-- `data/extracted/**` 디렉토리를 만들어 ground-truth 자체 보관 (iyaki 도메인 경계 위반 — 외부 웹서비스 소유)
+- `data/extracted/**` 디렉토리를 만들어 ground-truth 자체 보관 (외부 도메인 경계 위반 — 외부 application 웹서비스 소유)
 - user-state overlay 인프라 (`append_op` / `PatchOperation` / `UserStatePort` / `read_merged`) 재도입 — 별도 설계 승인 전 금지
 - `WriteCoordinator` 인스턴스 여러 개 생성 (싱글턴 위반)
 - `data/media/**` 파일을 `json.load` / `open(...).read()` 로 직접 조회 (`MediaJobPort` 경유)

@@ -111,7 +111,7 @@ data/                  (런타임 데이터 위치 — 파일/디렉토리)
 ## 공통 금지 사항 (언어 무관)
 
 - `data/media/**` / `data/skills/user/**` 에 WriteCoordinator 우회 직접 write
-- `data/extracted/**` 같은 디렉토리를 만들어 ground-truth 자체 보관 (iyaki 도메인 경계 위반 — `_shared/iyaki-domain-boundary.md`)
+- `data/extracted/**` 같은 디렉토리를 만들어 ground-truth 자체 보관 (외부 도메인 경계 위반 — `_shared/external-domain-boundary.md`)
 - user-state overlay 인프라 (`append_op` / `PatchOperation` / `UserStatePort` / `read_merged`) 재도입 — 별도 설계 승인 전 금지
 - `WriteCoordinator` 인스턴스 여러 개 생성 (싱글턴 위반)
 - 단일 writer 자원을 직접 read API (`json.load` / `serde_json::from_str` on raw file) 로 조회 (Port Protocol/trait 경유)

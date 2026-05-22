@@ -20,7 +20,7 @@ App 내부 서브시스템과 각각의 Python 구현 경로, 담당 skill.
 | Sub-agent Spawn  | backend/tools/agents.py, engine/subagent.py                                | sub-agent-spawn     |
 | LSP Server       | backend/lsp/ (pygls)                                                       | lsp-server          |
 | MCP Integration  | backend/services/mcp/                                                      | mcp-integration     |
-| iyaki Domain Access | backend/tools/_iyaki_db.py, tools/iyaki_query.py, tools/iyaki/ (block/entity/category/episode/section/group/graph/timeline/worldbuilding/note/rollback + _shared), tools/iyaki_mutate.py (compat shim), tools/iyaki_project.py (project lifecycle — lock_project exception) | (rule: database-patterns + data-layer-patterns) |
+| External Domain Access | backend/tools/_iyaki_db.py, tools/iyaki_query.py, tools/iyaki/ (block/entity/category/episode/section/group/graph/timeline/worldbuilding/note/rollback + _shared), tools/iyaki_mutate.py (compat shim), tools/iyaki_project.py (project lifecycle — lock_project exception). 이 instance 의 외부 도메인 사례 = `iyaki` 웹서비스 | (rule: database-patterns + data-layer-patterns) |
 | User Skills      | backend/routes/skills.py, services/skills/, state/user_skill.py, state/db_user_skill.py, db/models/user_skill.py | (rule: user-skill-patterns) |
 
 ## 작업 규율
@@ -92,7 +92,7 @@ Layer 2 policy는 `.claude/skills/backend-overview` 로드 시 주입됨.
 
 ### 활성 불변식 경고
 - **Single writer path**: `backend/data/media/**` 쓰기는 WriteCoordinator 싱글턴 경유 (media 전용 scope — user-state overlay 는 제거됨)
-- **iyaki domain boundary**: 도메인 데이터는 웹서비스(iyaki) 소유. AI 백엔드는 자체 엔티티 테이블 미보관. 동일 Postgres 인스턴스의 `public.*` (iyaki 스키마) 에 **직접 SELECT/UPDATE 허용**하되, 쓰기는 `lock_project` advisory lock + `ai_backend.iyaki_mutations` 감사 append 필수. 접근은 전용 pool (`backend/tools/_iyaki_db.py`) 경유
+- **external domain boundary** (이 instance = `iyaki` 웹서비스): 도메인 데이터는 외부 application 소유. AI 백엔드는 자체 엔티티 테이블 미보관. 동일 Postgres 인스턴스의 `public.*` 스키마에 **직접 SELECT/UPDATE 허용**하되, 쓰기는 `lock_project` advisory lock + `ai_backend.iyaki_mutations` 감사 append 필수. 접근은 전용 pool (`backend/tools/_iyaki_db.py`) 경유
 - **StoragePort abstraction**: `data/writer.py` 와 `state/session.py` 는 Port Protocol 로 추상화 — 호출자는 Protocol 에만 의존
 - **3-layer input safety gate** (§1-(2) PII Redaction + §1-(3) Content Moderation + §1-(4) Jailbreak Detection): `dispatch_run` 본문에서 V3 ordering 으로 sequential 게이트 — `tombstone → jailbreak heuristic → jailbreak classifier (opt-in) → moderation → _stream_agent`. 세 layer 모두 `enabled=False` 시 `run_policy.no_safety_layer` WARNING (3-layer validator). 두 게이트 (jailbreak + moderation) 는 직교 — `X-App-Jailbreak-Status` 와 `X-App-Moderation-Status` 헤더 분리
 

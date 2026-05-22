@@ -4,7 +4,7 @@ description: 앱 도메인 경계 invariant — 백엔드 (ai_backend.*) 와 웹
 metadata:
   role: invariant
   scope: apps/api
-  source: stack-backend-python/_shared/iyaki-domain-boundary.md (renamed)
+  source: stack-backend-python/_shared/external-domain-boundary.md (generalized)
 ---
 
 **적용된 §4.4 매트릭스 행**: 거의 ✕ (protocol-level). 본문 안 도메인 식별자는 `app_*` / `domain_*` 로 일반화 (legacy prefix 잔존 금지).

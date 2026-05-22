@@ -73,5 +73,5 @@ Hard/World Rule은 즉시, Soft Rule은 debounce 후 LLM 호출.
 ## 관련 rule / skill
 
 - `architecture.md` — LSP 계층 배치 (`lsp → engine / tools` 단방향)
-- `database-patterns.md` §iyaki 경계 — 도메인 데이터 read-only 조회 경로
+- `database-patterns.md` §외부 도메인 경계 — 도메인 데이터 read-only 조회 경로
 - `lsp-server` skill — pygls 구조 상세
