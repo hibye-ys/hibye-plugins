@@ -66,6 +66,9 @@ vercel 미install 시 — 성능 / Web Vitals / Next cache 룰 공백.
 @./skills/server-vs-client-state/SKILL.md
 @./skills/image-media-contract/SKILL.md
 @./skills/react19-migration/SKILL.md
+@./skills/rtl-query-priority/SKILL.md
+@./skills/playwright-msw-e2e/SKILL.md
+@./skills/test-doubles-discipline/SKILL.md
 
 ## 관련 자료
 
