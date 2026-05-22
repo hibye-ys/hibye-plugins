@@ -45,12 +45,16 @@ vercel 미install 시 — 성능 / Web Vitals / Next cache 룰 공백.
 
 **중복 금지 원칙**: 같은 패턴을 도구 *와* 본 plugin validate 가 둘 다 잡으면 — 본 plugin 에서 *제거*. 단 *CSS 사이드* (jsx-a11y 가 JSX 만 보므로 CSS file 안 패턴 미커버) 는 본 plugin 유일.
 
-## Skill 카탈로그 (Phase 1)
+## Skill 카탈로그
 
-> Phase 2 에서 10-12개 추가 예정 — 위 8개 영역에 걸쳐.
+> Phase 1 = semantic-a11y + token-only-styling (vercel-style 패턴 정립).
+> Phase 2 — Batch 1 추가 (a11y-dialog-pattern / security-dom-sinks / electron-renderer-isolation). 나머지 Batch 2-6 진행 중.
 
 @./skills/semantic-a11y/SKILL.md
 @./skills/token-only-styling/SKILL.md
+@./skills/a11y-dialog-pattern/SKILL.md
+@./skills/security-dom-sinks/SKILL.md
+@./skills/electron-renderer-isolation/SKILL.md
 
 ## 관련 자료
 

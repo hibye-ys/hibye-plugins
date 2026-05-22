@@ -204,7 +204,7 @@ import {DialogTrigger, Dialog, Modal, Heading} from 'react-aria-components'
 
 둘 다 focus trap / ESC / return focus / aria-modal 자동.
 
-> Phase 2 — 별도 `a11y-dialog-pattern` skill 신설 시 본 skill 에서 chainTo 추가 예정.
+> Dialog 패턴 = 별도 `a11y-dialog-pattern` skill 로 chain (frontmatter `chainTo` 참고). 본 skill 의 핵심 메시지 = "자체 구현 ✕, 라이브러리 위임".
 
 ## 참조
 
