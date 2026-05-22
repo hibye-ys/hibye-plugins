@@ -3,3 +3,8 @@
 node_modules/
 .idea/
 .vscode/
+
+# link-cache.sh 부산물 — cache/<plugin> 자체가 symlink 인 plugin 의 경우
+# link-cache.sh 가 plugin 안에 self-referencing 0.0.1 symlink 생성. 무시.
+plugins/*/0.0.1
+
