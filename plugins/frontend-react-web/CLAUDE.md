@@ -48,7 +48,7 @@ vercel 미install 시 — 성능 / Web Vitals / Next cache 룰 공백.
 ## Skill 카탈로그
 
 > Phase 1 = semantic-a11y + token-only-styling (vercel-style 패턴 정립).
-> Phase 2 — M1 (Batch 1-4) 완료: 10 skill. M2 (Batch 5) + M3 (Batch 6) 진행 중.
+> Phase 2 — M1 (Batch 1-4) + M2 (Batch 5) 완료: 13 skill. M3 (Batch 6 — react19-migration) 진행 중.
 
 @./skills/semantic-a11y/SKILL.md
 @./skills/token-only-styling/SKILL.md
@@ -62,6 +62,9 @@ vercel 미install 시 — 성능 / Web Vitals / Next cache 룰 공백.
 @./skills/input-state-contract/SKILL.md
 @./skills/suspense-error-locality/SKILL.md
 @./skills/typescript-strict/SKILL.md
+@./skills/focus-navigation/SKILL.md
+@./skills/server-vs-client-state/SKILL.md
+@./skills/image-media-contract/SKILL.md
 
 ## 관련 자료
 
