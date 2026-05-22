@@ -17,3 +17,20 @@
 # 예: 향후 deprecated identifier 강제 시:
 #   stack-backend-ts-hono  (legacy plugin name — rename 후 잔존 금지)
 \bstack-backend-ts-hono\b
+
+# === Framework / runtime 어휘 (Phase 4 이후 차단) ===
+# 본 plugin 은 framework-agnostic 정책 — 특정 framework / runtime 어휘 본문 잔존 금지.
+# Phase 4 batch 진행 중에는 ALLOW_FRAMEWORK_VOCAB=1 환경변수로 일시 우회 가능.
+# Task 4.8 에서 우회 옵션 제거 + 정식 차단 전환.
+\bHono\b
+\bhono\b
+\bCloudflare\b
+\bWorkers\b
+\bwrangler\b
+\bc\.env\b
+\bc\.json\b
+\bc\.req\b
+\bc\.set\b
+\bstreamSSE\b
+\bHTTPException\b
+\bapps/api\b
