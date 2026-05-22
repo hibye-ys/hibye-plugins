@@ -39,7 +39,7 @@ dual-key window 권장: 24h~7d (key 사용 주기에 따라).
 - dual-key window skip
 - 즉시 새 key 배포 + 이전 key 무효화
 - 사용자 영향 (인증 토큰 무효화) 감수 — 보안 우선
-- audit log 에 `secret.emergency_rotation` 기록 ([[structured-log-schema]] level=critical, root cause + 영향 범위 + 회전 시각)
+- audit log 에 `secret.emergency_rotation` 기록 ([[structured-log-schema]] level=fatal, root cause + 영향 범위 + 회전 시각)
 
 ## 회전 대상 식별
 
@@ -53,7 +53,7 @@ dual-key window 권장: 24h~7d (key 사용 주기에 따라).
 
 - 회전 절차 없이 단일 key 직 교체 (인증 끊김 — 윈도우 없는 cutover)
 - 회전 후 이전 key 를 코드 / git history 에 잔존 (`git rm` + `git filter-repo` 필요 시)
-- 회전 audit log 누락 ([[structured-log-schema]] 의 critical level — incident response 시 timeline 부재)
+- 회전 audit log 누락 ([[structured-log-schema]] 의 fatal level — incident response 시 timeline 부재)
 - dual-key window 없이 verify 단일 key 만 (이전 토큰 일괄 거부)
 - 응급 회전 사실을 사용자에게 알리지 않고 silent (강제 logout 사유 공지 의무)
 

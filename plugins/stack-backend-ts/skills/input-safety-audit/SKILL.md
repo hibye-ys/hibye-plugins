@@ -1,6 +1,6 @@
 ---
 name: input-safety-audit
-description: route handler 추가/수정 후. input-safety-gate-ordering invariant (auth → schema → rate-limit → handler) 위반 검출.
+description: route handler 추가/수정 후. input-safety-gate-ordering invariant (입력측 안전 게이트 chain — tombstone → jailbreak → moderation) 위반 검출. middleware 등록 순서는 [[api-routing]] invariant 가 정본.
 metadata:
   role: audit
   scope: project
@@ -33,8 +33,8 @@ grep -nE '<framework middleware registration>' <api-app>/src/middleware/index.ts
 
 ## 위반 시 조치
 1. body parse 후 zod 검증 없음 → `z.parse()` 또는 `z.safeParse()` (또는 framework integrated validator) 추가
-2. middleware 순서 오류 → auth → schema → rate-limit → handler 순으로 재배치
+2. middleware 순서 오류 → [[api-routing]] invariant 의 "Middleware 등록 순서 원칙" 표 (requestId → rateLimit → cors → auth → schema → handler) 와 일치하도록 재배치
 
 ## 통과 기준
 - 패턴 1 match 0건 (모든 body 는 zod 검증)
-- 패턴 2 = auth → schema → rate-limit → ... 순서
+- 패턴 2 — middleware 등록 순서가 [[api-routing]] invariant 의 정본 순서와 일치

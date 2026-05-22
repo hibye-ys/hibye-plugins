@@ -16,7 +16,7 @@ metadata:
 - `name: <kebab-case>` — 디렉토리명과 일치
 - `description: <한국어 한 문장>` — 비어 있지 않음
 - `metadata.role: invariant | workflow | audit` — 3종 중 하나
-- `metadata.scope: <api-app>` — 본 plugin 의 scope
+- `metadata.scope: project` — 본 plugin 의 scope
 - `metadata.source: <...>` — 원본 출처 (포팅 추적성)
 
 ## 실행
@@ -35,8 +35,8 @@ for f in plugins/stack-backend-ts/skills/*/SKILL.md; do
   # role: invariant | workflow | audit
   grep -qE "^\s*role:\s*(invariant|workflow|audit)\$" "$f" || echo "$f: invalid role"
 
-  # scope: <api-app>
-  grep -qE "^\s*scope:\s*<api-app>\$" "$f" || echo "$f: invalid scope"
+  # scope: project
+  grep -qE "^\s*scope:\s*project\$" "$f" || echo "$f: invalid scope"
 
   # source: present (값은 자유)
   grep -qE "^\s*source:" "$f" || echo "$f: missing source"
@@ -67,7 +67,7 @@ description 은 *언제 invoke 하는지* + *무엇을 검증하는지* 가 한 
 
 ### invalid scope
 
-본 plugin 은 `<api-app>` scope. `<web-app>` 같은 다른 scope 면 다른 plugin (`stack-frontend-*`) 으로 이동.
+본 plugin 의 모든 SKILL.md 는 `project` scope. 다른 scope 가 필요하면 별도 plugin 으로 분리.
 
 ### missing source
 

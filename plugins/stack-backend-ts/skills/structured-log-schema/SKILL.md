@@ -47,7 +47,7 @@ metadata:
 | info | 정상 lifecycle 이벤트 (request start/end, agent dispatch) |
 | warn | 복구 가능 이상 (provider fallback, compaction failure 1회) |
 | error | 사용자 영향 + 복구 실패 (provider chain 소진, DB 타임아웃) |
-| critical | 시스템 영향 (startup fail, secret 누설 시도) |
+| fatal | 시스템 영향 (startup fail, secret 누설 시도) |
 
 ## 메시지 명명 — `<subsystem>.<event>` snake_case
 

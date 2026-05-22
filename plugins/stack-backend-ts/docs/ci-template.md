@@ -26,7 +26,7 @@ jobs:
       - name: forbidden-scan
         run: bash .claude/plugins/stack-backend-ts/scripts/forbidden-scan.sh
       - name: audit-all
-        run: bash .claude/plugins/stack-backend-ts/scripts/audit-all.sh
+        run: bash .claude/plugins/stack-backend-ts/scripts/audit-all.sh "$API_APP_PATH"
 ```
 
 ## DOMAIN_VOCAB 형식
