@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# audit-all.sh — apps/api/ 에 audit 24 일괄 실행. pre-deploy-check 의 Step 3.
+# audit-all.sh — apps/api/ 에 audit 21 일괄 실행. pre-deploy-check 의 Step 3.
 # 각 audit 의 grep 패턴 = 해당 SKILL.md 본문 발췌.
 #
 # NOTE: 이 batch script 는 *문턱 검사* 만 — 빠른 fail-fast. 각 audit 의 *전체* 패턴 (block-level, multi-pattern)
@@ -8,14 +8,14 @@
 # Usage: ./audit-all.sh [api-dir]
 #   api-dir 미지정 시 = cwd. 일반적으로 apps/api/ 안에서 실행.
 #
-# 24 audit:
-#   기존 13 — provider-retry / sse-lifecycle / single-writer / token-budget /
+# 21 audit:
+#   기존 12 — provider-retry / sse-lifecycle / single-writer / token-budget /
 #            tool-sort-order / input-safety / mcp-namespace / compaction-thresholds /
 #            http-error-sentinels / run-policy-presets / spawn-limits /
-#            app-domain-boundary / d1-forbidden
-#   신규 11 (Task 9e.1–9e.11) — agent-verify-def / api-audit / data-audit /
-#            full-architecture / infra / loop / session / security-audit-check /
-#            rule-linting / dependency-scanning / runtime-verify
+#            app-domain-boundary
+#   신규 9 (Task 9e.1–9e.9 — post-eject) — agent-verify-def / api-audit / data-audit /
+#            full-architecture / loop / session / security-audit-check /
+#            rule-linting / dependency-scanning
 
 set -uo pipefail
 
@@ -136,16 +136,7 @@ else
   echo "SKIP [app-domain-boundary]: DOMAIN_VOCAB envvar 미정의 — instance 측에서 export 필요"
 fi
 
-# 13. d1-forbidden-audit (spec §1.2 enforce)
-if [[ -f wrangler.toml ]]; then
-  run_audit "d1-forbidden-wrangler" 'd1_databases|D1Database' wrangler.toml
-fi
-if [[ -f wrangler.jsonc ]]; then
-  run_audit "d1-forbidden-wrangler-jsonc" 'd1_databases|D1Database' wrangler.jsonc
-fi
-run_audit "d1-forbidden-code" '\bD1Database\b' src/
-
-# ─────────────────────────── 신규 11 audit (Task 9e.1–9e.11) ───────────────────────────
+# ─────────────────────────── 신규 9 audit (Task 9e.1–9e.9 — post-eject) ───────────────────────────
 
 # 14. agent-verify-def — agent default export 필수 필드 + name 중복
 agent_verify_def_check() {
@@ -232,27 +223,6 @@ full_architecture_check() {
   [[ $count -eq 0 ]] && echo "PASS [full-architecture]"
 }
 full_architecture_check
-
-# 18. infra-audit — wrangler 필수 키 + binding + preview env
-infra_audit_check() {
-  local wrangler="wrangler.toml"
-  [[ ! -f "$wrangler" ]] && wrangler="wrangler.jsonc"
-  [[ ! -f "$wrangler" ]] && { echo "SKIP [infra-audit]: wrangler config 없음"; return; }
-  local count=0
-  for key in name main compatibility_date; do
-    grep -qE "^\s*\"?${key}\"?\s*[:=]" "$wrangler" \
-      || { echo "VIOLATION [infra-audit]: missing $key"; count=$((count+1)); }
-  done
-  for binding in DATABASE_URL OPENROUTER_API_KEY; do
-    grep -q "$binding" "$wrangler" \
-      || { echo "VIOLATION [infra-audit]: missing $binding binding"; count=$((count+1)); }
-  done
-  grep -qE "\[env\.preview\]|\"preview\"\s*:" "$wrangler" \
-    || { echo "VIOLATION [infra-audit]: missing preview env"; count=$((count+1)); }
-  VIOLATIONS=$((VIOLATIONS + count))
-  [[ $count -eq 0 ]] && echo "PASS [infra-audit]"
-}
-infra_audit_check
 
 # 19. loop-audit — while(true) 안 break/abort/turn 종료 조건
 # BSD awk 호환: `\s` → `[[:space:]]` (macOS awk 가 PCRE 미지원)
@@ -345,9 +315,6 @@ dependency_scanning_check() {
   fi
 }
 dependency_scanning_check
-
-# 24. runtime-verify — endpoint hit 은 배포 후 별도 실행 (manual)
-echo "MANUAL [runtime-verify]: 배포 후 runtime-verify/SKILL.md 의 ## 실행 (BASE_URL 지정) 별도 호출"
 
 # ─────────────────────────── 결론 ───────────────────────────
 echo ""
