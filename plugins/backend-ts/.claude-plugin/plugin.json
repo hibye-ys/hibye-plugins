@@ -1,0 +1,8 @@
+{
+  "name": "backend-ts",
+  "version": "0.0.1",
+  "description": "TypeScript backend skills — auto-detects framework (Hono/Express/Fastify) and monorepo layout via SessionStart hook, no manual placeholder mapping.",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT",
+  "keywords": ["typescript", "backend", "ai-agent", "agent-skills", "auto-detect"]
+}

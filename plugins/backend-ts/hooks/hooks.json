@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/hooks.schema.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-profiler.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
