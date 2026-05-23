@@ -101,24 +101,49 @@ function detectMonorepoLayout(root) {
   return layout
 }
 
-// ── 4. 도메인 어휘 후보 추출 (db/schema, models, entities, domain) ──
+// ── 4. 도메인 어휘 후보 추출 ──
+// 2-depth recursive scan + `_` prefix / `index` 제외. 다양한 도메인 layout 지원:
+//   - flat: src/domain/user.ts
+//   - drizzle namespace: src/db/schema/core/entity.ts
+//   - tool catalog: src/tools/domain/world.ts
+function collectStems(dir, depth, candidates) {
+  if (depth > 2) return
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith('_') || name.startsWith('.')) continue
+      const full = join(dir, name)
+      let st
+      try { st = statSync(full) } catch { continue }
+      if (st.isDirectory()) {
+        if (name === 'node_modules' || name === '__tests__' || name === 'index') continue
+        collectStems(full, depth + 1, candidates)
+      } else if (/\.(ts|tsx|mts|cts)$/.test(name)) {
+        const stem = name.replace(/\.(ts|tsx|mts|cts)$/, '')
+        if (stem === 'index' || stem.startsWith('_')) continue
+        if (/^[a-z][a-z0-9_-]*$/i.test(stem)) {
+          candidates.push(stem.toLowerCase().replace(/-/g, '_'))
+        }
+      }
+    }
+  } catch { /* ignore */ }
+}
+
 function extractDomainVocab(root, apiApp) {
   const candidates = []
   const baseDirs = apiApp ? [join(root, apiApp)] : [root]
 
+  // 도메인 candidate 디렉토리 — 1-depth + 2-depth subdirectory recursive
+  const subDirs = [
+    'src/domain', 'src/models', 'src/entities',
+    'src/db/schema', 'src/schema',
+    'src/tools/domain',
+    'domain', 'models',
+  ]
   for (const base of baseDirs) {
-    for (const sub of ['src/domain', 'src/models', 'src/entities', 'src/db/schema', 'src/schema', 'domain', 'models']) {
+    for (const sub of subDirs) {
       const dir = join(base, sub)
       if (!existsSync(dir)) continue
-      try {
-        for (const name of readdirSync(dir)) {
-          // 확장자 제거 + index 제외
-          const stem = name.replace(/\.(ts|js|mjs|cjs|tsx)$/, '')
-          if (stem !== 'index' && stem !== name && /^[a-z][a-z0-9_-]*$/i.test(stem)) {
-            candidates.push(stem.toLowerCase().replace(/-/g, '_'))
-          }
-        }
-      } catch { /* ignore */ }
+      collectStems(dir, 0, candidates)
     }
   }
 
