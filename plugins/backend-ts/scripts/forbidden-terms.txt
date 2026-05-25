@@ -1,4 +1,4 @@
-# forbidden-terms.txt — stack-backend-ts 정본
+# forbidden-terms.txt — backend-ts 정본
 #
 # 위치 = plugin scripts 옆 (forbidden-scan.sh 가 자기-포함 default 로 참조).
 # 갱신 시 본 파일 한 곳만 수정.

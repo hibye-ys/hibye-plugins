@@ -1,6 +1,6 @@
 # Instance CLAUDE.md 작성 템플릿
 
-stack-backend-ts plugin 사용 instance (예: iyaki-rebuild) 측 프로젝트 root 의 `CLAUDE.md` 작성 가이드.
+backend-ts plugin 사용 instance (예: iyaki-rebuild) 측 프로젝트 root 의 `CLAUDE.md` 작성 가이드.
 
 > **매핑 범위 — Codex Round 3 권고 반영**
 >
@@ -13,7 +13,7 @@ stack-backend-ts plugin 사용 instance (예: iyaki-rebuild) 측 프로젝트 ro
 ```markdown
 @AGENTS.md
 
-## stack-backend-ts plugin placeholder 매핑 (카테고리 1)
+## backend-ts plugin placeholder 매핑 (카테고리 1)
 
 ### 기본 framework / runtime
 
@@ -70,7 +70,7 @@ stack-backend-ts plugin 사용 instance (예: iyaki-rebuild) 측 프로젝트 ro
 
 ```bash
 export DOMAIN_VOCAB="writer|author|scenario|novel|character|persona"
-bash plugins/stack-backend-ts/scripts/audit-all.sh
+bash plugins/backend-ts/scripts/audit-all.sh
 ```
 
 CI 에서는 워크플로우 env 섹션에 등록:

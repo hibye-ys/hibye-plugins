@@ -34,7 +34,7 @@ TypeScript backend 프로젝트 (typescript + framework dependency) 가 아니�
 
 ## 정공법 실험 — 본 plugin 의 의도
 
-[`stack-backend-ts`](../stack-backend-ts/) 의 v2 정공법 fork. 차이:
+`stack-backend-ts` (이전 v1 plugin — commit 91bf02c 에서 삭제) 의 v2 정공법 fork. 차이:
 
 | 측면 | `stack-backend-ts` (v1) | `backend-ts` (v2 — 본 plugin) |
 |------|--------|----------|
@@ -44,3 +44,23 @@ TypeScript backend 프로젝트 (typescript + framework dependency) 가 아니�
 | Cache | manual symlink (link-cache.sh) | 공식 `${CLAUDE_PLUGIN_DATA}` directory |
 
 v1 은 7 라운드 review 의 결과물 (skill 본문 자체는 검증됨). v2 는 *로딩 메커니즘* 만 표준화 — skill 본문은 동일 hardlink.
+
+## Migration 이력 (instance 측 영향)
+
+### 2026-05-25 — `STACK_BACKEND_TS_PRESET` → `BACKEND_TS_PRESET` rename
+
+**배경**: v2 plugin rename (`stack-backend-ts` → `backend-ts`) 의 후속 일관성 작업. v5 audit turn (`docs/harness_bestpractice/audit/backend-ts-audit.md`) 에서 일괄 적용.
+
+**instance 측 영향**:
+
+- 기존 CI 파이프라인에서 `STACK_BACKEND_TS_PRESET=hono-workers bash ...` 를 사용 중인 경우 → `BACKEND_TS_PRESET=hono-workers bash ...` 로 갱신 필수
+- 자동 fallback ✕ — env var 미인식 시 silent skip (preset 자동 로드 안 됨)
+- 갱신 방법:
+  1. `docs/ci-template.md` 재 가져오기 + 기존 CI 와 diff
+  2. 또는 GitHub Actions / GitLab CI / Jenkins 의 env 정의 검색 후 수동 치환
+- forbidden-terms.txt 의 `\bstack-backend-ts-hono\b` 는 *legacy plugin name 검출용* 으로 유지 — 새 rename 대상 ✕
+
+**rename 의 *legacy reference 의도된 보존* 위치** (sed 일괄 치환 대상 ✕):
+
+- 본 CLAUDE.md L37 / L39 — v1 historical reference (commit 91bf02c 에서 v1 plugin 삭제 사실 기록)
+- `scripts/forbidden-terms.txt` L18-19 — `stack-backend-ts-hono` legacy term 검출 패턴

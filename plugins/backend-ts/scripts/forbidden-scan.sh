@@ -6,13 +6,13 @@
 #   forbidden-scan.sh [target-dir] --exclude PATTERN [--exclude PATTERN ...]
 #   forbidden-scan.sh --profile <skills|all-plugin|docs>
 #
-# 기본 target = plugins/stack-backend-ts/skills/  (--profile skills 와 동일)
+# 기본 target = plugins/backend-ts/skills/  (--profile skills 와 동일)
 # 기본 정본 forbidden-terms = scripts/forbidden-terms.txt (자기 옆)
 #
 # Profile 옵션 (target-dir 명시 시 무시):
-#   skills      (default) — plugins/stack-backend-ts/skills/ 만
+#   skills      (default) — plugins/backend-ts/skills/ 만
 #   all-plugin             — plugin root 전체 (단 scripts/ 자기 제외)
-#   docs                   — plugins/stack-backend-ts/docs/ 만
+#   docs                   — plugins/backend-ts/docs/ 만
 #
 # 환경 변수:
 #   FORBIDDEN_FILE — forbidden-terms.txt 경로 override
@@ -96,7 +96,7 @@ fi
 # Normalize TARGET_DIR — collapse `../` segments so glob 패턴 (e.g. `!**/scripts/**`)
 # 가 의도치 않게 *대상 디렉토리 경로* 안 `scripts` 세그먼트에 매치되어 전체 결과를
 # 무력화시키는 버그를 차단. (rg --glob 은 file path 전체에 매치되므로
-# `plugins/stack-backend-ts/scripts/../skills/...` 는 `**/scripts/**` 에 매치됨)
+# `plugins/backend-ts/scripts/../skills/...` 는 `**/scripts/**` 에 매치됨)
 if [ -d "$TARGET_DIR" ]; then
   TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
 fi

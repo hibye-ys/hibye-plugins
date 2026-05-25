@@ -109,12 +109,13 @@ metadata:
 - **"invariant SKILL.md 와 코드가 다르다"** → invariant 가 정본. 코드 정정 또는 사용자 합의 후 invariant 갱신 — *코드 일치를 핑계로 invariant 슬쩍 완화 ✕*.
 - **새 invariant 카탈로그 미갱신** → 본 SKILL.md 가 stale → agent 가 invariant 누락 → 위반 코드 통과. 신규 추가 시 본 카탈로그 갱신 의무.
 
-## 검증 체크리스트
+## 정합성 의무 (정적)
 
-- [ ] 본 SKILL.md 카탈로그 행 수 = `ls plugins/stack-backend-ts/skills/ | rg -c '^(single-writer|provider-retry-matrix|token-budget-constants|sse-lifecycle|compaction-thresholds|http-error-sentinels|input-safety-gate-ordering|mcp-namespace|run-policy-presets|spawn-limits|tool-sort-order|agent-loop-invariants|app-domain-boundary|media-job-lifecycle|rate-limit-policy|structured-log-schema|cors-policy|config-env-validation|cancellation-propagation)$'` = 19 (본 skill 제외)
-- [ ] 적용 매핑 표 = 작업 영역마다 *모든* 관련 invariant 명시 (누락 ✕)
-- [ ] 신규 invariant 추가 시 — 카탈로그 + 적용 매핑 동시 갱신
-- [ ] 모든 카탈로그 행에 frontmatter `name` 일치하는 SKILL.md 존재
+- 본 SKILL.md 카탈로그 행 수 = invariant SKILL.md 개수 (현재 19개, 본 skill 제외) — 신규 추가/제거 시 즉시 sync 의무
+- 적용 매핑 표 = 작업 영역마다 *모든* 관련 invariant 명시 (누락 ✕)
+- 모든 카탈로그 행에 frontmatter `name` 일치하는 SKILL.md 존재 — frontmatter 정합성은 [[rule-linting]] 가 검출 (단, 카탈로그↔개수 비교는 미수행)
+
+> **현재 자동 검증 ✕**: 카탈로그 ↔ 실재 invariant SKILL.md 개수 비교 / 카탈로그 ↔ 적용 매핑 표 일관성은 자동화되어 있지 않음. 신규 invariant 추가/제거 시 사용자가 *본 카탈로그 + §적용 매핑 표 + [[ts-agent-rules]] / [[backend-overview]] 의 관련 행* 을 동시 수동 갱신 의무. 향후 `scripts/audit-all.sh` 에 `architecture_invariants_catalog_check()` 함수 추가 PR 예정. 본 SKILL.md 본문에 매번-실행 grep 절차 ✕ (AP-06 회피).
 
 ## 구현 중 막히면
 

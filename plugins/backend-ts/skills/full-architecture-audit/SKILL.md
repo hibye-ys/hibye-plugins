@@ -23,7 +23,7 @@ metadata:
 
 ```bash
 # 패턴 1: 25 audit 통합 (scripts/audit-all.sh 가 본 plugin scripts/ 안에 있다고 가정)
-bash plugins/stack-backend-ts/scripts/audit-all.sh <api-app>
+bash plugins/backend-ts/scripts/audit-all.sh <api-app>
 
 # 패턴 2: 디렉토리 구조 정합 — 화이트리스트 외 디렉토리 검출
 # 화이트리스트 = [[backend-overview]] §"디렉토리 구조" 정본 + sub-area 변형

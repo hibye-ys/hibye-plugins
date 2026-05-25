@@ -59,7 +59,7 @@ cd "$API_DIR" || { echo "error: API_DIR not found: $API_DIR" >&2; exit 2; }
 
 # Framework-specific audit patterns — framework-neutral 의무 (default 없음).
 #
-# 본 plugin (stack-backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
+# 본 plugin (backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
 # 패턴을 default 로 두지 않는다 (Codex round 6 review — Defect 3). instance 측은
 # 다음 중 하나로 7개 env var 를 모두 주입해야 한다:
 #
@@ -67,22 +67,22 @@ cd "$API_DIR" || { echo "error: API_DIR not found: $API_DIR" >&2; exit 2; }
 #         source scripts/presets/hono-workers.env
 #         bash scripts/audit-all.sh apps/api
 #
-#   (2) STACK_BACKEND_TS_PRESET env 자동 로드:
-#         STACK_BACKEND_TS_PRESET=hono-workers bash scripts/audit-all.sh apps/api
+#   (2) BACKEND_TS_PRESET env 자동 로드:
+#         BACKEND_TS_PRESET=hono-workers bash scripts/audit-all.sh apps/api
 #
 #   (3) CI env block 에 직접 명시 (docs/ci-template.md 참조)
 #
 # Preset 추가: scripts/presets/<name>.env 작성 (기존 hono-workers.env 참고).
 
-# Optional: STACK_BACKEND_TS_PRESET 자동 로드
-if [ -n "${STACK_BACKEND_TS_PRESET:-}" ]; then
+# Optional: BACKEND_TS_PRESET 자동 로드
+if [ -n "${BACKEND_TS_PRESET:-}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  PRESET_FILE="$SCRIPT_DIR/presets/${STACK_BACKEND_TS_PRESET}.env"
+  PRESET_FILE="$SCRIPT_DIR/presets/${BACKEND_TS_PRESET}.env"
   if [ -f "$PRESET_FILE" ]; then
     # shellcheck disable=SC1090
     source "$PRESET_FILE"
   else
-    echo "error: STACK_BACKEND_TS_PRESET=$STACK_BACKEND_TS_PRESET but $PRESET_FILE not found" >&2
+    echo "error: BACKEND_TS_PRESET=$BACKEND_TS_PRESET but $PRESET_FILE not found" >&2
     exit 2
   fi
 fi
@@ -108,15 +108,15 @@ if [ "${#MISSING_VARS[@]}" -gt 0 ]; then
 error: required framework-specific env vars missing:
   ${MISSING_VARS[*]}
 
-본 plugin (stack-backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
+본 plugin (backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
 패턴을 default 로 두지 않는다. 다음 중 하나로 주입:
 
   (1) Preset 파일 source (Hono + Workers instance):
         source scripts/presets/hono-workers.env
         bash scripts/audit-all.sh "$@"
 
-  (2) STACK_BACKEND_TS_PRESET 자동 로드:
-        STACK_BACKEND_TS_PRESET=hono-workers bash scripts/audit-all.sh "$@"
+  (2) BACKEND_TS_PRESET 자동 로드:
+        BACKEND_TS_PRESET=hono-workers bash scripts/audit-all.sh "$@"
 
   (3) CI env block 에 직접 명시 (docs/ci-template.md 참조).
 
@@ -259,20 +259,53 @@ fi
 
 # ─────────────────────────── 신규 9 audit (Task 9e.1–9e.9 — post-eject) ───────────────────────────
 
-# 14. agent-verify-def — agent default export 필수 필드 + name 중복
+# 14. agent-verify-def — ai-agent-patterns AgentDefinitionSchema 정합성 (YAML)
+#
+# 정본: [[ai-agent-patterns]] §"AgentDefinition 스키마". backend-ts 의 agent 정의는
+# YAML + markdown prompt 분리이므로 *.yaml 스캔. 필수 필드 (name / systemPromptFile)
+# + name regex (^[a-z0-9_]{1,64}$) + name == 파일 stem + name 중복 검증.
+#
+# SKILL.md (plugins/backend-ts/skills/agent-verify-def/SKILL.md) §실행 과 패턴 sync 의무.
 agent_verify_def_check() {
   [[ ! -d src/agents ]] && { echo "SKIP [agent-verify-def]: src/agents/ 없음"; record_skip "agent-verify-def"; return; }
   local count=0
-  for f in src/agents/*.ts; do
-    [[ -f "$f" ]] || continue
-    for field in name version step modelMix; do
-      grep -q "$field" "$f" || { echo "VIOLATION [agent-verify-def]: $f missing $field"; count=$((count+1)); }
+  # nullglob: empty glob 시 literal pattern 회피. 호출자 nullglob 상태 보존 (v3.1 Codex LOW#1).
+  local nullglob_state
+  nullglob_state=$(shopt -p nullglob)
+  shopt -s nullglob
+  # NOTE (v3.1 Codex LOW#2): 본 grep 은 *top-level unindented* `name:` 만 처리.
+  # tab/space 들여쓰기, `# name:` 주석, multi-doc YAML (`---` 구분) 의 nested name 은 검출 ✕.
+  # 정확한 YAML parse 가 필요하면 별도 yamllint / yq 의무 — 본 grep 은 fast-fail 만 보장.
+  for f in src/agents/*.yaml; do
+    # 필수 필드
+    for field in name systemPromptFile; do
+      grep -q "^${field}:" "$f" || { echo "VIOLATION [agent-verify-def]: $f missing $field"; count=$((count+1)); }
     done
+    # name 추출 — 한 번만 (정규식 + stem 비교에 재사용)
+    local name
+    name=$(grep -hE "^name:" "$f" | head -1 \
+      | sed -E "s/^name:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?.*/\1/")
+    if [[ -n "$name" ]]; then
+      # name regex 검증
+      if ! [[ "$name" =~ ^[a-z0-9_]{1,64}$ ]]; then
+        echo "VIOLATION [agent-verify-def]: $f name '$name' violates regex ^[a-z0-9_]{1,64}\$"
+        count=$((count+1))
+      fi
+      # name == 파일 stem 일치
+      local stem
+      stem=$(basename "$f" .yaml)
+      if [[ "$stem" != "$name" ]]; then
+        echo "VIOLATION [agent-verify-def]: $f name '$name' != file stem '$stem'"
+        count=$((count+1))
+      fi
+    fi
   done
+  # nullglob 상태 복원 (호출자의 shopt 보존)
+  eval "$nullglob_state"
   # name 중복
   local dups
-  dups=$(grep -hE "^\s*name:\s*['\"]" src/agents/*.ts 2>/dev/null \
-    | sed -E "s/.*name:\s*['\"]([^'\"]+)['\"].*/\1/" \
+  dups=$(grep -hE "^name:" src/agents/*.yaml 2>/dev/null \
+    | sed -E "s/^name:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?.*/\1/" \
     | sort | uniq -d | wc -l | tr -d ' ')
   if [[ $dups -gt 0 ]]; then
     echo "VIOLATION [agent-verify-def]: $dups 개 name 중복"
@@ -404,17 +437,35 @@ session_audit_check() {
 }
 session_audit_check
 
-# 21. security-audit-check — secret / eval / dynamic require / SQL inj / SSRF
+# 21. security-audit-check — secret / 동적평가 / 동적 require / SQL injection / SSRF (5 패턴)
+#
+# 본 함수의 5 패턴은 SKILL.md (plugins/backend-ts/skills/security-audit-check/SKILL.md)
+# §실행 의 5 rg 명령과 *문자열 그대로 sync* 의무. 패턴 변경 시 양쪽 동시 갱신.
+# (v3: SQL injection 패턴 추가 — body L36-37 mirror)
 security_audit_check() {
   [[ ! -d src ]] && { echo "SKIP [security-audit-check]: src/ 없음"; record_skip "security-audit-check"; return; }
   local count=0
   local m
+  # 1. secret 하드코딩
   m=$(rg -nP "(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]+)" src/ 2>/dev/null | wc -l | tr -d ' ')
   [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m hardcoded secret"; count=$((count+m)); }
+  # 2. 동적 평가 (eval / new Function)
   m=$(rg -nP "\beval\(|new\s+Function\(" src/ 2>/dev/null | wc -l | tr -d ' ')
   [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m eval/new Function"; count=$((count+m)); }
+  # 3. 동적 require
   m=$(rg -nP "require\([^'\"\\\`]+\)" src/ 2>/dev/null | wc -l | tr -d ' ')
   [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m 동적 require"; count=$((count+m)); }
+  # 4a. SQL injection — sql tagged template 안 ${...} 보간 (sql.identifier / sql.placeholder 안전 케이스 제외)
+  m=$(rg -nP 'sql\s*`[^`]*\$\{[^}]+\}' src/ 2>/dev/null \
+    | grep -v "sql\.identifier\|sql\.placeholder" \
+    | wc -l | tr -d ' ')
+  [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m SQL injection 의심 (sql tagged template)"; count=$((count+m)); }
+  # 4b. SQL injection — raw query method (query/execute/raw/executeRaw/$queryRawUnsafe) 의 backtick interpolation
+  # v3.1 (Codex review HIGH#2): untagged raw query 미탐지 결함 — body L36-37 mirror 의무
+  m=$(rg -nP '\.(query|execute|raw|executeRaw|\$queryRawUnsafe)\s*\(\s*`[^`]*\$\{' src/ 2>/dev/null \
+    | wc -l | tr -d ' ')
+  [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m SQL injection 의심 (raw query backtick interpolation)"; count=$((count+m)); }
+  # 5. SSRF — 사용자 입력 URL fetch
   m=$(rg -nP "fetch\(\s*(req\.|body\.|${REQUEST_BODY_PATTERN})" src/ 2>/dev/null | wc -l | tr -d ' ')
   [[ $m -gt 0 ]] && { echo "VIOLATION [security-audit-check]: $m SSRF 의심"; count=$((count+m)); }
   VIOLATIONS=$((VIOLATIONS + count))

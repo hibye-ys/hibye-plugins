@@ -35,7 +35,7 @@ else
   VERSION=""
 fi
 #    Claude Code cache 경로 — Codex CLI 는 .agents/skills/ 직접 스캔이라 cache 미사용
-CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/stack-backend-ts"
+CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/backend-ts"
 # 우선순위: (1) plugin.json version path  (2) plugin root 자체 (full symlink)  (3) 1.0.0 (legacy)
 # global CLAUDE.md 규칙: 캐시 디렉토리는 *심볼릭 링크* 강제 — 일반 dir 이면 fail
 CACHE_OK=0

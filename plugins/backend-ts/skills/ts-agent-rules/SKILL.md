@@ -23,7 +23,7 @@ metadata:
 
 ## 카탈로그 구조 (84 SKILL.md)
 
-`plugins/stack-backend-ts/skills/` 아래에 분류별 SKILL.md 가 있다 — `metadata.role` 로 구분:
+`plugins/backend-ts/skills/` 아래에 분류별 SKILL.md 가 있다 — `metadata.role` 로 구분:
 
 | role | 개수 | 역할 |
 |---|---|---|
@@ -297,7 +297,7 @@ prompt cache 무효화는 세션 전체 토큰 비용 수 배 상승. 아래 불
 
 이 skill 자체는 정적 카탈로그라 lint 의무는 없지만, 카탈로그가 84 SKILL.md 와 동기화돼야 한다:
 
-- [ ] `plugins/stack-backend-ts/skills/` 안 SKILL.md 개수 = 84 (architecture-invariants + ts-agent-rules 포함)
+- [ ] `plugins/backend-ts/skills/` 안 SKILL.md 개수 = 84 (architecture-invariants + ts-agent-rules 포함)
 - [ ] 20 invariant SKILL.md 가 모두 `architecture-invariants` 카탈로그에 등재
 - [ ] 39 workflow SKILL.md 가 모두 `backend-overview` 인덱스에 등재
 - [ ] 25 audit SKILL.md 가 모두 `scripts/audit-all.sh` 에 등재

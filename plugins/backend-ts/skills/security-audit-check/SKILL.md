@@ -1,6 +1,6 @@
 ---
 name: security-audit-check
-description: 배포 전 또는 외부 입력 처리 코드 변경 후 invoke. secret 하드코딩 / eval / new Function / 동적 require / SQL injection / SSRF 6가지 패턴을 grep 으로 일괄 검출.
+description: 배포 전 또는 외부 입력 처리 코드 변경 후 invoke. secret 하드코딩 / 동적 평가 (eval / new Function) / 동적 require / SQL injection / SSRF 5가지 보안 안티패턴을 grep 으로 일괄 검출. audit-all.sh #21 의 security_audit_check() 와 패턴 sync 의무.
 metadata:
   role: audit
   scope: project
@@ -10,10 +10,10 @@ metadata:
 
 ## 검증 대상 invariant
 
-`<api-app>/src/` 안 6가지 보안 안티패턴:
+`<api-app>/src/` 안 5가지 보안 안티패턴:
 
 1. **secret 하드코딩** — `sk-...`, `AKIA...`, `ghp_...` 같은 토큰 prefix
-2. **eval / new Function** — 동적 코드 실행 (runtime + 일반 보안 양쪽 위험)
+2. **동적 평가 (eval / new Function)** — 동적 코드 실행 (runtime + 일반 보안 양쪽 위험)
 3. **동적 require** — `require(variable)` (Node-only + 코드 인젝션 면)
 4. **SQL injection** — raw template string 안 `${...}` 보간 (Drizzle / neon tagged template 안전 사용 제외)
 5. **SSRF** — 사용자 입력 URL 로 직접 fetch (예: `fetch(req.url)` / `fetch(body.url)` 형태)
@@ -32,9 +32,14 @@ rg -nP "\beval\(|new\s+Function\(" <api-app>/src/ 2>/dev/null
 # 패턴 3: 동적 require
 rg -nP "require\([^'\"\`]+\)" <api-app>/src/ 2>/dev/null
 
-# 패턴 4: raw SQL 보간 (sql.identifier / sql.placeholder 안전 케이스 제외)
+# 패턴 4: SQL injection — 2 sub-pattern (v3.1 Codex review 발견: untagged raw query 누락)
+# (4a) sql tagged template 안 ${...} 보간 (Drizzle / neon sql.identifier / sql.placeholder 안전 케이스 제외)
 rg -nP 'sql\s*`[^`]*\$\{[^}]+\}' <api-app>/src/ 2>/dev/null \
   | grep -v "sql\.identifier\|sql\.placeholder"
+
+# (4b) raw query method (query / execute / raw / $queryRawUnsafe / executeRaw) 가 backtick template 의 ${...} 받는 패턴
+# 정당한 parameterized query 는 ${...} 없이 $1/$2 + 두 번째 인자로 binding — 본 패턴 trigger ✕
+rg -nP '\.(query|execute|raw|executeRaw|\$queryRawUnsafe)\s*\(\s*`[^`]*\$\{' <api-app>/src/ 2>/dev/null
 
 # 패턴 5: SSRF — framework request accessor / body 변수를 fetch 인자로
 #   - 구체 grep 정규식은 instance 측 framework 별 accessor 패턴으로 치환

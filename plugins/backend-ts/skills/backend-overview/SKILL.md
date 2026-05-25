@@ -20,7 +20,7 @@ metadata:
 
 ## 아키텍처 불변식은 어디에
 
-본 skill 은 **"어디에 뭐가 있는지" 위치 인덱스** 만 담당. 아키텍처 불변식 / 단일 작성자 / StoragePort / 도메인 경계 등 **"왜 이렇게 짰나, 어떻게 지켜야 하나"** 는 `plugins/stack-backend-ts/skills/` 의 invariant SKILL.md 파일들에 있다.
+본 skill 은 **"어디에 뭐가 있는지" 위치 인덱스** 만 담당. 아키텍처 불변식 / 단일 작성자 / StoragePort / 도메인 경계 등 **"왜 이렇게 짰나, 어떻게 지켜야 하나"** 는 `plugins/backend-ts/skills/` 의 invariant SKILL.md 파일들에 있다.
 
 - 계층 / import 방향 / 단일 작성자 → `single-writer` invariant
 - SSE lifecycle (12 이벤트) → `sse-lifecycle` invariant
@@ -149,7 +149,7 @@ import { ToolRegistry } from './tools/registry.ts'
 본 plugin 은 framework / runtime 무관. 시크릿 접근 방식 (`process.env` vs `<framework env binding>` 등), config 파일 (runtime config 파일 / `Dockerfile` 등), CPU/메모리 한계, streaming 구현 (runtime background task helper 등) 등 *runtime-specific* 사항은 별도 runtime plugin 에 위치한다 (instance 측 project-local skill 참조).
 
 새 backend project 를 부트스트랩 할 때:
-1. 본 plugin (`stack-backend-ts`) = 디렉토리/계층/invariant 표준
+1. 본 plugin (`backend-ts`) = 디렉토리/계층/invariant 표준
 2. + runtime plugin (process-based runtime / edge runtime / serverless function 등) = 시크릿/config/배포
 
 ## 자주 보는 사용 예시

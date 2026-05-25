@@ -1,121 +1,72 @@
 ---
 name: coding-standards
-description: <api-app> TS 코드 작성 시 invoke. 네이밍 (camelCase / PascalCase / UPPER_SNAKE / kebab-case 파일명), 타입 (strict TS + zod 경계), async (Promise / fetch / Promise.all), 로깅 (pino + AsyncLocalStorage / edge runtime JSON.stringify), SRP / DRY / KISS / YAGNI 원칙 안내.
+description: <api-app> TS 코드 작성 / 리뷰 시 invoke. 본 plugin 의 *프로젝트 고유 결정* 만 기록 — snake_case 금지, scrubText / bindLogContext 화이트리스트, 5-level logLevel (z.enum, 오타 시 startup fail), AsyncLocalStorage vs edge runtime context store, ML-worker 격리, enum 금지 (as const 우선), tsconfig strict 3-옵션. 일반 TS 컨벤션 (camelCase / SRP-OCP-DRY-KISS-YAGNI / wildcard import / as any) 은 모델 native 적용 — 본 skill 명시 ✕.
 metadata:
   role: workflow
   scope: project
 ---
 
-**적용된 §4.4 매트릭스 행**:
-- linter: `ruff` → **`eslint`** + (선택) **`@biomejs/biome`**
-- formatter: `black` → **`prettier`** 또는 **`biome format`**
-- import sort: `isort` → **`eslint-plugin-import`** 또는 **`biome organize-imports`**
-- type checker: `pyright` / `pylsp` → **`tsc --noEmit`** + **`vtsls`**
-- 로깅: `loguru` / `structlog` → **`pino`** (Node) / **`console.log(JSON.stringify(...))`** (edge runtime — pino 의 stream 의존성 회피)
-- 비동기: `asyncio` → **`Promise` / `async`**, `asyncio.gather` → **`Promise.all`** / **`Promise.allSettled`**
-- schema: `pydantic v2 BaseModel` → **`zod`** + `z.infer<typeof>`
-- contextvars: `structlog contextvars` → **`AsyncLocalStorage`** (Node) / **request-scoped Map via `<framework context store>('logCtx', ...)`** (edge runtime — AsyncLocalStorage 부분 지원)
+# coding-standards — TS 작성 시 프로젝트 고유 결정 기록
 
-# coding-standards — TypeScript 공통 코딩 규약 (<api-app>)
+> 일반 코딩 컨벤션 (네이밍 대소문자, import 정렬, SRP-OCP-DRY-KISS-YAGNI, 주석 why-not-what, `as any` 도주 금지, 빈 catch 금지, wildcard import 금지) 은 TS 커뮤니티 디폴트 — 본 plugin 미명시. 본 skill 은 *디폴트와 다른* 결정 + *프로젝트 고유 유틸/규약* 만 기록.
 
-## 이 skill은 언제 invoke 되는가
+## 이 skill 은 언제 invoke 되는가
 
-- `<api-app>/src/**/*.ts` 신규 작성 / 리뷰
-- 네이밍 / 파일명 충돌 발생
-- `tsconfig.json` strict 옵션 / lint 설정 변경
-- "왜 `print()` 가 lint warning?" 디버깅
+- `<api-app>/src/**/*.ts` 신규 작성 / 리뷰 — 모델 native 와 다른 결정 확인
+- `tsconfig.json` strict 옵션 변경 / 신규 도입
+- 로깅 / context 주입 / scrub 관련 디버깅
+- "왜 snake_case 가 lint warning?" — Python 복붙 흔적 의심 시
 
-## 불변식 (Invariants)
+## 프로젝트 고유 결정
 
-### 네이밍
+### 1. 네이밍 — **snake_case 금지**
 
-| 대상 | 규칙 | 예시 |
-|------|------|------|
-| 파일명 | **kebab-case.ts** | `agent-loop.ts`, `tool-runner.ts` |
-| 변수 / 함수 | **camelCase** | `runTool`, `loopState` |
-| 클래스 / Interface / Type | **PascalCase** | `ToolDefinition`, `LoopState` |
-| 상수 | **UPPER_SNAKE_CASE** | `MAX_TOKENS`, `DEFAULT_TIMEOUT_MS` |
-| private 필드 | prefix `_` 또는 `#` (class private) | `_normalize`, `#cache` |
-| 테스트 | `<module>.test.ts` 또는 `<module>.spec.ts` | `loop.test.ts` |
-| 디렉토리 | **kebab-case** | `agent-loop/`, `tool-runner/` |
+파일 / 변수 / 함수에 `snake_case` 사용 금지. Python 코드 복붙 흔적. TS 디폴트 (camelCase / kebab-case 파일명) 적용. 디렉토리도 **kebab-case** 강제.
 
-> 이유: TS 커뮤니티 합의 + TS 백엔드 생태 디폴트. Python `snake_case` 변수명을 TS 코드에 그대로 가져오지 말 것.
+### 2. TypeScript strict — 3-옵션 모두 ON
 
-### Import 규약
+`tsconfig.json` 디폴트보다 *엄격*:
 
-```typescript
-// ✅ 명시적 named import (framework-neutral 예시 — 실제 import 는 instance 측 framework 따라)
-import { z } from 'zod';
-// import { App } from '<framework>';
-// import { sseHelper } from '<framework>/streaming';
-
-// ✅ 같은 패키지 sub-path 는 묶지 말고 분리 (tree-shake 유리)
-// import { HttpError } from '<framework>/http-exception';
-
-// ❌ wildcard import
-// import * as fw from '<framework>';
-
-// ❌ default import 를 임의로 별칭 (혼동 유발)
-// import App2 from '<framework>';
+```jsonc
+{ "strict": true, "noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true }
 ```
 
-- import 정렬: external → internal → relative. `eslint-plugin-import` 또는 `biome organize-imports` 가 강제
-- `import type { ... }` 활용 — 런타임 import 와 타입 import 분리 (bundle 사이즈)
+외부 SDK 경계는 `unknown` + `z.parse` 또는 명시 type guard — `any` 도주 ✕. DI / interface 기반 stateless 서비스 정본은 [[ts-agent-rules]] §"interface 기반 DI" / §"Stateless 서비스".
 
-### 타입 (TypeScript strict)
+### 3. 로깅 — 프로젝트 유틸 + 5-level enum
 
-- `tsconfig.json`: `"strict": true`, `"noUncheckedIndexedAccess": true`, `"exactOptionalPropertyTypes": true`
-- 모든 public 함수는 명시적 반환 타입 (`function foo(): Promise<Result>`). 내부 함수는 추론 허용
-- `any` 금지 — 외부 SDK 경계에서 불가피하면 즉시 `zod` parse 또는 명시 type guard 로 좁히기
-- `unknown` 은 외부 입력 / `JSON.parse` 결과 받을 때만. 사용 전 `z.parse` 또는 type guard
-- DI: TS `interface` 기반 — 구현체 `implements` 명시 권장. 자세한 패턴 + 외부 SDK 타입 경계 처리는 [[ts-agent-rules]] §"타입 경계" / §"interface 기반 DI" 정본 참조
+- **logger**: `pino` (Node) / `console.log(JSON.stringify(...))` (edge runtime — pino stream 의존성 회피)
+- **5-level `logLevel`**: `z.enum(['debug','info','warn','error','fatal'])`. 오타 시 startup fail — [[structured-log-schema]] 정본 일치
+- **`scrubText` 유틸**: 알려진 secret / API key / PII 패턴 fail-safe 차단. 민감 정보 인자로 받는 모든 log 호출에 적용
+- **request-scoped context**: `AsyncLocalStorage` (Node) / `<framework context store>('logCtx', ...)` (edge runtime — ALS 부분 지원)
+- **`bindLogContext` / `clearLogContext`** 경유 강제 — 화이트리스트 외 키 주입 시 `throw new Error(...)`. 직접 store 조작 ✕
 
-### 비동기 (Promise)
+### 4. CPU 블로킹 — ML-worker 격리
 
-- I/O 함수는 `async function`. 순수 연산은 동기 — 불필요한 async 전염 금지
-- Provider / tool 호출은 반드시 `await`. 병렬은 `Promise.all` (실패 short-circuit) 또는 `Promise.allSettled` (각자 처리)
-- CPU 블로킹 작업: 일부 runtime (예: edge runtime) 에서는 ML-worker (`<ml-worker-app>`) 로 격리. Node 환경에서는 `worker_threads`
-- 스트림: `AsyncIterable<Event>` / `ReadableStream` — `for await (const ev of stream)` 패턴
+edge runtime 의 ALS 제약 + blocking 제약 때문에 CPU intensive 작업은 별도 `<ml-worker-app>` 으로 격리. Node 환경 only 면 `worker_threads`.
 
-### 로깅 (pino / runtime console)
+### 5. `enum` 신규 도입 금지
 
-- **구조화 로깅 필수**: `logger.info({ tool, ms }, 'tool_ran')` 또는 edge runtime `console.log(JSON.stringify({ level: 'info', event: 'tool_ran', tool, ms }))`
-- 민감 정보 (secret, API key, PII) 로깅 절대 금지 — `scrubText` 유틸이 fail-safe 로 차단 (알려진 패턴만)
-- request-scoped context (request_id / spawn_depth 등) 는 `AsyncLocalStorage` (Node) 또는 `<framework context store>('logCtx', ...)` (edge runtime) 로 주입. bind / clear 는 `bindLogContext` / `clearLogContext` 경유 — 화이트리스트 외 키는 `throw new Error(...)`
-- 레벨: `debug` (개발) / `info` (정상) / `warn` (복구 가능) / `error` (실패) / `fatal` (시스템 영향 — startup fail / secret 누설 시도). `logLevel` 은 `z.enum(['debug','info','warn','error','fatal'])` — 5-level (`[[structured-log-schema]]` 정본 일치). 오타 시 startup fail
+`as const` 객체 또는 union literal 우선. 사유: tree-shake / type-only 비중 유리 + runtime cost 0.
 
-### 원칙
+```typescript
+// ✅
+const LogLevel = { debug: 'debug', info: 'info', warn: 'warn', error: 'error', fatal: 'fatal' } as const
+type LogLevel = typeof LogLevel[keyof typeof LogLevel]
 
-- **SRP** — 한 모듈 / 클래스는 변경 이유 1개
-- **OCP** — 확장 열림, 수정 닫힘 (새 Tool 은 `ToolPort` interface 구현)
-- **DRY** — 같은 로직 2회 이상 → 유틸 추출. 우연한 중복은 제외
-- **KISS** — 1단계 함수 체인 > 3단계 추상화
-- **YAGNI** — 지금 필요 없는 유연성 금지
+// ❌ — 신규 도입 ✕
+enum LogLevel { debug, info, warn, error, fatal }
+```
 
-### 주석
+## Python → TS 라이브러리 매핑 (transition reference)
 
-- **why 만, what ✕** — 코드가 무엇을 하는지는 코드로. 왜 그렇게 했는지 / 어떤 함정을 피했는지만 주석
-- TODO / FIXME 는 owner + issue 링크 동반 권장: `// TODO(@youngseo, #123): handle 429`
+`ruff`/`black`/`isort` → `eslint`+`prettier` (또는 `biome`) · `pyright` → `tsc --noEmit`+`vtsls` · `loguru`/`structlog` → `pino` (Node) / `console.log` (edge) · `asyncio` → `Promise`/`async` · `asyncio.gather` → `Promise.all`/`Promise.allSettled` · `pydantic v2` → `zod` (`z.infer<typeof>`) · `structlog contextvars` → `AsyncLocalStorage` (Node) / context store (edge)
 
 ## 영향도
 
 | 변경 | 영향받는 곳 |
 |------|-----------|
-| TypeScript 버전 변경 | strict 옵션 동작, 새 타입 기능 사용 가능 여부 |
-| zod 메이저 변경 | 모든 schema 정의 + parse 호출부 |
-| pino 설정 변경 | 모든 로그 출력 형식, ALS 컨텍스트 바인딩 |
-| `tsconfig.json` strict 토글 | 전체 코드베이스 재컴파일 + 에러 발생 가능 |
-| runtime 호환 모드 변경 | `node:fs` 등 Node-only import 의 가용성 |
-
-## 금지 사항
-
-- `console.log` 프로덕션 코드 (디버그 잔여물) — 구조화 로깅 경유 필수
-- wildcard import (`import * as x`) — tree-shake / 가독성 저해
-- global mutable state — module-scoped const 또는 DI 로 주입 (자세한 패턴 + 런타임 인스턴스 재사용 이슈는 [[ts-agent-rules]] §"Stateless 서비스")
-- `try { } catch { }` 빈 catch (조용한 swallowing) — 최소 `console.warn` + 의도 주석
-- 블로킹 I/O 를 async 내부에서 await 없이 호출
-- 하드코드 절대 경로 — `<framework env binding>` / config object 주입
-- `as any` / `as unknown as T` 도주 — zod parse 또는 type guard 로 대체
-- snake_case 변수명 / file 명 (Python 코드 복붙 흔적)
-- 한 줄 함수에 `function` 키워드 남발 — 1줄 lambda 는 화살표 함수 권장 (`const add = (a: number, b: number) => a + b`)
-- `enum` 신규 도입 — `as const` 객체 또는 union literal 우선 (tree-shake / type-only 비중 유리)
+| `tsconfig.json` strict 토글 | 전체 재컴파일 — 본 plugin 정책은 3-옵션 모두 ON |
+| `logLevel` enum 변경 | startup validate fail-safe — [[structured-log-schema]] 와 동시 갱신 의무 |
+| `scrubText` 패턴 추가 | secret leak fail-safe 확장 — runtime 검증 의무 |
+| runtime 변경 (Node ↔ edge) | ALS 가용성 + pino stream 가용성 — context store 경로 변경 |

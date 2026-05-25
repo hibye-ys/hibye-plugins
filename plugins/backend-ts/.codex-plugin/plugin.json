@@ -1,10 +1,10 @@
 {
-  "name": "stack-backend-ts",
+  "name": "backend-ts",
   "version": "0.0.1",
   "description": "TypeScript backend rules — AI agent + general backend, framework/runtime neutral.",
   "skills": "./skills/",
   "interface": {
-    "displayName": "Stack: Backend TS",
+    "displayName": "Backend TS",
     "shortDescription": "AI agent + general TS backend rules — framework/runtime neutral.",
     "capabilities": ["Interactive", "Read", "Write"],
     "category": "Coding",

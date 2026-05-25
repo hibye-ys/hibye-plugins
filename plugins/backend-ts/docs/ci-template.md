@@ -4,7 +4,7 @@
 
 ```yaml
 # .github/workflows/audit.yml
-name: stack-backend-ts audit
+name: backend-ts audit
 
 on:
   pull_request:
@@ -20,16 +20,16 @@ jobs:
       DOMAIN_VOCAB: "writer|author|scenario|novel|character|persona"
       API_APP_PATH: "apps/api"
       # framework-specific audit pattern — framework-neutral 의무 (default 없음).
-      # 본 plugin (stack-backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
+      # 본 plugin (backend-ts) 은 framework-neutral 이므로 framework / runtime 특화
       # 패턴을 default 로 두지 않는다. instance 측에서 다음 3 가지 방법 중 하나로 주입:
       #
-      # 방법 1) STACK_BACKEND_TS_PRESET — 본 plugin 의 preset 파일 자동 로드
-      #   STACK_BACKEND_TS_PRESET: hono-workers
+      # 방법 1) BACKEND_TS_PRESET — 본 plugin 의 preset 파일 자동 로드
+      #   BACKEND_TS_PRESET: hono-workers
       #
       # 방법 2) Preset 파일 source — 명시적 source (CI step 안에서)
       #   - run: |
-      #       source .claude/plugins/stack-backend-ts/scripts/presets/hono-workers.env
-      #       bash .claude/plugins/stack-backend-ts/scripts/audit-all.sh apps/api
+      #       source .claude/plugins/backend-ts/scripts/presets/hono-workers.env
+      #       bash .claude/plugins/backend-ts/scripts/audit-all.sh apps/api
       #
       # 방법 3) Env block 에 직접 명시 (Hono + Workers 예시):
       #   REQUEST_BODY_PATTERN: 'c\.req\.(json|valid|parseBody)'
@@ -49,8 +49,8 @@ jobs:
       #   TTL_FIELD_PATTERN: '(EX|PX|ttl)'
       #   AUTH_MIDDLEWARE_NAME: 'requireAuth'
       #
-      # 본 예시는 방법 1 (STACK_BACKEND_TS_PRESET 자동 로드) 사용:
-      STACK_BACKEND_TS_PRESET: hono-workers
+      # 본 예시는 방법 1 (BACKEND_TS_PRESET 자동 로드) 사용:
+      BACKEND_TS_PRESET: hono-workers
 
       # audit-all strict 정책 — Round 3 분리 (--strict deprecated):
       #   - REQUIRE_MOUNT=1: API_DIR/src 부재 시 fail (instance src 마운트 강제)
@@ -61,20 +61,20 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: acceptance-check
-        run: bash .claude/plugins/stack-backend-ts/scripts/acceptance-check.sh
+        run: bash .claude/plugins/backend-ts/scripts/acceptance-check.sh
 
       - name: forbidden-scan (skills default)
-        run: bash .claude/plugins/stack-backend-ts/scripts/forbidden-scan.sh
+        run: bash .claude/plugins/backend-ts/scripts/forbidden-scan.sh
 
       # 선택: 문서/스크립트까지 스캔 — leak 검출 (실패 허용 권장 — 매핑 표 예시는 의도된 매치)
       # - name: forbidden-scan (all-plugin)
       #   continue-on-error: true
-      #   run: bash .claude/plugins/stack-backend-ts/scripts/forbidden-scan.sh --profile=all-plugin
+      #   run: bash .claude/plugins/backend-ts/scripts/forbidden-scan.sh --profile=all-plugin
 
       - name: audit-all (mount + strict-audits)
         # instance src 마운트 강제 + 명시한 audit 목록의 SKIP 차단
         run: |
-          bash .claude/plugins/stack-backend-ts/scripts/audit-all.sh \
+          bash .claude/plugins/backend-ts/scripts/audit-all.sh \
             --require-mount \
             --strict-audits \
             "$API_APP_PATH"
@@ -119,10 +119,10 @@ bash scripts/audit-all.sh apps/api
 
 | Flag | env | 효과 |
 |------|-----|------|
-| `--profile=skills` (default) | `PROFILE=skills` | `plugins/stack-backend-ts/skills/` 만 스캔 |
+| `--profile=skills` (default) | `PROFILE=skills` | `plugins/backend-ts/skills/` 만 스캔 |
 | `--profile=all-plugin` | `PROFILE=all-plugin` | plugin root 전체 스캔. **`scripts/**` 는 self-match 방지 위해 항상 제외** (forbidden-terms.txt 자기 정의 + audit 스크립트 본문의 grep 패턴 string 이 자기 forbidden 패턴에 매치되는 false-positive 차단). docs / 기타 root 파일에 leak 검출 가능 |
-| `--profile=docs` | `PROFILE=docs` | `plugins/stack-backend-ts/docs/` 만 |
-| `[target-dir]` (positional) | — | 명시 시 `--profile` 무시. scripts/ 자체를 스캔하려면 `bash scripts/forbidden-scan.sh plugins/stack-backend-ts/scripts/` 처럼 명시 (단 self-match warning 많이 나옴 — forbidden-terms.txt + audit 본문의 grep 패턴이 모두 hit) |
+| `--profile=docs` | `PROFILE=docs` | `plugins/backend-ts/docs/` 만 |
+| `[target-dir]` (positional) | — | 명시 시 `--profile` 무시. scripts/ 자체를 스캔하려면 `bash scripts/forbidden-scan.sh plugins/backend-ts/scripts/` 처럼 명시 (단 self-match warning 많이 나옴 — forbidden-terms.txt + audit 본문의 grep 패턴이 모두 hit) |
 
 ### 사용 예시
 
@@ -139,4 +139,4 @@ bash scripts/forbidden-scan.sh --profile=all-plugin
 
 > `all-plugin` / `docs` profile 은 placeholder-vocabulary.md / instance-claude-md-template.md 의 *예시 매핑* 도 hit 함 (의도된 forbidden 어휘 — 매핑 예시이므로). CI 에서는 `continue-on-error: true` 또는 별도 exclude 권장.
 >
-> **참고**: `all-plugin` profile 은 `scripts/**` 를 항상 제외한다 (forbidden-scan.sh:116-118 의 self-exclude — forbidden-terms.txt 정의 + audit 스크립트 grep 패턴의 self-match 방지). 따라서 `all-plugin` 으로는 scripts/ 안 leak 을 검출하지 못한다. scripts/ 검증이 필요하면 positional arg 로 별도 호출 (`bash scripts/forbidden-scan.sh plugins/stack-backend-ts/scripts/`) — 단 self-match warning 가 많이 나오므로 별도 exclude 또는 수동 review 권장.
+> **참고**: `all-plugin` profile 은 `scripts/**` 를 항상 제외한다 (forbidden-scan.sh:116-118 의 self-exclude — forbidden-terms.txt 정의 + audit 스크립트 grep 패턴의 self-match 방지). 따라서 `all-plugin` 으로는 scripts/ 안 leak 을 검출하지 못한다. scripts/ 검증이 필요하면 positional arg 로 별도 호출 (`bash scripts/forbidden-scan.sh plugins/backend-ts/scripts/`) — 단 self-match warning 가 많이 나오므로 별도 exclude 또는 수동 review 권장.
