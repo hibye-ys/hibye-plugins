@@ -12,13 +12,6 @@
       "version": "0.0.1"
     },
     {
-      "name": "frontend-react-web",
-      "description": "React Web frontend harness — vercel plugin 의 보완 layer (a11y / 보안 web / Electron / Form / 디자인 토큰 / 테스팅 / TS strict / observability).",
-      "category": "development",
-      "source": "./plugins/frontend-react-web",
-      "version": "0.0.1"
-    },
-    {
       "name": "stack-backend-python",
       "description": "Python FastAPI AI agent backend rules + skills (legacy 보존, ref/iyaki-zip-ai 흡수).",
       "category": "development",

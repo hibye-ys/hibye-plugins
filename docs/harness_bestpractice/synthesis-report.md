@@ -277,7 +277,7 @@ backend-ts 의 대표 5개 skill 을 §3 의 7-게이트에 통과시킨 결과:
 ### 8.1 본 보고서의 한계
 
 - **임계값은 저자 권장**: "공식 docs 5분 검색", "실패율 20%" 등은 raw 데이터에 명시되지 않은 저자 권장. 운영하며 조정 필요.
-- **현장 사례 부족**: backend-ts / frontend-react-web 외 다른 대규모 plugin 운영자의 사례 부재 — 일반화 가능성 한계.
+- **현장 사례 부족**: backend-ts 외 다른 대규모 plugin 운영자의 사례 부재 — 일반화 가능성 한계.
 - **모델 버전 의존**: skill content lifecycle 의 25k budget 등은 Claude Code 의 현재 버전 (2026-05) 기준. 미래 변경 가능.
 - **Codex 자료 부족**: openai/codex 의 AGENTS.md 는 정형 spec 부재. agentskills.io 표준이 사실상 cross-vendor 표준이지만 Codex 의 hook/subagent 추가 기능은 별도.
 
@@ -285,9 +285,8 @@ backend-ts 의 대표 5개 skill 을 §3 의 7-게이트에 통과시킨 결과:
 
 1. **§6 의 audit 후보 3개 (coding-standards, auth, architecture-invariants) 실행** — Decision Tree dry-run 후 압축/split/자동로드 전환
 2. **권장 신규 hook 3개 prototype** — destructive 차단, forbidden pattern, current branch inject
-3. **frontend-react-web 24개 skill 도 같은 dry-run** — 짧은 skill (vercel 스타일) 이 framework 와 어떻게 맞는지 평가
-4. **신규 skill 작성 시 본 framework 의 7-게이트 통과 의무화** — `.claude/commands/` 에 `/audit-new-skill` 같은 helper 도구화
-5. **3개월 후 재평가** — 모델 버전 (Opus 4.7 → 4.8?) 변경 시 raw 데이터 갱신 + framework 재평가
+3. **신규 skill 작성 시 본 framework 의 7-게이트 통과 의무화** — `.claude/commands/` 에 `/audit-new-skill` 같은 helper 도구화
+4. **3개월 후 재평가** — 모델 버전 (Opus 4.7 → 4.8?) 변경 시 raw 데이터 갱신 + framework 재평가
 
 ### 8.3 본 보고서가 의도하지 않는 것
 

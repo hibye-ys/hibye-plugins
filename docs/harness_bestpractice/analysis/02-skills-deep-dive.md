@@ -372,7 +372,7 @@ backend-ts 의 12-section pattern 은 *길이 면에서* Anthropic 공식 권장
 **구체 권장**:
 - **invariant 타입 skill** (architecture-invariants, agent-loop-invariants 등): 길이 유지 OK
 - **workflow 타입 skill** (new-agent, new-run 등): 길이 유지 OK, references 추가 검토
-- **validate 타입 skill** (frontend-react-web 의 client-boundary 등): 이미 짧음, OK
+- **validate 타입 skill**: 이미 짧음, OK
 - **codebase audit skill** (full-architecture-audit 등): 길이 정당 — 다만 동적 절차 (`!\`git log\``) 가 있다면 hook 으로 이전 검토
 
 상세: [`05-anti-patterns.md`](05-anti-patterns.md) §"long skill 의 정당화 조건"

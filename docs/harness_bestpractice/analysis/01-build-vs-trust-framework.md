@@ -28,7 +28,6 @@
 ### 1.2 산술적 영향
 
 - backend-ts (86 skills) 의 description 평균 200자 가정 → 86 × 200 = **17,200 chars 가 system prompt 에 상주**
-- frontend-react-web (24 skills) 도 추가됨
 - Opus 200k context 의 1% = 2000 chars description budget — **이미 초과** → 다수 skill description 이 잘리거나 표시 안 됨
 - 잘리는 순서: "invoked least" 부터. 즉 **자주 안 쓰이는 skill 의 description 이 먼저 사라져 → 가장 발견되어야 할 niche skill 이 가장 먼저 보이지 않음** (역설)
 
@@ -248,7 +247,7 @@ digraph build_vs_trust {
 | (Q3) "baseline 실패율 threshold" | 20% | 10–40% |
 | (Q7) "verbose 의 정의" | 5+ tool call 또는 50+ 파일 읽기 | 프로젝트 의존 |
 | description 평균 길이 | 200 chars | 150–400 |
-| SKILL.md 길이 cap | 500 lines (Anthropic 공식 권고) | 200 lines (frontend-react-web 스타일) ~ 1500 lines (backend-ts 스타일) |
+| SKILL.md 길이 cap | 500 lines (Anthropic 공식 권고) | 200 lines (vercel 스타일) ~ 1500 lines (backend-ts 스타일) |
 
 특히 **SKILL.md 길이 cap 의 두 학파**:
 - **Anthropic 공식**: "Under 500 lines for optimal performance"

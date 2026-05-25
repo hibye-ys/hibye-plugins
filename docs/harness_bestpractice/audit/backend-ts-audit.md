@@ -1393,7 +1393,7 @@ database 의 DB/ORM/Runtime 매트릭스가 *backend-ts 의 결정 기록* 가�
 
 ### E. backend-ts 의 *모범 사례 패턴* (다른 plugin 이 본받을 만함)
 
-본 audit 과정에서 발견한 backend-ts 의 **우수한 작성 패턴 5종** — frontend-react-web 등 다른 plugin audit 시 참고:
+본 audit 과정에서 발견한 backend-ts 의 **우수한 작성 패턴 5종** — 다른 plugin audit 시 참고:
 
 1. **(P-1) Core Rules / FAIL-SAFE 명시** — `lsp-server`, `testing-infra` 의 *"baseline already knows, these are the UNIQUE differentiators"* + 모든 audit 의 *"패턴 PASS ≠ 완전 준수"* 경고. 모델이 *부분 신뢰* 를 명시적으로 강제 — AP-01/AP-02 위반 자체 차단.
 2. **(P-2) 명시적 정본 분리 (cite-only)** — `error-handling` workflow 의 description 에 *"sentinel 매핑 / envelope shape / route-edge 발신 매트릭스는 [[http-error-sentinels]] invariant 가 정본 — 본 workflow 는 구현 분류만"* 명시. `media-pipeline-patterns` 가 *"정본 type 은 invariant skill 이 소유. 본 workflow 는 import 만"* 명시. 정보 중복 방지 + lineage 명확.
@@ -1626,6 +1626,6 @@ database 의 DB/ORM/Runtime 매트릭스가 *backend-ts 의 결정 기록* 가�
 2. **Cross-skill invoke 빈도** — D-01 (다른 skill 과의 overlap) 판단은 *description 본문 비교* 기반. 실제 동시 invoke 빈도는 별도 telemetry 필요.
 3. **runtime 측정 (baseline 실패율)** — Decision Tree Q3 (`baseline 실패율 ≥ 20%`) 는 본 audit 에서는 *모든 skill 통과 가정* — 실제 baseline 측정은 별도 작업 (보고서 §AP-02).
 4. **사용자 의도 (⚠️ 4 항목)** — 분리 정책 / 통합 가능성 판단은 사용자 결정 필요.
-5. **frontend-react-web 등 다른 plugin** — 본 audit 은 backend-ts 전용. 다른 plugin (frontend-react-web 24 skills 등) 의 audit 은 별도 작업.
+5. **다른 plugin** — 본 audit 은 backend-ts 전용. 다른 plugin 의 audit 은 별도 작업.
 6. **self-blind spot 위험** (Codex review 발견) — main session 은 *동일 패턴 검사 시* (rename drift, count mismatch 등) self-blind spot 을 가진다. v2 는 Codex cold-context 리뷰로 일부 보강했으나, 동일 방식의 후속 정기 리뷰 (예: v3, v4) 가 권고됨 — 단일 모델 단일 세션 자기검증의 신뢰도는 *완전 ≠* 임을 명시.
 

@@ -128,7 +128,7 @@ Use zod schemas at API boundaries. **Why:** malformed JSON has crashed our worke
 in 2024-Q4 — schema validation catches this at the edge instead of mid-flow.
 ```
 
-**SHOULD** (frontend-react-web 의 skill 들은 이미 이 패턴 사용 중. backend-ts 의 일부 invariant skill 은 all-caps 사용 — audit 후보)
+**SHOULD** (backend-ts 의 일부 invariant skill 은 all-caps 사용 — audit 후보)
 
 ---
 
