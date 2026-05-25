@@ -1,6 +1,6 @@
 ---
 name: rule-linting
-description: 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/stack-backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증.
+description: 새 skill 추가 후 또는 plugin 메타 변경 후 invoke. plugins/backend-ts/skills/*/SKILL.md 의 frontmatter 가 필수 키 (name / description / role / scope) 를 모두 채우고 디렉토리명과 name 이 일치하는지를 grep 으로 검증.
 metadata:
   role: audit
   scope: project
@@ -10,7 +10,7 @@ metadata:
 
 ## 검증 대상 invariant
 
-본 plugin (`stack-backend-ts`) 의 모든 `skills/*/SKILL.md` 는 다음 frontmatter v3.4 규약을 따라야 한다:
+본 plugin (`backend-ts`) 의 모든 `skills/*/SKILL.md` 는 다음 frontmatter v3.4 규약을 따라야 한다:
 
 - `name: <kebab-case>` — 디렉토리명과 일치
 - `description: <한국어 한 문장>` — 비어 있지 않음
@@ -24,7 +24,7 @@ metadata:
 ## 실행
 
 ```bash
-for f in plugins/stack-backend-ts/skills/*/SKILL.md; do
+for f in plugins/backend-ts/skills/*/SKILL.md; do
   [[ -f "$f" ]] || continue
   dir=$(basename "$(dirname "$f")")
 
