@@ -1,6 +1,6 @@
 ---
 name: codex-commands
-description: Codex 환경에서 stack-backend-ts plugin 의 slash command 호출 시 invoke. `.codex-plugin/commands/` 카탈로그 + arg 파싱 + 출력 포맷. Claude Code 의 `.claude/commands/` 와 contract 호환 — Codex 측 mirror.
+description: Codex 환경에서 backend-ts plugin 의 slash command 호출 시 invoke. `.codex-plugin/commands/` 카탈로그 + arg 파싱 + 출력 포맷. Claude Code 의 `.claude/commands/` 와 contract 호환 — Codex 측 mirror.
 metadata:
   role: workflow
   scope: project
@@ -10,7 +10,7 @@ metadata:
 
 # codex-commands — Codex slash command adapter
 
-> 본 skill = Codex 환경에서 stack-backend-ts plugin 의 command harness adapter. canonical command 정의는 `references/commands/<command>.md` (marker md 의 frontmatter) 에 있고, Claude Code 의 `.claude/commands/` 를 `.codex-plugin/commands/` 로 mirror 한 결과다.
+> 본 skill = Codex 환경에서 backend-ts plugin 의 command harness adapter. canonical command 정의는 `references/commands/<command>.md` (marker md 의 frontmatter) 에 있고, Claude Code 의 `.claude/commands/` 를 `.codex-plugin/commands/` 로 mirror 한 결과다.
 
 ## 이 skill 은 언제 invoke 되는가
 
@@ -59,7 +59,7 @@ Claude Code `.claude/commands/` ↔ Codex `.codex-plugin/commands/` 동등 매�
 Codex command 정의 = marker md 한 파일 (frontmatter + 본문). 실제 실행 코드는 별도:
 
 ```
-plugins/stack-backend-ts/
+plugins/backend-ts/
 ├── .codex-plugin/
 │   └── commands/
 │       └── <command>.md       # marker (frontmatter: name/description/dispatch)

@@ -1,18 +1,18 @@
 ---
 name: commit-rules
-description: <api-app> / plugins/stack-backend-ts/ 변경 commit 작성 시 invoke. Conventional Commits 사용 — 7 접두사 자체는 표준 지식. 본 workflow 는 이 plugin 의 **scope 카탈로그** (stack-backend-ts / <api-app> / sub-area 매핑) 와 도메인 어휘 금지 같은 로컬 룰에 집중.
+description: <api-app> / plugins/backend-ts/ 변경 commit 작성 시 invoke. Conventional Commits 사용 — 7 접두사 자체는 표준 지식. 본 workflow 는 이 plugin 의 **scope 카탈로그** (backend-ts / <api-app> / sub-area 매핑) 와 도메인 어휘 금지 같은 로컬 룰에 집중.
 metadata:
   role: workflow
   scope: project
 ---
 
-# commit-rules — Scope 카탈로그 (<api-app> / stack-backend-ts)
+# commit-rules — Scope 카탈로그 (<api-app> / backend-ts)
 
 > Conventional Commits 표준 규약 ([conventionalcommits.org](https://www.conventionalcommits.org)) 준수. 본 workflow 는 **scope 카탈로그 + 로컬 금지 룰** 에만 집중 — 7 접두사 자체는 표준이므로 표만 짧게.
 
 ## 이 skill 은 언제 invoke 되는가
 
-- `<api-app>/` 또는 `plugins/stack-backend-ts/` 변경 commit 작성 시
+- `<api-app>/` 또는 `plugins/backend-ts/` 변경 commit 작성 시
 - scope 결정 어려울 때 (어느 sub-area 에 속하는지)
 - "왜 commit lint hook 가 reject?" 디버깅
 
@@ -40,7 +40,7 @@ scope = 변경 파일의 **최상위 의미 단위**. 모노레포 / 플러그�
 
 | Scope | 의미 |
 |-------|------|
-| `stack-backend-ts` | `plugins/stack-backend-ts/` rules + skills 변경 |
+| `backend-ts` | `plugins/backend-ts/` rules + skills 변경 |
 | `<api-app>` | `<api-app>/**` 광범위 변경 (sub-area 결정 어려울 때) |
 | `apps/web` | `apps/web/**` |
 | `apps/ml-worker` | `apps/ml-worker/**` |
@@ -64,7 +64,7 @@ scope = 변경 파일의 **최상위 의미 단위**. 모노레포 / 플러그�
 ### 영역 결정 우선순위
 
 1. 변경이 한 **sub-area** 에 닫혀 있으면 → sub-area scope (`provider`, `loop`, `sse` 등)
-2. 한 **plugin** 안 여러 rule/skill 동시 변경 → plugin scope (`stack-backend-ts`)
+2. 한 **plugin** 안 여러 rule/skill 동시 변경 → plugin scope (`backend-ts`)
 3. cross-cutting → `<api-app>` 또는 scope 생략
 
 ## 좋은 예 (이 plugin 특화)
@@ -73,7 +73,7 @@ scope = 변경 파일의 **최상위 의미 단위**. 모노레포 / 플러그�
 feat(provider): add openrouter streaming retry
 fix(sse): emit usage event before done
 refactor(loop): extract stage helpers into separate files
-chore(stack-backend-ts): merge database Port section into data-layer
+chore(backend-ts): merge database Port section into data-layer
 ```
 
 ## 영향도
