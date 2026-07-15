@@ -1,66 +1,55 @@
 # backend-ts
 
-TypeScript backend skills — **SessionStart hook 으로 자동 감지**, 수동 placeholder 매핑 불필요.
+EUNHA TypeScript API의 비자명한 런타임 계약만 제공하는 로컬 플러그인.
 
-## 자동 감지 (수동 작업 0)
+## 정본
 
-plugin install 직후, `hooks/session-start-profiler.mjs` 가 매 session 시작 시 다음을 자동 감지:
+- 실제 코드와 테스트가 최우선 정본이다.
+- 프로젝트 규칙은 `AGENTS.md`와 `apps/api/AGENTS.md`를 따른다.
+- 스킬은 일반 TypeScript 지식을 반복하지 않고, 현재 EUNHA 구현에서 실수하기 쉬운 경계만 설명한다.
+- 오래된 구현을 호환하는 alias, fallback, legacy skill은 두지 않는다.
 
-1. **Framework** — `package.json` dependencies 에서 `hono` / `express` / `fastify` / `koa` / `@nestjs/core` / `elysia` 탐색
-2. **Runtime** — `wrangler` (workers) / `bun-types` (bun) / `@types/deno` (deno) / 기본 `node`
-3. **Layout** — `apps/api` / `packages/api` 등 모노레포 vs single
-4. **Domain vocab** — `src/domain/` / `src/models/` / `src/db/schema/` 파일명에서 도메인 어휘 추출
+## Skill 10종
 
-감지 결과는 `${CLAUDE_PLUGIN_DATA}/instance-config.json` 에 저장 + 매 session 시작 시 컨텍스트 inject.
+- `agent-loop-runtime`
+- `context-runtime`
+- `agent-definition`
+- `subagent-runtime`
+- `provider-runtime`
+- `tool-runtime`
+- `mcp-runtime`
+- `http-contract`
+- `stream-contract`
+- `backend-audit`
 
-TypeScript backend 프로젝트 (typescript + framework dependency) 가 아니면 silent skip — 다른 프로젝트에서는 plugin 이 노출되지 않음.
+각 스킬은 description trigger로 lazy load한다. `@import`로 본문을 강제 주입하지 않는다.
 
-## Skill 84 종
+## Named agent 4종
 
-본 plugin 의 84 skill 은 **description trigger 로 lazy load** (Claude Code 표준 plugin 패턴). 작업 컨텍스트에 맞는 skill 만 자동 로드 — `@import` 강제 로드 ✕.
+- `architecture_reviewer` — 구조·transaction·write path 리뷰
+- `security_manager` — 인증·입력·외부 호출 보안 리뷰
+- `test_manager` — focused test와 backend audit 조율
+- `settings_hooks_maintainer` — shared-source 링크·manifest·hook 생성물 유지
 
-- **Invariants 20** — 지속 강제 룰 (single-writer, sse-lifecycle, provider-retry-matrix 등)
-- **Workflows 39** — 작업 절차 + 구현 가이드 (agent-loop, sse-streaming, new-route 등)
-- **Audits 25** — grep 기반 점검 (audit-all.sh 일괄 실행 가능)
+Claude의 두 review agent는 `Read, Grep, Glob, Bash`를 허용한다. Bash 기반 진단은 가능하지만 파일 수정 금지는 agent 본문 규칙으로 유지한다. Codex의 동일 review agent는 `sandbox_mode = "read-only"`를 사용하므로 두 도구의 강제 수준은 의도적으로 다르다.
 
-전체 카탈로그: `skills/backend-overview/SKILL.md` (디렉토리 인덱스) + `skills/architecture-invariants/SKILL.md` (invariant 카탈로그).
+## 세션 훅
 
-## 사용자 매핑 작업
+`hooks/session-start-profiler.mjs`는 EUNHA형 API 구조를 감지한 세션에 API 경로와 정본 규칙만 주입한다. 훅은 스킬을 숨기거나 등록하는 로더가 아니다.
 
-**필요한 것 0**. 표준 plugin 동작:
-- `claude plugins enable backend-ts@hibye-plugins` 만 실행 → 즉시 동작
-- backend TypeScript 프로젝트 안에서 session 시작 → 자동 감지 결과 inject
-- 다른 프로젝트 (frontend / data science / 기타) → silent skip, 노출 0
+## Claude와 Codex 공유
 
-## 정공법 실험 — 본 plugin 의 의도
+두 도구는 복사본이 아니라 이 플러그인 소스를 가리키는 심볼릭 링크를 사용한다.
 
-`stack-backend-ts` (이전 v1 plugin — commit 91bf02c 에서 삭제) 의 v2 정공법 fork. 차이:
+- Claude 활성화 범위: EUNHA `.claude/settings.json`의 project scope만 사용하고 user scope는 금지
+- Codex 프로젝트 링크: `.codex/skills/backend-ts -> <plugin>/skills`
+- Claude 캐시 링크: `~/.claude/plugins/cache/hibye-plugins/backend-ts/<version> -> <plugin>`
+- Claude skills 링크: `~/.claude/plugins/cache/hibye-plugins/backend-ts/skills -> <plugin>/skills`
 
-| 측면 | `stack-backend-ts` (v1) | `backend-ts` (v2 — 본 plugin) |
-|------|--------|----------|
-| Setup | 사용자가 placeholder 매핑 / env preset / DOMAIN_VOCAB 수동 작성 | hook 가 자동 감지, 사용자 작업 0 |
-| Skill 로딩 | `@import` 84줄 강제 (~15-20KB 매 turn) | description trigger lazy load (Claude Code 표준) |
-| 다른 프로젝트 노출 | 모든 프로젝트에서 description 로드 | TypeScript backend 만 활성, 다른 프로젝트는 silent |
-| Cache | manual symlink (link-cache.sh) | 공식 `${CLAUDE_PLUGIN_DATA}` directory |
+링크가 깨지면 마켓플레이스의 `scripts/link-cache.sh`를 실행하고 새 세션을 시작한다.
 
-v1 은 7 라운드 review 의 결과물 (skill 본문 자체는 검증됨). v2 는 *로딩 메커니즘* 만 표준화 — skill 본문은 동일 hardlink.
+## 검증
 
-## Migration 이력 (instance 측 영향)
-
-### 2026-05-25 — `STACK_BACKEND_TS_PRESET` → `BACKEND_TS_PRESET` rename
-
-**배경**: v2 plugin rename (`stack-backend-ts` → `backend-ts`) 의 후속 일관성 작업. v5 audit turn (`docs/harness_bestpractice/audit/backend-ts-audit.md`) 에서 일괄 적용.
-
-**instance 측 영향**:
-
-- 기존 CI 파이프라인에서 `STACK_BACKEND_TS_PRESET=hono-workers bash ...` 를 사용 중인 경우 → `BACKEND_TS_PRESET=hono-workers bash ...` 로 갱신 필수
-- 자동 fallback ✕ — env var 미인식 시 silent skip (preset 자동 로드 안 됨)
-- 갱신 방법:
-  1. `docs/ci-template.md` 재 가져오기 + 기존 CI 와 diff
-  2. 또는 GitHub Actions / GitLab CI / Jenkins 의 env 정의 검색 후 수동 치환
-- forbidden-terms.txt 의 `\bstack-backend-ts-hono\b` 는 *legacy plugin name 검출용* 으로 유지 — 새 rename 대상 ✕
-
-**rename 의 *legacy reference 의도된 보존* 위치** (sed 일괄 치환 대상 ✕):
-
-- 본 CLAUDE.md L37 / L39 — v1 historical reference (commit 91bf02c 에서 v1 plugin 삭제 사실 기록)
-- `scripts/forbidden-terms.txt` L18-19 — `stack-backend-ts-hono` legacy term 검출 패턴
+- `bash scripts/acceptance-check.sh --project /path/to/EUNHA-main --tools claude,codex`
+- `node skills/backend-audit/scripts/audit.mjs --project /path/to/EUNHA-main`
+- 전체 게이트: 위 명령에 `--full` 추가

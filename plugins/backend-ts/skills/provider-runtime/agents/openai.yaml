@@ -1,0 +1,4 @@
+interface:
+  display_name: "Provider Runtime"
+  short_description: "Maintain EUNHA LLM provider adapters"
+  default_prompt: "Use $provider-runtime to add or modify an EUNHA LLM provider."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tool Runtime"
+  short_description: "Maintain EUNHA tool registry and dispatch"
+  default_prompt: "Use $tool-runtime to add or modify an EUNHA model tool."

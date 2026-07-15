@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "backend-ts",
-      "description": "TypeScript backend skills (v2 정공법 실험) — SessionStart hook 으로 framework / 모노레포 / 도메인 자동 감지, 수동 placeholder 매핑 불필요.",
+      "description": "EUNHA TypeScript API의 현재 코드 기반 runtime skill 10개와 Claude/Codex 공유 하네스.",
       "category": "development",
       "source": "./plugins/backend-ts",
       "version": "0.0.1"

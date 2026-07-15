@@ -1,81 +1,195 @@
 #!/usr/bin/env bash
-# acceptance-check.sh — 새 SKILL.md acceptance 검증
-# Usage: acceptance-check.sh
 set -euo pipefail
 
-SKILLS_DIR="$(dirname "$0")/../skills"
-COUNT=0
+PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SKILLS_DIR="$PLUGIN_DIR/skills"
+PROJECT=""
+TOOLS_CSV="claude,codex"
+EXPECTED_SKILLS=(
+  agent-definition
+  agent-loop-runtime
+  backend-audit
+  context-runtime
+  http-contract
+  mcp-runtime
+  provider-runtime
+  stream-contract
+  subagent-runtime
+  tool-runtime
+)
+EXPECTED_AGENTS=(
+  architecture_reviewer
+  security_manager
+  settings_hooks_maintainer
+  test_manager
+)
 FAIL=0
 
-for skill_dir in "$SKILLS_DIR"/*/; do
-  skill=$(basename "$skill_dir")
-  md="$skill_dir/SKILL.md"
-  COUNT=$((COUNT+1))
-
-  [ ! -f "$md" ] && { echo "FAIL $skill: SKILL.md missing"; FAIL=$((FAIL+1)); continue; }
-
-  # 1. name = 디렉토리명
-  grep -qE "^name:\s*$skill\s*\$" "$md" || { echo "FAIL $skill: name mismatch"; FAIL=$((FAIL+1)); }
-  # 2. description 비어있지 않음
-  grep -qE "^description:\s*\S" "$md" || { echo "FAIL $skill: empty description"; FAIL=$((FAIL+1)); }
-  # 3. role 유효
-  grep -qE "^\s*role:\s*(invariant|workflow|audit)\s*\$" "$md" || { echo "FAIL $skill: invalid role"; FAIL=$((FAIL+1)); }
-  # 4. scope = project (본 plugin 의 84 skill 은 전부 project scope)
-  grep -qE "^\s*scope:\s*project\s*\$" "$md" || { echo "FAIL $skill: invalid scope"; FAIL=$((FAIL+1)); }
-  # NOTE: source 필드는 v3.4 부터 제거 — frontmatter lineage 는 git log 로 추적 ([[rule-linting]] 참조)
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --project) PROJECT="${2:-}"; shift 2 ;;
+    --tools) TOOLS_CSV="${2:-}"; shift 2 ;;
+    *) echo "usage: acceptance-check.sh [--project <repo>] [--tools claude,codex,opencode]" >&2; exit 2 ;;
+  esac
 done
 
-# 6. 캐시 심볼릭 링크 — plugin.json version 동적 + fallback path tolerant
-#    NOTE: 본 검증은 Claude Code cache 한정 (~/.claude/plugins/cache/...).
-#    Codex CLI 는 .agents/skills/ 디렉토리를 직접 스캔하므로 별도 cache 메커니즘 없음 — 검증 대상 아님.
-PLUGIN_JSON="$(dirname "$0")/../.claude-plugin/plugin.json"
-if command -v jq >/dev/null 2>&1 && [ -f "$PLUGIN_JSON" ]; then
-  VERSION="$(jq -r '.version // empty' "$PLUGIN_JSON" 2>/dev/null || echo "")"
-else
-  VERSION=""
+if [ -n "$PROJECT" ]; then
+  [ -d "$PROJECT" ] || { echo "ERROR: project directory missing: $PROJECT" >&2; exit 2; }
+  PROJECT="$(cd "$PROJECT" && pwd)"
 fi
-#    Claude Code cache 경로 — Codex CLI 는 .agents/skills/ 직접 스캔이라 cache 미사용
-CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/backend-ts"
-# 우선순위: (1) plugin.json version path  (2) plugin root 자체 (full symlink)  (3) 1.0.0 (legacy)
-# global CLAUDE.md 규칙: 캐시 디렉토리는 *심볼릭 링크* 강제 — 일반 dir 이면 fail
-CACHE_OK=0
-CACHE_SYMLINK_VIOLATION=""
-for candidate in "$CACHE_BASE/$VERSION" "$CACHE_BASE" "$CACHE_BASE/1.0.0"; do
-  [ -z "$candidate" ] || [ "$candidate" = "$CACHE_BASE/" ] && continue
-  if [ -L "$candidate" ]; then
-    CACHE_OK=1
-    break
-  elif [ -d "$candidate" ] && [ -z "$CACHE_SYMLINK_VIOLATION" ]; then
-    # 존재하지만 symlink 가 아님 — 위반 후보 기록 (다른 candidate 가 symlink 면 OK)
-    CACHE_SYMLINK_VIOLATION="$candidate"
+
+has_tool() { case ",$TOOLS_CSV," in *",$1,"*) return 0;; *) return 1;; esac; }
+
+record_fail() {
+  echo "FAIL: $*"
+  FAIL=$((FAIL + 1))
+}
+
+is_expected_agent() {
+  local candidate="$1" expected
+  for expected in "${EXPECTED_AGENTS[@]}"; do
+    [ "$candidate" = "$expected" ] && return 0
+  done
+  return 1
+}
+
+check_link() {
+  local link_path="$1" expected="$2"
+  if [ ! -L "$link_path" ]; then
+    record_fail "$link_path is not a symlink"
+    return
   fi
-done
-if [ $CACHE_OK -eq 0 ]; then
-  if [ -n "$CACHE_SYMLINK_VIOLATION" ]; then
-    echo "FAIL: $CACHE_SYMLINK_VIOLATION exists but is not a symlink (run ~/.claude/plugins/marketplaces/hibye-plugins/link-cache.sh to convert)" >&2
-    FAIL=$((FAIL+1))
-  else
-    echo "WARN: cache link missing under $CACHE_BASE (checked: \$VERSION='$VERSION', root, 1.0.0)"
+  if ! node -e '
+    const fs = require("node:fs")
+    process.exit(fs.realpathSync(process.argv[1]) === fs.realpathSync(process.argv[2]) ? 0 : 1)
+  ' "$link_path" "$expected"; then
+    record_fail "$link_path does not resolve to $expected"
   fi
+}
+
+reject_link_to() {
+  local link_path="$1" rejected="$2"
+  [ -L "$link_path" ] || return 0
+  if node -e '
+    const fs = require("node:fs")
+    process.exit(fs.realpathSync(process.argv[1]) === fs.realpathSync(process.argv[2]) ? 0 : 1)
+  ' "$link_path" "$rejected"; then
+    record_fail "$link_path is a stale duplicate link to $rejected"
+  fi
+}
+
+ACTUAL_SKILLS=()
+while IFS= read -r skill; do ACTUAL_SKILLS+=("$skill"); done < <(
+  find "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort
+)
+if [ "${ACTUAL_SKILLS[*]}" != "${EXPECTED_SKILLS[*]}" ]; then
+  record_fail "skill catalog mismatch (expected: ${EXPECTED_SKILLS[*]}; actual: ${ACTUAL_SKILLS[*]})"
 fi
 
-# 7. forbidden scan
-bash "$(dirname "$0")/forbidden-scan.sh" >/dev/null || { echo "FAIL: forbidden-scan"; FAIL=$((FAIL+1)); }
-
-# 7b. framework vocab regression check
-if ! bash "$(dirname "$0")/check-framework-vocab.sh" > /dev/null 2>&1; then
-  echo "FAIL: framework vocab regression — run scripts/check-framework-vocab.sh for details" >&2
-  FAIL=$((FAIL+1))
+ACTUAL_AGENTS=()
+while IFS= read -r agent; do ACTUAL_AGENTS+=("$agent"); done < <(
+  find "$PLUGIN_DIR/.codex/agents" -mindepth 1 -maxdepth 1 -name '*.toml' -exec basename {} .toml \; | sort
+)
+if [ "${ACTUAL_AGENTS[*]}" != "${EXPECTED_AGENTS[*]}" ]; then
+  record_fail "named-agent catalog mismatch (expected: ${EXPECTED_AGENTS[*]}; actual: ${ACTUAL_AGENTS[*]})"
 fi
 
-# 8. AGENTS.md drift detection (--check 모드 — AGENTS.md 수정 안 함)
-GENERATED=$(bash "$(dirname "$0")/generate-agents-md.sh" --check 2>/dev/null)
-CURRENT=$(cat "$(dirname "$0")/../AGENTS.md")
+node "$PLUGIN_DIR/scripts/validate-metadata.mjs" "${EXPECTED_SKILLS[@]}" || FAIL=$((FAIL + 1))
+
+GENERATED="$(bash "$PLUGIN_DIR/scripts/generate-agents-md.sh" --check)"
+CURRENT="$(cat "$PLUGIN_DIR/AGENTS.md")"
 if [ "$GENERATED" != "$CURRENT" ]; then
-  echo "FAIL: AGENTS.md out of sync with CLAUDE.md @imports — run scripts/generate-agents-md.sh"
-  FAIL=$((FAIL+1))
+  record_fail "AGENTS.md out of sync"
 fi
 
-echo ""
-echo "=== acceptance-check: $COUNT skills checked, $FAIL failures ==="
-[ $FAIL -eq 0 ] || exit 1
+node "$PLUGIN_DIR/scripts/gen-subagents.mjs" --check || FAIL=$((FAIL + 1))
+node "$PLUGIN_DIR/scripts/gen-hooks.mjs" --check || FAIL=$((FAIL + 1))
+node --check "$PLUGIN_DIR/hooks/session-start-profiler.mjs" || FAIL=$((FAIL + 1))
+node --check "$PLUGIN_DIR/skills/backend-audit/scripts/audit.mjs" || FAIL=$((FAIL + 1))
+
+for executable in \
+  "$PLUGIN_DIR/scripts/acceptance-check.sh" \
+  "$PLUGIN_DIR/scripts/audit-all.sh" \
+  "$PLUGIN_DIR/scripts/generate-agents-md.sh" \
+  "$PLUGIN_DIR/scripts/validate-metadata.mjs" \
+  "$PLUGIN_DIR/hooks/session-start-profiler.mjs" \
+  "$PLUGIN_DIR/skills/backend-audit/scripts/audit.mjs"; do
+  [ -x "$executable" ] || record_fail "$executable is not executable"
+done
+
+CLAUDE_VERSION="$(node -p "require('$PLUGIN_DIR/.claude-plugin/plugin.json').version")"
+CACHE_BASE="$HOME/.claude/plugins/cache/hibye-plugins/backend-ts"
+if has_tool claude; then
+  if [ -n "$PROJECT" ]; then
+    check_link "$CACHE_BASE/$CLAUDE_VERSION" "$PLUGIN_DIR"
+    check_link "$CACHE_BASE/skills" "$SKILLS_DIR"
+    if ! node -e '
+      const fs = require("node:fs")
+      const path = process.argv[1]
+      const data = JSON.parse(fs.readFileSync(path, "utf8"))
+      process.exit(data.enabledPlugins?.["backend-ts@hibye-plugins"] === true ? 0 : 1)
+    ' "$PROJECT/.claude/settings.json"; then
+      record_fail "Claude project-scoped backend-ts plugin is not enabled"
+    fi
+    if [ -f "$HOME/.claude/settings.json" ] && node -e '
+      const fs = require("node:fs")
+      const path = process.argv[1]
+      const data = JSON.parse(fs.readFileSync(path, "utf8"))
+      process.exit(data.enabledPlugins?.["backend-ts@hibye-plugins"] === true ? 0 : 1)
+    ' "$HOME/.claude/settings.json"; then
+      record_fail "Claude user-scoped backend-ts plugin must not be enabled"
+    fi
+    for entry in "$PROJECT/.claude/agents"/*.md "$PROJECT/.claude/commands"/*.md; do
+      [ -L "$entry" ] || continue
+      case "$(readlink "$entry")" in
+        "$PLUGIN_DIR"/*) record_fail "duplicate project-local Claude backend-ts asset: $entry" ;;
+      esac
+    done
+  elif [ ! -L "$CACHE_BASE/$CLAUDE_VERSION" ] || [ ! -L "$CACHE_BASE/skills" ]; then
+    echo "WARN: Claude source-sharing links are missing under $CACHE_BASE"
+  fi
+fi
+
+if [ -n "$PROJECT" ] && has_tool codex; then
+  if [ -e "$HOME/.codex/skills/backend-ts" ] || [ -L "$HOME/.codex/skills/backend-ts" ]; then
+    record_fail "Codex user-scoped backend-ts skill catalog must not exist"
+  fi
+  check_link "$PROJECT/.codex/skills/backend-ts" "$SKILLS_DIR"
+  check_link "$PROJECT/.agents/hooks/session-start-profiler.mjs" "$PLUGIN_DIR/hooks/session-start-profiler.mjs"
+  check_link "$PROJECT/.codex/prompts/setup-harness.md" "$PLUGIN_DIR/commands/setup-harness.md"
+  reject_link_to "$PROJECT/AGENTS.backend-ts.md" "$PLUGIN_DIR/AGENTS.md"
+  for agent in "${EXPECTED_AGENTS[@]}"; do
+    check_link "$PROJECT/.codex/agents/$agent.toml" "$PLUGIN_DIR/.codex/agents/$agent.toml"
+  done
+  for entry in "$PROJECT/.codex/agents"/*.toml; do
+    [ -L "$entry" ] || continue
+    case "$(readlink "$entry")" in
+      "$PLUGIN_DIR/.codex/agents/"*)
+        name="$(basename "$entry" .toml)"
+        is_expected_agent "$name" || record_fail "stale backend-ts Codex agent link: $entry"
+        ;;
+    esac
+  done
+  if ! node -e '
+    const fs = require("node:fs")
+    const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+    const rows = data.hooks?.SessionStart ?? []
+    const commands = rows.flatMap((row) => row.hooks ?? []).map((hook) => hook.command ?? "")
+    process.exit(commands.some((command) => command.includes(".agents/hooks/session-start-profiler.mjs")) ? 0 : 1)
+  ' "$PROJECT/.codex/hooks.json"; then
+    record_fail "Codex SessionStart hook is not installed"
+  fi
+fi
+
+if [ -n "$PROJECT" ] && has_tool opencode; then
+  check_link "$PROJECT/.agents/skills/backend-ts" "$SKILLS_DIR"
+  check_link "$PROJECT/.opencode/commands/setup-harness.md" "$PLUGIN_DIR/commands/setup-harness.md"
+  for agent in "${EXPECTED_AGENTS[@]}"; do
+    check_link "$PROJECT/.opencode/agents/$agent.md" "$PLUGIN_DIR/opencode/agents/$agent.md"
+  done
+  [ -f "$PROJECT/.opencode/plugins/backend-ts-hooks.js" ] || record_fail "OpenCode hook adapter missing"
+fi
+
+echo
+echo "=== acceptance-check: ${#EXPECTED_SKILLS[@]} skills, ${#EXPECTED_AGENTS[@]} agents, $FAIL failures ==="
+[ "$FAIL" -eq 0 ]

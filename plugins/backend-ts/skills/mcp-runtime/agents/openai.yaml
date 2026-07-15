@@ -1,0 +1,4 @@
+interface:
+  display_name: "MCP Runtime"
+  short_description: "Maintain EUNHA MCP bridge and server"
+  default_prompt: "Use $mcp-runtime to update the EUNHA MCP bridge or stdio server."

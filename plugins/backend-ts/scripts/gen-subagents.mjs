@@ -10,7 +10,7 @@
 // Usage:
 //   node scripts/gen-subagents.mjs           # 생성 (in-place)
 //   node scripts/gen-subagents.mjs --check   # drift 검증 (무수정, drift 시 exit 1)
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -46,8 +46,14 @@ function yamlString(s) {
   return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
-function renderClaude({ name, description, body }) {
-  return `---\nname: ${name}\ndescription: ${yamlString(description)}\n---\n\n${body.trim()}\n`;
+function renderClaude({ name, description, body, readonly }) {
+  let fm = `---\nname: ${name}\ndescription: ${yamlString(description)}\n`;
+  // Claude plugin agents ignore permissionMode. Keep review agents capable of
+  // shell-based diagnostics while excluding direct Edit/Write tools; the
+  // generated body remains responsible for prohibiting mutation through Bash.
+  if (readonly) fm += 'tools: Read, Grep, Glob, Bash\n';
+  fm += '---\n';
+  return `${fm}\n${body.trim()}\n`;
 }
 
 function renderOpenCode({ description, body, readonly }) {
@@ -60,8 +66,24 @@ function renderOpenCode({ description, body, readonly }) {
 function ensureDir(d) { if (!existsSync(d)) mkdirSync(d, { recursive: true }); }
 
 const files = readdirSync(SRC_DIR).filter((f) => f.endsWith('.toml')).sort();
+const expectedGenerated = new Set(files.map((f) => `${basename(f, '.toml')}.md`));
 let drift = 0;
 const written = [];
+
+for (const dir of [CLAUDE_DIR, OPENCODE_DIR]) {
+  if (!existsSync(dir)) continue;
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
+    if (expectedGenerated.has(file)) continue;
+    const path = join(dir, file);
+    if (CHECK) {
+      console.error(`STALE: ${path.replace(PLUGIN_DIR + '/', '')}`);
+      drift++;
+    } else {
+      unlinkSync(path);
+      written.push(`${path.replace(PLUGIN_DIR + '/', '')} (removed)`);
+    }
+  }
+}
 
 for (const f of files) {
   const toml = parseToml(readFileSync(join(SRC_DIR, f), 'utf8'));
@@ -71,7 +93,7 @@ for (const f of files) {
   const readonly = toml.sandbox_mode === 'read-only';
 
   const targets = [
-    { path: join(CLAUDE_DIR, `${name}.md`), content: renderClaude({ name, description, body }) },
+    { path: join(CLAUDE_DIR, `${name}.md`), content: renderClaude({ name, description, body, readonly }) },
     { path: join(OPENCODE_DIR, `${name}.md`), content: renderOpenCode({ description, body, readonly }) },
   ];
 

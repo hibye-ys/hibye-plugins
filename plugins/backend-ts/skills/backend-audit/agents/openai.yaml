@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backend Audit"
+  short_description: "Run EUNHA API validation gates"
+  default_prompt: "Use $backend-audit to validate EUNHA backend changes before handoff."

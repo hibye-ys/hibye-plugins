@@ -34,16 +34,15 @@ for plugin_dir in "$MARKETPLACE_ROOT/plugins/"*/; do
 
     mkdir -p "$target_dir"
     if [ -e "$target_link" ] && [ ! -L "$target_link" ]; then
-        echo "WARN: $target_link exists and is not a symlink — backing up to $target_link.bak"
-        mv "$target_link" "$target_link.bak"
+        echo "REPLACE: generated cache $target_link -> source symlink"
+        rm -rf -- "$target_link"
     fi
+    rm -rf -- "$target_link.bak"
 
     ln -sfn "$plugin_dir" "$target_link"
     echo "LINK: $target_link -> $plugin_dir"
 
-    # flat skills/ symlink — CLAUDE.md @import path 가 version subdir 모를 때
-    # (예: `@.claude/plugins/cache/hibye-plugins/<plugin>/skills/<name>/SKILL.md`)
-    # inline-invariants.sh 같은 literal path resolver 가 version subdir 자동 끼우지 못함
+    # flat skills/ symlink — Claude와 Codex 프로젝트 링크가 같은 source tree를 보게 한다.
     if [ -d "$plugin_dir/skills" ]; then
         ln -sfn "$plugin_dir/skills" "$target_dir/skills"
         echo "LINK: $target_dir/skills -> $plugin_dir/skills (flat)"

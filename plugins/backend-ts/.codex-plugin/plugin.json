@@ -1,14 +1,24 @@
 {
   "name": "backend-ts",
-  "version": "0.0.1",
-  "description": "TypeScript backend rules — AI agent + general backend, framework/runtime neutral.",
+  "version": "0.0.1+codex.20260715134357",
+  "description": "Current-code workflows for the EUNHA TypeScript API runtime.",
   "skills": "./skills/",
+  "author": {
+    "name": "hibye-ys"
+  },
   "interface": {
     "displayName": "Backend TS",
-    "shortDescription": "AI agent + general TS backend rules — framework/runtime neutral.",
-    "capabilities": ["Interactive", "Read", "Write"],
+    "shortDescription": "EUNHA API runtime workflows and validation.",
+    "longDescription": "Ten focused skills for EUNHA agent, provider, tool, MCP, HTTP, context, and SSE runtime changes.",
+    "developerName": "hibye-ys",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
     "category": "Coding",
     "brandColor": "#FF6F00",
-    "composerIcon": "./assets/icon.svg"
+    "composerIcon": "./assets/icon.svg",
+    "defaultPrompt": "Use the matching backend-ts skill and the current EUNHA code to make this API change safely."
   }
 }

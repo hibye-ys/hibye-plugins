@@ -1,0 +1,4 @@
+interface:
+  display_name: "HTTP Contract"
+  short_description: "Maintain EUNHA HTTP route contracts"
+  default_prompt: "Use $http-contract to add or modify an EUNHA Hono route or middleware."

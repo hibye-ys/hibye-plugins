@@ -1,66 +1,35 @@
 # hibye-plugins
 
-Shared agent assets marketplace for Claude Code + Codex.
-
-## Status
-
-- M0 spike complete (2026-05-21) — see `docs/superpowers/m0-results.md` in the reference implementation project.
-- M1 production bootstrap (2026-05-21~) — `stack-backend-ts-hono` 골격 추가.
-- M2.5 coverage completion (2026-05-22) — Python → TS 1:1 포트 80 SKILL.md (invariant 16 / workflow 40 / audit 24).
-- 2026-05-22 cleanup — `core` + `deprecated-example` plugin 제거 (M0 spike placeholder 잔재). L1 자리는 향후 universal 룰 필요 시 신규 plugin 으로 재구성.
+Claude Code와 Codex가 같은 로컬 소스를 읽는 개인용 에이전트 플러그인 마켓플레이스.
 
 ## Plugins
 
-| 이름 | Layer | 목적 |
-|---|---|---|
-| `stack-backend-ts-hono` | L2 | Hono + Web 표준 (Workers 호환) backend 룰 + `verify-workers-compat` skill. 80 SKILL.md (invariant 16 / workflow 40 / audit 24) |
-| `stack-backend-python` | L2 | Python FastAPI AI agent backend 룰 (23) + `_shared` 언어 무관 룰 (14) + 스킬 (45). 본문 식별자는 `<domain>` / `<DOMAIN>` placeholder — 다른 product 적용 시 `sed` 로 자기 도메인 이름 치환. Reference 사례 = `iyaki` |
+| 이름 | 목적 |
+|---|---|
+| `backend-ts` | EUNHA TypeScript API의 agent, context, provider, tool, MCP, HTTP, SSE 런타임 스킬 10개와 검증 하네스 |
+| `stack-backend-python` | 기존 Python FastAPI 백엔드 하네스 |
 
-## Quick Start (신규 프로젝트)
-
-```bash
-# 1. 본 셋업 스크립트가 project/.codex/skills/ + ~/.claude/plugins/cache/ 셋업 한 번에
-bash /Users/youngseoklee/Desktop/workplace/hibye-plugins/scripts/setup-project.sh \
-  <project-dir> stack-backend-ts-hono
-
-# 2. Codex: ~/.codex/config.toml 에 [marketplaces.hibye] 추가 (스크립트가 안내 출력)
-#    이미 등록되어 있으면 skip.
-
-# 3. Claude Code: project 안에서
-#    /plugin marketplace add /Users/youngseoklee/Desktop/workplace/hibye-plugins
-#    /plugin install stack-backend-ts-hono@hibye-plugins
-```
-
-## Install (Claude Code, 단일 plugin)
+## backend-ts 배선
 
 ```bash
-/plugin marketplace add /Users/youngseoklee/Desktop/workplace/hibye-plugins
-/plugin install <plugin-name>@hibye-plugins
+bash scripts/setup-project.sh /path/to/EUNHA-main --plugin backend-ts --tools claude,codex
 ```
 
-## Register (Codex)
+- Codex는 프로젝트 `.codex/skills/backend-ts`가 플러그인 `skills`를 직접 가리킨다.
+- Claude Code는 `scripts/link-cache.sh`가 글로벌 플러그인 캐시를 같은 소스로 연결한다. 프로젝트 전용 plugin은 해당 프로젝트의 `.claude/settings.json`에서만 활성화한다.
+- skill 복사본은 만들지 않는다. 소스 변경이 두 도구에 함께 반영된다.
+- 스킬이나 hook 목록이 바뀐 뒤에는 새 세션을 시작한다.
 
-`~/.codex/config.toml`:
+## 검증
 
-```toml
-[marketplaces.hibye]
-source_type = "local"
-source = "/Users/youngseoklee/Desktop/workplace/hibye-plugins"
+```bash
+bash plugins/backend-ts/scripts/acceptance-check.sh --project /path/to/EUNHA-main --tools claude,codex
+node plugins/backend-ts/skills/backend-audit/scripts/audit.mjs --project /path/to/EUNHA-main
 ```
 
-Project-side activation = `project/.codex/skills/<plugin>/ -> <marketplace>/plugins/<plugin>/skills/` (`scripts/setup-project.sh` 자동).
-
-## Smoke test (M1)
-
-대상 프로젝트에서 신규 plugin 2개가 인지되는지 확인:
-
-1. **Claude Code**: fresh 세션 → install 후 `<system-reminder>` 의 available skills 목록에 `verify-workers-compat` 보이는지 확인.
-2. **Codex**: `cd <project>` → 활성 skill 목록에 `stack-backend-ts-hono:verify-workers-compat` 보이는지 확인.
-3. **상시 룰 인지**: "이 디렉토리에서 Workers 호환 룰 알려줘" 메시지 — `Buffer`/`fs`/`c.env.X` 같은 어휘 응답에 등장하는지.
-
-결과 = `docs/superpowers/m1-results.md` (대상 프로젝트 측) 에 transcript 기록.
+전체 API 테스트와 knip까지 실행하려면 `--full`을 추가한다.
 
 ## Scripts
 
-- `scripts/link-cache.sh` — `~/.claude/plugins/cache/hibye-plugins/<plugin>/<version>` 을 marketplace source 로 symlink.
-- `scripts/setup-project.sh <project-dir> [plugin ...]` — Codex symlink + cache symlink 한 번에.
+- `scripts/link-cache.sh`: Claude plugin cache를 marketplace source로 연결.
+- `scripts/setup-project.sh`: 프로젝트에 skill, named agent, hook, command, AGENTS 참조를 배선.

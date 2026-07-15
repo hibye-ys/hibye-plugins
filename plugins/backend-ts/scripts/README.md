@@ -1,18 +1,8 @@
-# scripts/
+# scripts
 
-## generate-agents-md.sh
-CLAUDE.md 의 `@./...` import 를 펼쳐서 AGENTS.md 생성.
-- invariant 추가/삭제 → CLAUDE.md 수정 → `bash scripts/generate-agents-md.sh` → commit
-- `--check`: stdout 출력 (CI/drift 검증)
-
-## acceptance-check.sh
-plugin 메타 검증 — frontmatter 5필드 / 캐시 링크 / forbidden-scan / AGENTS.md drift.
-
-## audit-all.sh
-사용자 프로젝트 안에서 실행 — 25 audit 일괄. `DOMAIN_VOCAB` envvar 정의 시 app-domain-boundary 활성.
-
-## forbidden-scan.sh
-SKILL.md 안 금지 어휘 검출.
-
-## forbidden-terms.txt
-forbidden-scan.sh 의 패턴 정본.
+- `acceptance-check.sh`: 10개 스킬, 4개 named agent, UI 메타데이터, 매니페스트, 생성물과 선택적 프로젝트 배선 정합성 검사.
+- `validate-metadata.mjs`: 의존성 없이 SKILL frontmatter, `openai.yaml`, Claude/Codex manifest 구조 검사.
+- `generate-agents-md.sh`: `skills/*/SKILL.md`에서 Codex용 `AGENTS.md` 생성.
+- `audit-all.sh`: `backend-audit`의 결정론적 API 검증 실행기.
+- `gen-subagents.mjs`: Codex TOML 정본에서 Claude/OpenCode subagent 생성하고 제거된 agent 산출물 정리.
+- `gen-hooks.mjs`: SessionStart 훅의 도구별 설치 아티팩트 생성.

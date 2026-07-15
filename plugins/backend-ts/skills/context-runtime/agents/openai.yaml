@@ -1,0 +1,4 @@
+interface:
+  display_name: "Context Runtime"
+  short_description: "Maintain EUNHA context and compaction"
+  default_prompt: "Use $context-runtime to update EUNHA context assembly or compaction."

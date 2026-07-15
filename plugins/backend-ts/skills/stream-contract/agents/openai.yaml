@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stream Contract"
+  short_description: "Maintain EUNHA durable SSE streaming"
+  default_prompt: "Use $stream-contract to update EUNHA SSE production, persistence, or replay."

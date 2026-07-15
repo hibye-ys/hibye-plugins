@@ -1,0 +1,4 @@
+interface:
+  display_name: "Subagent Runtime"
+  short_description: "Maintain EUNHA child-agent execution"
+  default_prompt: "Use $subagent-runtime to update EUNHA child-agent execution or cancellation."

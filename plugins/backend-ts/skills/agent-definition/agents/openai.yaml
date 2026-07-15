@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Definition"
+  short_description: "Create EUNHA runtime agent definitions"
+  default_prompt: "Use $agent-definition to add or modify an EUNHA runtime agent definition."
