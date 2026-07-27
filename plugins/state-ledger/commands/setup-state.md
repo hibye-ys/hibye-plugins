@@ -9,7 +9,10 @@ description: 현재 프로젝트에 STATE 원장 시스템(1줄 인덱스 + docs
 2. 스크립트를 프로젝트로 복사합니다 (프로젝트가 소유 — git 에 커밋되어 worktree·CI 에서도 동작):
 
 ```bash
-P=<plugin-root>
+P="$(ls -d "$HOME"/.claude/plugins/cache/hibye-plugins/state-ledger/*/ 2>/dev/null | head -1)"
+[ -n "$P" ] || P="<marketplace>/plugins/state-ledger"  # 캐시 미설치 시 수동 지정
+command -v git >/dev/null && command -v jq >/dev/null && command -v python3 >/dev/null \
+  || echo "의존성 부족: git·jq·python3 필수 — 없으면 훅이 조용히 비활성화된다"
 mkdir -p scripts/hooks docs/state/root
 cp "$P"/scripts/check-state-wip-cap.sh "$P"/scripts/check-state-branch-sync.sh scripts/
 cp "$P"/scripts/hooks/*.sh scripts/hooks/

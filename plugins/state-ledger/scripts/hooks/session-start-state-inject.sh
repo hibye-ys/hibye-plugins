@@ -14,8 +14,13 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
-[ -f "$root/.staterc" ] && . "$root/.staterc"
-STATE_INDEXES="${STATE_INDEXES:-STATE.md}"
+
+# .staterc — KEY="value" 고정 형식만 읽는다 (source ✕: set -u 중단·변수 오염·임의 실행 방지)
+read_staterc() {
+  [ -f "$root/.staterc" ] || return 0
+  sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" "$root/.staterc" | head -1
+}
+v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
 
 out=""
 for f in $STATE_INDEXES; do

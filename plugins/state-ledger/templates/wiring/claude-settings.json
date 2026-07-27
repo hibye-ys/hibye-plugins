@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "HOOK_PROJECT_DIR=$CLAUDE_PROJECT_DIR bash $CLAUDE_PROJECT_DIR/scripts/hooks/session-start-state-inject.sh"
+            "command": "HOOK_PROJECT_DIR=\"$CLAUDE_PROJECT_DIR\" bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/session-start-state-inject.sh\""
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "HOOK_PROJECT_DIR=$CLAUDE_PROJECT_DIR bash $CLAUDE_PROJECT_DIR/scripts/hooks/post-edit-state-stamp.sh"
+            "command": "HOOK_PROJECT_DIR=\"$CLAUDE_PROJECT_DIR\" bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/post-edit-state-stamp.sh\""
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "HOOK_PROJECT_DIR=$CLAUDE_PROJECT_DIR bash $CLAUDE_PROJECT_DIR/scripts/hooks/stop-state-reminder.sh"
+            "command": "HOOK_PROJECT_DIR=\"$CLAUDE_PROJECT_DIR\" bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/stop-state-reminder.sh\""
           }
         ]
       }

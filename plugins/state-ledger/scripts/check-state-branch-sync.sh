@@ -6,9 +6,9 @@
 #    방금 예약한 빈 브랜치이므로 머지 오탐에서 제외한다.
 # ② 유령 브랜치: 기본 브랜치에 없는 커밋을 가진 로컬 브랜치가 어떤 detail frontmatter `branch:` 에도
 #    없다 → 등재하거나 폐기를 결정해야 한다. 본문 서사의 언급은 등재로 치지 않는다
-#    (substring 오탐 방지). task-loop/* 는 자체 도구가 관리하므로 제외.
+#    (substring 오탐 방지). STATE_BRANCH_EXCLUDE glob(기본 task-loop/*)은 자체 도구 관리로 보고 제외.
 #
-# 프로젝트 설정: 루트 `.staterc` (선택) — STATE_INDEXES, STATE_DEFAULT_BRANCH.
+# 프로젝트 설정: 루트 `.staterc` (선택) — STATE_INDEXES, STATE_DEFAULT_BRANCH, STATE_BRANCH_EXCLUDE.
 
 set -u
 
@@ -16,9 +16,15 @@ command -v git >/dev/null 2>&1 || exit 0
 
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
 cd "$root" 2>/dev/null || exit 0
-[ -f .staterc ] && . ./.staterc
-STATE_INDEXES="${STATE_INDEXES:-STATE.md}"
-BASE="${STATE_DEFAULT_BRANCH:-main}"
+
+# .staterc — KEY="value" 고정 형식만 읽는다 (source ✕: set -u 중단·변수 오염·임의 실행 방지)
+read_staterc() {
+  [ -f ".staterc" ] || return 0
+  sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" .staterc | head -1
+}
+v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
+v=$(read_staterc STATE_DEFAULT_BRANCH); BASE="${v:-main}"
+v=$(read_staterc STATE_BRANCH_EXCLUDE); BR_EXCLUDE="${v:-task-loop/*}"
 git rev-parse --verify --quiet "$BASE" >/dev/null || exit 0
 
 # ① §1/§2 id → detail frontmatter branch
@@ -47,7 +53,8 @@ done
 # ② 유령 브랜치 — 기본 브랜치에 없는 커밋 보유 + 어떤 detail frontmatter `branch:` 에도 없음
 known_branches=$(find docs/state -name '*.md' -exec awk 'FNR==1{n=0} /^---$/{n++; next} n==1' {} + 2>/dev/null | sed -nE 's/^branch: (.+)$/\1/p' | sort -u)
 for br in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
-  case "$br" in "$BASE"|task-loop/*) continue ;; esac
+  case "$br" in "$BASE") continue ;; esac
+  for pat in $BR_EXCLUDE; do case "$br" in $pat) continue 2 ;; esac; done
   ahead=$(git rev-list --count "$BASE..$br" 2>/dev/null || echo 0)
   [ "${ahead:-0}" -gt 0 ] || continue
   if ! printf '%s\n' "$known_branches" | grep -qxF "$br"; then

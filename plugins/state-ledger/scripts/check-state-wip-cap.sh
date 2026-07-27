@@ -2,8 +2,10 @@
 # STATE 인덱스·detail 의 구조·예산·라우팅 정합 검사 → warn (block 안 함).
 # - 카테고리 항목 수 WIP cap + 4개 섹션 heading 존재
 # - 인덱스 줄 자수·파일 바이트 (STATE 는 매 세션 전문 주입되므로 소비 단위로 잰다)
-# - 인덱스 [id] ↔ docs/state/<area>/<id>.md 존재 (양방향 — lazy loading 라우팅 무결성) + id 자수
-# - detail frontmatter: 존재·id/area 경로 일치·hash(훅 우회 편집 감지)·expires 경과·§1 owner·파일 크기
+# - 인덱스 [id] ↔ docs/state/<area>/<id>.md 존재 (양방향 — lazy loading 라우팅 무결성) + id 자수·문자집합
+# - §1·§2·§4 id 필수 (id 없는 줄은 §3 placeholder 만 허용)
+# - detail frontmatter: 존재·id/area 경로 일치·필수 필드(owner·branch·touched)·hash(훅 우회 편집 감지)
+#   ·expires 경과·§1 owner·'## 현재' 필수·파일 크기
 #
 # 프로젝트 설정: 루트 `.staterc` (선택) — STATE_INDEXES="STATE.md apps/api/STATE.md" 식.
 # area 규칙: 루트 STATE.md → root, 그 외 → 부모 디렉토리 이름 (apps/api/STATE.md → api).
@@ -12,8 +14,13 @@ set -u
 
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
 cd "$root" 2>/dev/null || exit 0
-[ -f .staterc ] && . ./.staterc
-STATE_INDEXES="${STATE_INDEXES:-STATE.md}"
+
+# .staterc — KEY="value" 고정 형식만 읽는다 (source ✕: set -u 중단·변수 오염·임의 실행 방지)
+read_staterc() {
+  [ -f ".staterc" ] || return 0
+  sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" .staterc | head -1
+}
+v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
 
 CAPS_ACTIVE=6
 CAPS_NEXT=6
@@ -76,6 +83,19 @@ for f in $STATE_INDEXES; do
     awk '/^---$/{n++; next} n==1' "$df" | grep -qE '^owner: .+' || warn "$df — §1 활성인데 frontmatter owner 없음"
   done
 
+  # §1·§2·§4 는 id 필수 (id 없는 줄은 §3 placeholder 만 허용), 토큰 문자집합은 [a-z0-9-]
+  while IFS= read -r line; do
+    case "$line" in
+      "- ["*)
+        tok=${line#- [}; tok=${tok%%]*}
+        printf '%s' "$tok" | grep -qE '^[a-z0-9-]+$' || warn "$f \"${line:0:36}…\" id 토큰 '[$tok]' 문자집합 위반 ([a-z0-9-]만)"
+        ;;
+      "- "*)
+        warn "$f \"${line:0:36}…\" id 없는 항목 (§3 placeholder 만 허용)"
+        ;;
+    esac
+  done < <(awk '/^## /{ in_sec = ($0 ~ /^## [124]\./); next } in_sec' "$f" | grep '^- ' || true)
+
   if [ -d "docs/state/$area" ]; then
     for df in docs/state/$area/*.md; do
       [ -e "$df" ] || continue
@@ -111,6 +131,11 @@ for p in sorted(glob.glob("docs/state/*/*.md")):
         print(f"{p} frontmatter id={fid.group(1) if fid else '없음'} — 파일명과 불일치")
     if not farea or farea.group(1) != area:
         print(f"{p} frontmatter area={farea.group(1) if farea else '없음'} — 경로와 불일치")
+    for k in ("owner", "branch", "touched"):
+        if not re.search(rf"^{k}: .+$", fm, re.M):
+            print(f"{p} frontmatter {k} 없음 (필수)")
+    if not re.search(r"^## 현재$", body, re.M):
+        print(f"{p} '## 현재' 섹션 없음 (필수)")
     h = re.search(r"^hash: (\S+)$", fm, re.M)
     real = hashlib.sha256(body.encode("utf-8")).hexdigest()[:8]
     if not h or h.group(1) != real:

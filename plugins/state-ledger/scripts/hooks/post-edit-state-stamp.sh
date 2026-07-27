@@ -18,7 +18,7 @@ if ! command -v python3 >/dev/null 2>&1; then exit 0; fi
 input=$(cat)
 
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
-cd "$root" 2>/dev/null || true
+cd "$root" 2>/dev/null || exit 0
 
 paths=$(echo "$input" | jq -r '.tool_input.file_path // empty')
 if [ -z "$paths" ]; then
@@ -42,6 +42,10 @@ while IFS= read -r file_path; do
   case "$file_path" in
     /*) ;;
     *) file_path="$PWD/$file_path" ;;
+  esac
+  case "$file_path" in
+    "$root"/docs/state/*/*.md) ;;
+    *) continue ;; # 프로젝트 밖 절대경로는 스탬프하지 않는다
   esac
   [ -f "$file_path" ] || continue
 

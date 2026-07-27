@@ -30,21 +30,27 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 
 | 파일 | 역할 |
 | --- | --- |
-| `scripts/check-state-wip-cap.sh` | WIP cap·섹션 존재·줄 200자·인덱스 4KB·인덱스↔detail 양방향·id 3–12자·frontmatter(id/area/hash/expires/§1 owner)·detail 16KB |
-| `scripts/check-state-branch-sync.sh` | §1·§2 branch 포인터 소멸/기머지 (빈 예약 브랜치 오탐 제외) + 유령 브랜치 (frontmatter `branch:` 만 등재로 인정) |
+| `scripts/check-state-wip-cap.sh` | WIP cap·섹션 존재·줄 200자·인덱스 4KB·인덱스↔detail 양방향·id 3–12자·문자집합·§1·§2·§4 id 필수·frontmatter(id/area/owner/branch/touched/hash/expires/§1 owner)·`## 현재` 필수·detail 16KB |
+| `scripts/check-state-branch-sync.sh` | §1·§2 branch 포인터 소멸/기머지 (빈 예약 브랜치 오탐 제외) + 유령 브랜치 (frontmatter `branch:` 만 등재로 인정, 제외 glob = `STATE_BRANCH_EXCLUDE`) |
 | `scripts/hooks/session-start-state-inject.sh` | SessionStart — 인덱스 전문 + 위 두 체커의 warn 주입 |
-| `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 는 불변) |
-| `scripts/hooks/stop-state-reminder.sh` | Stop — staged·unstaged·untracked 코드 변경 있는데 STATE 미갱신이면 알림 |
-| `scripts/hooks/commit-msg-state-check.sh` | commit-msg — docs/state 변경인데 `[id=]` 없음 / detail 삭제인데 `archive [id=]` 없음 |
+| `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
+| `scripts/hooks/stop-state-reminder.sh` | Stop — staged·unstaged·untracked 코드 변경 있는데 STATE 미갱신이면 알림 (코드 판정 = `STATE_CODE_RE`) |
+| `scripts/hooks/commit-msg-state-check.sh` | commit-msg — docs/state 변경인데 완결 `[id=<id>]` 토큰 없음 / detail 삭제인데 파일별 `archive [id=<그 id>]` 없음 |
 
 ## 설정 — `.staterc` (선택)
+
+형식 고정: `KEY="value"` 한 줄씩. 스크립트는 source 하지 않고 sed 로 파싱한다 (다른 문법·명령 치환 무시). 경로 목록은 공백 구분 — 공백 포함 경로 미지원.
 
 ```sh
 STATE_INDEXES="STATE.md apps/api/STATE.md apps/web/STATE.md"  # 기본 "STATE.md"
 STATE_DEFAULT_BRANCH="main"
+STATE_CODE_RE="\.(ts|tsx|js|jsx|sh|py|css|ya?ml|json|sql|toml)$|(^|/)Dockerfile"  # 스택에 맞게 조정
+STATE_BRANCH_EXCLUDE="task-loop/*"  # 유령 검사 제외 glob (공백 구분)
 ```
 
 area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → 부모 디렉토리 이름 (`apps/api/STATE.md` → `api`). detail 은 항상 `docs/state/<area>/<id>.md`.
+
+알려진 한계: opencode 는 SessionStart 를 instructions 방식으로 대신하므로 정합 warn 이 세션 시작에 표면화되지 않는다 — 필요하면 체커 2종을 수동 실행한다.
 
 ## 설치
 

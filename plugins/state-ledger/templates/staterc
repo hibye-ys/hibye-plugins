@@ -1,8 +1,12 @@
-# state-ledger 설정 — 프로젝트 루트에 `.staterc` 로 복사 (없으면 아래 기본값).
-# 인덱스 파일 목록 (공백 구분). area 는 경로에서 유도:
-#   루트 STATE.md → root, 그 외 → 부모 디렉토리 이름 (apps/api/STATE.md → api).
-# detail 은 항상 docs/state/<area>/<id>.md.
-STATE_INDEXES="STATE.md"
+# state-ledger 설정 — 프로젝트 루트에 `.staterc` 로 복사 (없으면 기본값).
+# 형식 고정: KEY="value" 한 줄씩. 스크립트는 source 하지 않고 sed 로 파싱한다
+# — 다른 문법·명령 치환은 무시되며, 경로 목록은 공백 구분(공백 포함 경로 미지원).
 
-# branch-sync 의 기준 브랜치
+STATE_INDEXES="STATE.md"
 STATE_DEFAULT_BRANCH="main"
+
+# stop-reminder 가 '코드'로 취급할 파일 (ERE). 스택에 맞게 조정 (예: |go|rs|java 추가).
+STATE_CODE_RE="\.(ts|tsx|js|jsx|sh|py|css|ya?ml|json|sql|toml)$|(^|/)Dockerfile"
+
+# branch-sync 유령 검사에서 제외할 브랜치 glob 목록 (공백 구분).
+STATE_BRANCH_EXCLUDE="task-loop/*"
