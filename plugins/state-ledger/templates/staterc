@@ -1,0 +1,8 @@
+# state-ledger 설정 — 프로젝트 루트에 `.staterc` 로 복사 (없으면 아래 기본값).
+# 인덱스 파일 목록 (공백 구분). area 는 경로에서 유도:
+#   루트 STATE.md → root, 그 외 → 부모 디렉토리 이름 (apps/api/STATE.md → api).
+# detail 은 항상 docs/state/<area>/<id>.md.
+STATE_INDEXES="STATE.md"
+
+# branch-sync 의 기준 브랜치
+STATE_DEFAULT_BRANCH="main"

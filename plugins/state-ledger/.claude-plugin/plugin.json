@@ -1,0 +1,8 @@
+{
+  "name": "state-ledger",
+  "version": "0.1.0",
+  "description": "STATE 원장 시스템 — 1줄 인덱스 + docs/state lazy loading + git log 정본, warn-only 게이트 6종 (Claude/Codex/opencode 공용).",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT",
+  "keywords": ["state", "coordination", "ledger", "multi-agent"]
+}

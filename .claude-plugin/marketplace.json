@@ -12,6 +12,13 @@
       "version": "0.0.1"
     },
     {
+      "name": "state-ledger",
+      "description": "STATE 원장 시스템 — 1줄 인덱스 + docs/state lazy loading + git log 정본, warn-only 게이트 6종 (Claude/Codex/opencode 공용).",
+      "category": "development",
+      "source": "./plugins/state-ledger",
+      "version": "0.1.0"
+    },
+    {
       "name": "stack-backend-python",
       "description": "Python FastAPI AI agent backend rules + skills (legacy 보존, ref/iyaki-zip-ai 흡수).",
       "category": "development",
