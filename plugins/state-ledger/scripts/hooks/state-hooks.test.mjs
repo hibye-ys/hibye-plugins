@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
@@ -636,6 +636,28 @@ test('commit-msg derives ids from index-only STATE changes', () =>
     assert.match(result.stderr, /\[id=index-only\]/)
   }))
 
+test('commit-msg treats a renamed detail as an archive of the old id', () =>
+  withRepo((root) => {
+    writeDetail(root, 'docs/state/web/old-id.md', detail('old-id', 'before rename'))
+    git(root, ['add', 'apps/web/STATE.md', 'docs/state/web/old-id.md'])
+    git(root, ['commit', '-q', '-m', 'add old id'])
+
+    git(root, ['mv', 'docs/state/web/old-id.md', 'docs/state/web/new-id.md'])
+    write(root, 'docs/state/web/new-id.md', detail('new-id', 'after rename'))
+    const index = readFileSync(join(root, 'apps/web/STATE.md'), 'utf8')
+    write(root, 'apps/web/STATE.md', index.replace('[old-id]', '[new-id]'))
+    git(root, ['add', 'apps/web/STATE.md', 'docs/state/web/new-id.md'])
+    const messagePath = join(root, '.git/COMMIT_EDITMSG')
+    writeFileSync(messagePath, 'rename [id=old-id] [id=new-id]\n')
+
+    const result = spawnSync('bash', [COMMIT_MSG_SCRIPT, messagePath], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /archive \[id=old-id\]/)
+  }))
+
 test('strict structural check fails when a required STATE index is missing', () => {
   const root = mkdtempSync(join(tmpdir(), 'state-check-missing-'))
   try {
@@ -933,6 +955,24 @@ test('global dispatcher detects only typed Claude command hooks', () =>
     assert.equal(secondOutput, '')
   }))
 
+test('a local Claude hook does not suppress the opencode adapter', () =>
+  withRepo((root) => {
+    write(root, '.claude/settings.json', JSON.stringify({
+      hooks: {
+        SessionStart: [{ hooks: [{
+          type: 'command',
+          command: 'bash scripts/hooks/session-start-state-inject.sh',
+        }] }],
+      },
+    }))
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'opencode-not-claude',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'opencode' })
+    assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /=== STATE\.md ===/)
+  }))
+
 test('baseline storage failure is visible instead of silently downgrading', () =>
   withRepo((root) => {
     const sessionId = 'baseline-write-failure'
@@ -1167,3 +1207,41 @@ test('STATE stamp accepts Codex multi-file apply_patch input', () =>
     assertStamped(root, first)
     assertStamped(root, second)
   }))
+
+test('STATE stamp rejects a detail symlink that resolves outside the repository', () => {
+  const root = mkdtempSync(join(tmpdir(), 'state-stamp-symlink-'))
+  const outside = join(tmpdir(), `${basename(root)}-outside.md`)
+  try {
+    mkdirSync(join(root, 'docs/state/web'), { recursive: true })
+    writeFileSync(outside, detail('outside', 'must not change', true))
+    const before = readFileSync(outside, 'utf8')
+    symlinkSync(outside, join(root, 'docs/state/web/link.md'))
+
+    runHook(STAMP_SCRIPT, root, { tool_input: { file_path: 'docs/state/web/link.md' } })
+
+    assert.equal(readFileSync(outside, 'utf8'), before)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { force: true })
+    rmSync(`${root}-hook-data`, { recursive: true, force: true })
+  }
+})
+
+test('STATE stamp rejects a traversal path that resolves outside the repository', () => {
+  const root = mkdtempSync(join(tmpdir(), 'state-stamp-traversal-'))
+  const outside = join(tmpdir(), `${basename(root)}-outside.md`)
+  try {
+    mkdirSync(join(root, 'docs/state/web'), { recursive: true })
+    writeFileSync(outside, detail('outside', 'must not change', true))
+    const before = readFileSync(outside, 'utf8')
+    const escaped = `${root}/docs/state/web/../../../../${basename(outside)}`
+
+    runHook(STAMP_SCRIPT, root, { tool_input: { file_path: escaped } })
+
+    assert.equal(readFileSync(outside, 'utf8'), before)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { force: true })
+    rmSync(`${root}-hook-data`, { recursive: true, force: true })
+  }
+})

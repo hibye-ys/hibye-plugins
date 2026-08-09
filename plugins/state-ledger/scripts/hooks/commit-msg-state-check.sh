@@ -50,7 +50,7 @@ for id in $required_ids; do
   fi
 done
 
-deleted=$(git diff --cached --name-only --diff-filter=D 2>/dev/null | grep -E '^docs/state/[^/]+/[^/]+\.md$' || true)
+deleted=$(git diff --cached --no-renames --name-only --diff-filter=D 2>/dev/null | grep -E '^docs/state/[^/]+/[^/]+\.md$' || true)
 for d in $deleted; do
   id=$(basename "$d" .md)
   if ! printf '%s' "$msg" | grep -qE "(^|[^[:alnum:]])archive \[id=$id\]"; then

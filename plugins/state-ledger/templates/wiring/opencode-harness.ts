@@ -1,4 +1,4 @@
-// opencode plugin — state-ledger 훅 어댑터. 대상 프로젝트의 .opencode/plugins/ 에 복사.
+// opencode plugin — user-scope state-ledger 훅 어댑터. 대상 프로젝트의 .opencode/plugins/ 에 복사.
 //   - state-stamp: 파일 직접 수정 (완전 동작)
 //   - stop-reminder: session.idle 에서 실행, 결과는 로그로 전달 (block 불가)
 //   - SessionStart STATE 주입: opencode.json instructions 로 STATE.md 를 직접 지정 (스크립트 미호출)
@@ -8,13 +8,13 @@ import type { Plugin } from "@opencode-ai/plugin"
 const runHook = async (
   $: any,
   worktree: string,
-  script: string,
+  action: string,
   stdinPayload: unknown,
 ): Promise<string> => {
-  const scriptPath = path.join(worktree, "scripts", "hooks", script)
+  const runnerPath = path.join(worktree, "scripts", "hooks", "state-ledger-runner.mjs")
   // Bun Shell 은 <<< herestring 미지원 — Response 객체 redirect 로 stdin 전달.
   const stdin = new Response(JSON.stringify(stdinPayload))
-  const r = await $`HOOK_PROJECT_DIR=${worktree} bash ${scriptPath} < ${stdin}`
+  const r = await $`HOOK_PROJECT_DIR=${worktree} STATE_LEDGER_HOST=opencode node ${runnerPath} ${action} < ${stdin}`
     .nothrow()
     .quiet()
   return r.exitCode === 0 ? r.text() : ""
@@ -33,7 +33,7 @@ export const StateLedgerPlugin: Plugin = async ({ client, $, worktree }) => {
 
   return {
     "chat.message": async (input: any) => {
-      const out = await runHook($, worktree, "turn-start-state-snapshot.sh", {
+      const out = await runHook($, worktree, "turn-start", {
         session_id: input.sessionID,
       })
       const msg = hookMessage(out)
@@ -59,13 +59,40 @@ export const StateLedgerPlugin: Plugin = async ({ client, $, worktree }) => {
         tool_input: { file_path: filePath },
       }
       // state-stamp: 파일 직접 수정 — 후속 도구 호출과의 race 방지 위해 await.
-      await runHook($, worktree, "post-edit-state-stamp.sh", payload)
+      const out = await runHook($, worktree, "stamp", payload)
+      const msg = hookMessage(out)
+      if (!msg) return
+      await client.app.log({
+        body: {
+          service: "state-ledger",
+          level: "warn",
+          message: "STATE stamp 경고",
+          extra: { message: msg },
+        },
+      })
     },
 
     event: async ({ event }: any) => {
+      if (event.type === "session.created") {
+        const out = await runHook($, worktree, "validate", {
+          session_id: event.properties.info.id,
+        })
+        const msg = hookMessage(out)
+        if (!msg) return
+        await client.app.log({
+          body: {
+            service: "state-ledger",
+            level: "warn",
+            message: "STATE 시작 검사",
+            extra: { message: msg },
+          },
+        })
+        return
+      }
+
       // session.idle = Stop 과 유사. stop-reminder 실행.
       if (event.type !== "session.idle") return
-      const out = await runHook($, worktree, "stop-state-reminder.sh", {
+      const out = await runHook($, worktree, "stop", {
         session_id: event.properties.sessionID,
       })
       const msg = hookMessage(out)

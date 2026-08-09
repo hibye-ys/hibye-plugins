@@ -235,8 +235,18 @@ function tomlContains(path) {
   return false
 }
 
-const found = host === 'codex'
-  ? jsonContains(join(root, '.codex', 'hooks.json')) || tomlContains(join(root, '.codex', 'config.toml'))
-  : jsonContains(join(root, '.claude', 'settings.json')) || jsonContains(join(root, '.claude', 'settings.local.json'))
+let found
+if (host === 'codex') {
+  found = jsonContains(join(root, '.codex', 'hooks.json')) || tomlContains(join(root, '.codex', 'config.toml'))
+} else if (host === 'claude') {
+  found = jsonContains(join(root, '.claude', 'settings.json')) || jsonContains(join(root, '.claude', 'settings.local.json'))
+} else if (host === 'opencode') {
+  // opencode lifecycle은 프로젝트 adapter 자체가 소유한다. Claude/Codex 로컬
+  // 설정은 다른 host의 중복 배선이므로 opencode 이벤트를 억제하면 안 된다.
+  found = false
+} else {
+  process.stderr.write(`unsupported state-ledger host: ${host}\n`)
+  process.exit(2)
+}
 
 process.exit(found ? 0 : 1)

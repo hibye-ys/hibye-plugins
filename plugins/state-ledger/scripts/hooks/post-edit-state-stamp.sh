@@ -49,11 +49,27 @@ while IFS= read -r file_path; do
     /*) ;;
     *) file_path="$PWD/$file_path" ;;
   esac
-  case "$file_path" in
-    "$root"/docs/state/*/*.md) ;;
-    *) continue ;; # 프로젝트 밖 절대경로는 스탬프하지 않는다
-  esac
   [ -f "$file_path" ] || continue
+
+  # lexical prefix/case glob은 `docs/state/x/../../..`와 symlink escape를 막지 못한다.
+  # realpath 후 정확히 docs/state/<area>/<id>.md 두 단계인지 검사한다.
+  if ! file_path=$(python3 - "$root" "$file_path" <<'PYEOF'
+import os, pathlib, sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+candidate = pathlib.Path(sys.argv[2]).resolve()
+state_root = root / "docs" / "state"
+try:
+    relative = candidate.relative_to(state_root)
+except ValueError:
+    raise SystemExit(1)
+if len(relative.parts) != 2 or candidate.suffix != ".md":
+    raise SystemExit(1)
+print(candidate)
+PYEOF
+  ); then
+    continue
+  fi
 
   TS="$ts" python3 - "$file_path" <<'PYEOF'
 import hashlib, os, re, sys, tempfile
