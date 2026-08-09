@@ -1,5 +1,5 @@
 {
-  "description": "Global STATE ledger lifecycle backed by state-ledger@hibye-plugins.",
+  "description": "Global STATE ledger lifecycle. Repositories without STATE.md or .staterc are ignored.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" session-start",
+            "command": "STATE_LEDGER_HOST=codex bash \"$PLUGIN_ROOT/scripts/hooks/global-state-hook.sh\" session-start",
             "statusMessage": "STATE 주입 중",
             "additionalContextLimit": 5000
           }
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" turn-start",
+            "command": "STATE_LEDGER_HOST=codex bash \"$PLUGIN_ROOT/scripts/hooks/global-state-hook.sh\" turn-start",
             "statusMessage": "STATE 턴 기준점 저장 중"
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" stamp",
+            "command": "STATE_LEDGER_HOST=codex bash \"$PLUGIN_ROOT/scripts/hooks/global-state-hook.sh\" stamp",
             "statusMessage": "STATE meta 스탬프 중"
           }
         ]
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" stop",
+            "command": "STATE_LEDGER_HOST=codex bash \"$PLUGIN_ROOT/scripts/hooks/global-state-hook.sh\" stop",
             "timeout": 30
           }
         ]

@@ -12,26 +12,34 @@
 
 set -u
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
 cd "$root" 2>/dev/null || exit 0
 
-# .staterc — KEY="value" 고정 형식만 읽는다 (source ✕: set -u 중단·변수 오염·임의 실행 방지)
-read_staterc() {
-  [ -f ".staterc" ] || return 0
-  sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" .staterc | head -1
-}
-v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
+if ! command -v node >/dev/null 2>&1; then
+  echo "WARN: node가 PATH에 없어 STATE_INDEXES를 안전하게 검증하지 못함" >&2
+  [ "${STATE_CHECK_STRICT:-0}" = "1" ] && exit 1
+  exit 0
+fi
+if ! state_indexes=$(HOOK_PROJECT_DIR="$root" node "$script_dir/hooks/state-config.mjs" indexes 2>&1); then
+  echo "WARN: STATE 설정 거부: ${state_indexes:0:400}" >&2
+  [ "${STATE_CHECK_STRICT:-0}" = "1" ] && exit 1
+  exit 0
+fi
 TARGET_AREA="${STATE_CHECK_AREA:-}"
 
 if [ -n "$TARGET_AREA" ]; then
   known=0
-  for configured_index in $STATE_INDEXES; do
+  while IFS= read -r configured_index; do
+    [ -n "$configured_index" ] || continue
     case "$configured_index" in
       STATE.md) configured_area=root ;;
       *) configured_area=$(basename "$(dirname "$configured_index")") ;;
     esac
     [ "$configured_area" = "$TARGET_AREA" ] && known=1
-  done
+  done <<EOF
+$state_indexes
+EOF
   if [ "$known" -ne 1 ]; then
     echo "WARN: 알 수 없는 STATE_CHECK_AREA=$TARGET_AREA" >&2
     exit 2
@@ -58,7 +66,8 @@ count_section() {
   ' "$1"
 }
 
-for f in $STATE_INDEXES; do
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
   case "$f" in
     STATE.md) area=root ;;
     *) area=$(basename "$(dirname "$f")") ;;
@@ -126,7 +135,9 @@ for f in $STATE_INDEXES; do
       grep -q "^- \[$id\]" "$f" || warn "docs/state/$area/$id.md — $f 인덱스에 없음 (고아 — 인덱스 등재 또는 archive)"
     done
   fi
-done
+done <<EOF
+$state_indexes
+EOF
 
 # detail frontmatter·hash·expires·크기 — stamp 훅과 동일한 파싱(python)으로 검사
 if ! command -v python3 >/dev/null 2>&1; then

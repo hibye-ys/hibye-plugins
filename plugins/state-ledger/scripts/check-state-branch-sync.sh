@@ -14,21 +14,30 @@ set -u
 
 command -v git >/dev/null 2>&1 || exit 0
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
 cd "$root" 2>/dev/null || exit 0
 
 # .staterc — KEY="value" 고정 형식만 읽는다 (source ✕: set -u 중단·변수 오염·임의 실행 방지)
+if ! command -v node >/dev/null 2>&1; then
+  echo "WARN: node가 PATH에 없어 STATE_INDEXES를 안전하게 검증하지 못함"
+  exit 0
+fi
+if ! state_indexes=$(HOOK_PROJECT_DIR="$root" node "$script_dir/hooks/state-config.mjs" indexes 2>&1); then
+  echo "WARN: STATE 설정 거부: ${state_indexes:0:400}"
+  exit 0
+fi
 read_staterc() {
   [ -f ".staterc" ] || return 0
   sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" .staterc | head -1
 }
-v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
 v=$(read_staterc STATE_DEFAULT_BRANCH); BASE="${v:-main}"
 v=$(read_staterc STATE_BRANCH_EXCLUDE); BR_EXCLUDE="${v:-task-loop/*}"
 git rev-parse --verify --quiet "$BASE" >/dev/null || exit 0
 
 # ① §1/§2 id → detail frontmatter branch
-for f in $STATE_INDEXES; do
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
   [ -f "$f" ] || continue
   case "$f" in
     STATE.md) area=root ;;
@@ -48,7 +57,9 @@ for f in $STATE_INDEXES; do
       echo "WARN: $df branch=$br — 이미 $BASE 에 머지됨 (archive 후보)"
     fi
   done
-done
+done <<EOF
+$state_indexes
+EOF
 
 # ② 유령 브랜치 — 기본 브랜치에 없는 커밋 보유 + 어떤 detail frontmatter `branch:` 에도 없음
 known_branches=$(find docs/state -name '*.md' -exec awk 'FNR==1{n=0} /^---$/{n++; next} n==1' {} + 2>/dev/null | sed -nE 's/^branch: (.+)$/\1/p' | sort -u)

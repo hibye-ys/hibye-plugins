@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -202,6 +202,59 @@ test('SessionStart injects the shared STATE context shape', () =>
     assert.equal(parsed.hookSpecificOutput.hookEventName, 'SessionStart')
     assert.match(parsed.hookSpecificOutput.additionalContext, /=== STATE\.md ===/)
     assert.match(parsed.hookSpecificOutput.additionalContext, /=== apps\/web\/STATE\.md ===/)
+  }))
+
+test('SessionStart rejects STATE_INDEXES traversal before reading outside the repository', () =>
+  withRepo((root) => {
+    const secretPath = `${root}-secret.txt`
+    try {
+      writeFileSync(secretPath, 'DO_NOT_EXPOSE_SENTINEL\n')
+      write(root, '.staterc', `STATE_INDEXES="../${secretPath.split('/').at(-1)}"\n`)
+      const output = runHook(SESSION_SCRIPT, root, {
+        session_id: 'unsafe-state-index',
+        hook_event_name: 'SessionStart',
+        source: 'startup',
+      })
+      const context = JSON.parse(output).hookSpecificOutput.additionalContext
+      assert.match(context, /STATE 설정 거부/)
+      assert.doesNotMatch(context, /DO_NOT_EXPOSE_SENTINEL/)
+    } finally {
+      rmSync(secretPath, { force: true })
+    }
+  }))
+
+test('SessionStart rejects a STATE index symlink that resolves outside the repository', () =>
+  withRepo((root) => {
+    const secretPath = `${root}-symlink-secret.txt`
+    try {
+      writeFileSync(secretPath, 'SYMLINK_SECRET_SENTINEL\n')
+      mkdirSync(join(root, 'linked'), { recursive: true })
+      symlinkSync(secretPath, join(root, 'linked', 'STATE.md'))
+      write(root, '.staterc', 'STATE_INDEXES="linked/STATE.md"\n')
+      const output = runHook(SESSION_SCRIPT, root, {
+        session_id: 'unsafe-state-symlink',
+        hook_event_name: 'SessionStart',
+        source: 'startup',
+      })
+      const context = JSON.parse(output).hookSpecificOutput.additionalContext
+      assert.match(context, /resolves outside the repository/)
+      assert.doesNotMatch(context, /SYMLINK_SECRET_SENTINEL/)
+    } finally {
+      rmSync(secretPath, { force: true })
+    }
+  }))
+
+test('SessionStart skips an oversized STATE index instead of injecting it', () =>
+  withRepo((root) => {
+    write(root, 'STATE.md', `OVERSIZED_SENTINEL\n${'x'.repeat(17_000)}\n`)
+    const output = runHook(SESSION_SCRIPT, root, {
+      session_id: 'oversized-state-index',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    })
+    const context = JSON.parse(output).hookSpecificOutput.additionalContext
+    assert.match(context, /주입 cap 16384B를 초과/)
+    assert.doesNotMatch(context, /OVERSIZED_SENTINEL/)
   }))
 
 test('SessionStart compact does not overwrite an active turn baseline', () =>
@@ -599,6 +652,22 @@ test('strict structural check fails when a required STATE index is missing', () 
   }
 })
 
+test('repository checkers resolve their helper when invoked by a relative script path', () =>
+  withRepo((root) => {
+    const pluginRoot = dirname(dirname(dirname(dirname(WIP_CHECK_SCRIPT))))
+    const relativeWip = WIP_CHECK_SCRIPT.slice(pluginRoot.length + 1)
+    const relativeBranch = BRANCH_SYNC_SCRIPT.slice(pluginRoot.length + 1)
+    for (const script of [relativeWip, relativeBranch]) {
+      const result = spawnSync('bash', [script], {
+        cwd: pluginRoot,
+        encoding: 'utf8',
+        env: { ...process.env, HOOK_PROJECT_DIR: root },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /Cannot find module|No such file or directory/)
+    }
+  }))
+
 test('strict structural check rejects a placeholder owner in the active section', () => {
   const root = mkdtempSync(join(tmpdir(), 'state-check-owner-'))
   try {
@@ -699,6 +768,21 @@ test('work include and exclude use one JavaScript RegExp contract', () =>
     assert.doesNotMatch(message, /README\.md|goal-runs/)
   }))
 
+test('.staterc is always tracked as root work even when a custom include regex omits it', () =>
+  withRepo((root) => {
+    const sessionId = 'staterc-is-work'
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    const current = readFileSync(join(root, '.staterc'), 'utf8')
+    write(root, '.staterc', `${current}# behavior changed\n`)
+
+    const message = JSON.parse(runHook(STOP_SCRIPT, root, {
+      session_id: sessionId,
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+    })).systemMessage
+    assert.match(message, /\[root\/working\] \.staterc/)
+  }))
+
 test('global dispatcher is inert outside an onboarded STATE repository', () => {
   const root = mkdtempSync(join(tmpdir(), 'state-global-noop-'))
   try {
@@ -725,11 +809,37 @@ test('global dispatcher runs plugin-owned lifecycle without project script copie
     assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /=== STATE\.md ===/)
   }))
 
-test('global dispatcher suppresses a matching project-local Codex hook during migration', () =>
+test('global dispatcher suppresses an active project-local Codex TOML hook during migration', () =>
   withRepo((root) => {
     write(root, '.codex/config.toml', 'command = "bash scripts/hooks/session-start-state-inject.sh"\n')
     const output = runGlobalHook('session-start', root, {
       session_id: 'global-deduplicate',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.equal(output, '')
+  }))
+
+test('global dispatcher ignores a commented-out project-local Codex hook', () =>
+  withRepo((root) => {
+    write(root, '.codex/config.toml', '# command = "bash scripts/hooks/session-start-state-inject.sh"\n')
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-comment-is-not-hook',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /=== STATE\.md ===/)
+  }))
+
+test('global dispatcher detects an active project-local Codex hooks.json command', () =>
+  withRepo((root) => {
+    write(root, '.codex/hooks.json', JSON.stringify({
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: 'bash scripts/hooks/session-start-state-inject.sh' }] }],
+      },
+    }))
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-hooks-json-deduplicate',
       hook_event_name: 'SessionStart',
       source: 'startup',
     }, { STATE_LEDGER_HOST: 'codex' })

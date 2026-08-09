@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setup State Ledger"
+  short_description: "Install or migrate a project STATE ledger"
+  default_prompt: "Use $setup-state to install the global STATE ledger in this repository."

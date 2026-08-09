@@ -36,22 +36,23 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `scripts/check-state-wip-cap.sh` | WIP cap·섹션 존재·줄 200자·인덱스 4KB·인덱스↔detail 양방향·id 3–12자·문자집합·§1·§2·§4 id 필수·frontmatter(id/area/owner/branch/touched/hash/expires/§1 owner)·`## 현재` 필수·detail 16KB |
 | `scripts/check-state-branch-sync.sh` | §1·§2 branch 포인터 소멸/기머지 (빈 예약 브랜치 오탐 제외) + 유령 브랜치 (frontmatter `branch:` 만 등재로 인정, 제외 glob = `STATE_BRANCH_EXCLUDE`) |
 | `scripts/hooks/session-start-state-inject.sh` | SessionStart — 인덱스 전문 + 위 두 체커의 warn 주입 + 기준점이 없을 때만 생성 |
+| `scripts/hooks/state-config.mjs` | `.staterc` 공통 파서 — 인덱스 상대경로·정규화·repo 경계·symlink·개수와 설정 크기를 읽기 전에 검증 |
 | `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점 저장, 동시 세션 경고 |
 | `scripts/hooks/state-turn-baseline.mjs` | HEAD·dirty content·STATE 의미 digest 차분, committed/dirty 순서·debt·동시 세션 판정 엔진 |
 | `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
 | `scripts/hooks/stop-state-reminder.sh` | Stop — 기준점 이후 작업과 대응 STATE의 영역·구조·의미·순서·채널을 검사하고 미해결 debt를 유지 |
 | `scripts/hooks/commit-msg-state-check.sh` | commit-msg — 인덱스/detail에서 실제 바뀐 모든 id별 `[id=<id>]` / detail 삭제 파일별 `archive [id=<id>]` 검사 |
-| `hooks/claude-hooks.json` + `global-state-hook.sh` | Claude Code user-scope plugin lifecycle. STATE 미사용 repo는 no-op, 이행 중 로컬 훅은 이벤트별 중복 억제 |
-| `hooks/codex-user-hooks.json` | Codex user-global `~/.codex/hooks.json` 정본. stable `state-ledger/current` cache link의 같은 runtime을 호출 |
+| `hooks/claude-hooks.json` + `global-state-hook.sh` | Claude Code user-scope plugin lifecycle. STATE 미사용 repo는 no-op, 이행 중 실제 로컬 command만 구조적으로 감지해 이벤트별 중복 억제 |
+| `hooks/hooks.json` | Codex plugin-bundled global lifecycle. `$PLUGIN_ROOT`의 설치 버전을 실행하며 사용자 `hooks.json` 복사본을 만들지 않음 |
 
 ## 설정 — `.staterc` (선택)
 
-형식 고정: `KEY="value"` 한 줄씩. 스크립트는 source 하지 않고 sed 로 파싱한다 (다른 문법·명령 치환 무시). 경로 목록은 공백 구분 — 공백 포함 경로 미지원.
+형식 고정: `KEY="value"` 한 줄씩. 스크립트는 source 하지 않고 고정 형식만 파싱한다. `STATE_INDEXES`는 공백 구분이며 각 항목은 repo 내부의 정규화된 상대경로이고 반드시 `STATE.md`로 끝나야 한다. 절대경로·`..`·glob·공백·repo 밖 symlink는 읽기 전에 거부한다.
 
 ```sh
 STATE_INDEXES="STATE.md apps/api/STATE.md apps/web/STATE.md"  # 기본 "STATE.md"
 STATE_DEFAULT_BRANCH="main"
-STATE_WORK_INCLUDE_RE="(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml|go|rs|java|kt|swift|c|cc|cpp|h|hpp|png|jpe?g|webp|gif|avif|woff2?|ttf|otf)$|(^|/)(prompts?|agents?|skills?|commands?)/.*\.md$"
+STATE_WORK_INCLUDE_RE="(^|/)\.staterc$|(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml|go|rs|java|kt|swift|c|cc|cpp|h|hpp|png|jpe?g|webp|gif|avif|woff2?|ttf|otf)$|(^|/)(prompts?|agents?|skills?|commands?)/.*\.md$"
 STATE_WORK_EXCLUDE_RE="(^|/)(node_modules|dist|build|coverage|vendor)/"
 STATE_BRANCH_EXCLUDE="task-loop/*"  # 유령 검사 제외 glob (공백 구분)
 ```
@@ -64,9 +65,11 @@ area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → �
 
 ## 설치
 
-Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. Claude는 plugin-bundled hooks를 사용하고, Codex는 `hooks/codex-user-hooks.json`을 활성 `$CODEX_HOME/hooks.json`에 병합한다 (`CODEX_HOME` 미지정 시 `~/.codex/hooks.json`). Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 기본 홈과 계정 홈을 별도로 본다. `scripts/link-cache.sh`는 Claude version cache와 stable `current`를 소스로 직접 연결하고, Codex는 설치 판정을 보존하는 실제 version 디렉터리 안의 구성요소와 `current`를 소스로 연결한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`만 둔다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
+Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. 두 도구 모두 plugin-bundled hooks를 사용하며 프로젝트나 사용자 `hooks.json`에 lifecycle command를 복사하지 않는다. Codex는 `hooks/hooks.json`의 `$PLUGIN_ROOT`, Claude는 `hooks/claude-hooks.json`의 `$CLAUDE_PLUGIN_ROOT`로 설치 버전을 실행한다. Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 각 홈에서 플러그인을 별도로 활성화한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`만 둔다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
 
-`/state-ledger:setup-state`는 프로젝트 데이터와 작성 규칙만 온보딩한다. `commit-msg`는 agent lifecycle이 아니라 Git hook이므로 각 프로젝트의 기존 hook manager에 명시적으로 연결한다. 기존 `.codex/config.toml`·`.claude/settings.json`에 복사형 STATE lifecycle이 남아 있으면 제거한다. 이행 중인 브랜치에서는 전역 dispatcher가 같은 이벤트의 로컬 복사형 훅을 감지해 중복 실행을 피한다.
+Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `codex plugin add state-ledger@hibye-plugins`로 재설치한다. 운영 설치 캐시는 소스 링크로 바꾸지 않는다. `scripts/link-cache.sh`는 기본적으로 Claude 개발 캐시만 연결하며, Codex 소스 링크는 격리된 로컬 개발에서 `--codex-dev-links`를 명시한 경우에만 만든다.
+
+`/state-ledger:setup-state`는 프로젝트 데이터와 작성 규칙만 온보딩한다. `commit-msg`는 agent lifecycle이 아니라 Git hook이므로 각 프로젝트의 기존 hook manager에 명시적으로 연결한다. 기존 `.codex/hooks.json`·`.codex/config.toml`·`.claude/settings*.json`에 복사형 STATE lifecycle이 남아 있으면 제거한다. 이행 중인 브랜치에서는 전역 dispatcher가 JSON/TOML의 실제 로컬 command를 감지해 중복 실행을 피하며, 주석이나 단순 문자열은 로컬 훅으로 취급하지 않는다.
 
 ## 검증된 설계 근거 (2026-07-28 교차 리뷰 라운드)
 

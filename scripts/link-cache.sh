@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# 로컬 marketplace의 Claude Code·Codex 캐시를 source-backed 상태로 유지한다.
-# Claude는 버전 디렉터리 자체를 source symlink로 쓸 수 있다. Codex는 최신 CLI가
-# symlink 버전 디렉터리를 미설치로 판정하므로 실제 디렉터리 안의 구성요소를
-# source symlink로 만들고, lifecycle runtime용 current만 source에 직접 연결한다.
+# 로컬 marketplace의 Claude Code 개발 캐시를 source-backed 상태로 유지한다.
+# Codex 운영 캐시는 hook trust와 설치 버전의 경계를 보존하기 위해 기본적으로
+# 건드리지 않는다. 명시적 로컬 개발 때만 --codex-dev-links를 사용한다.
 
 set -euo pipefail
 
 MARKETPLACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CODEX_DEV_LINKS=0
+if [ "${1:-}" = "--codex-dev-links" ]; then
+    CODEX_DEV_LINKS=1
+elif [ "$#" -gt 0 ]; then
+    echo "usage: $0 [--codex-dev-links]"
+    exit 2
+fi
 
 if [ ! -d "$MARKETPLACE_ROOT/plugins" ]; then
     echo "ERROR: marketplace plugins/ not found at $MARKETPLACE_ROOT/plugins"
@@ -80,15 +86,17 @@ for plugin_dir in "$MARKETPLACE_ROOT/plugins/"*/; do
         "claude" \
         "root-link"
 
-    link_versioned_cache \
-        "$plugin_dir" \
-        "$plugin_name" \
-        "$plugin_dir/.codex-plugin/plugin.json" \
-        "$HOME/.codex/plugins/cache/hibye-plugins" \
-        "codex" \
-        "source-backed-directory"
+    if [ "$CODEX_DEV_LINKS" = "1" ]; then
+        link_versioned_cache \
+            "$plugin_dir" \
+            "$plugin_name" \
+            "$plugin_dir/.codex-plugin/plugin.json" \
+            "$HOME/.codex/plugins/cache/hibye-plugins" \
+            "codex-dev" \
+            "source-backed-directory"
+    fi
 
-    # flat skills/ symlink — Claude와 Codex 프로젝트 링크가 같은 source tree를 보게 한다.
+    # Claude flat skills/ symlink — Claude 프로젝트 링크가 같은 source tree를 보게 한다.
     if [ -d "$plugin_dir/skills" ]; then
         target_dir="$HOME/.claude/plugins/cache/hibye-plugins/$plugin_name"
         mkdir -p "$target_dir"
@@ -97,4 +105,7 @@ for plugin_dir in "$MARKETPLACE_ROOT/plugins/"*/; do
     fi
 done
 
+if [ "$CODEX_DEV_LINKS" = "0" ]; then
+    echo "SKIP: Codex cache (use cachebuster + codex plugin add; --codex-dev-links is development-only)"
+fi
 echo "DONE"

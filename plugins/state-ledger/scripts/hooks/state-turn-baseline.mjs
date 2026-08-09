@@ -8,7 +8,6 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
-  realpathSync,
   readdirSync,
   renameSync,
   statSync,
@@ -18,13 +17,11 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { projectRoot, stateConfig } from './state-config.mjs'
 
 const SNAPSHOT_VERSION = 6
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const ACTIVE_SESSION_MS = 30 * 60 * 1000
-const DEFAULT_STATE_INDEXES = 'STATE.md'
-const DEFAULT_STATE_WORK_INCLUDE_RE = String.raw`(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml|go|rs|java|kt|swift|c|cc|cpp|h|hpp|png|jpe?g|webp|gif|avif|woff2?|ttf|otf)$|(^|/)(prompts?|agents?|skills?|commands?)/.*\.md$`
-const DEFAULT_STATE_WORK_EXCLUDE_RE = String.raw`(^|/)(node_modules|dist|build|coverage|vendor)/`
 const STATE_SCRIPTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 function git(root, args) {
@@ -42,57 +39,6 @@ function readPayload() {
 
 function sha(value) {
   return createHash('sha256').update(value).digest('hex')
-}
-
-function projectRoot() {
-  const configured = process.env.HOOK_PROJECT_DIR ?? process.env.CLAUDE_PROJECT_DIR
-  const root = configured || git(process.cwd(), ['rev-parse', '--show-toplevel']).trim()
-  return realpathSync(resolve(root))
-}
-
-function readStaterc(root, key) {
-  try {
-    const line = readFileSync(join(root, '.staterc'), 'utf8')
-      .split('\n')
-      .find((candidate) => new RegExp(`^${key}="[^"]*"\\s*$`).test(candidate))
-    return line?.match(/^[A-Z_]+="([^"]*)"\s*$/)?.[1] ?? null
-  } catch {
-    return null
-  }
-}
-
-function stateConfig(root) {
-  const configuredIndexes = readStaterc(root, 'STATE_INDEXES') || DEFAULT_STATE_INDEXES
-  const indexes = [...new Set(configuredIndexes.split(/\s+/).filter(Boolean))]
-  const indexByArea = {}
-  const areaByIndex = new Map()
-  const scopes = []
-
-  for (const path of indexes) {
-    if (path.startsWith('/') || path === '..' || path.startsWith('../') || path.includes('/../')) {
-      throw new Error(`STATE_INDEXES contains an unsafe path: ${path}`)
-    }
-    const normalized = path.replace(/^\.\//, '')
-    const area = normalized === 'STATE.md' ? 'root' : basename(dirname(normalized))
-    if (indexByArea[area] && indexByArea[area] !== normalized) {
-      throw new Error(`STATE_INDEXES maps multiple indexes to area ${area}`)
-    }
-    indexByArea[area] = normalized
-    areaByIndex.set(normalized, area)
-    if (area !== 'root') scopes.push({ area, prefix: `${dirname(normalized)}/` })
-  }
-
-  if (indexes.length === 0) throw new Error('STATE_INDEXES must contain at least one path')
-
-  const includePattern = readStaterc(root, 'STATE_WORK_INCLUDE_RE') || DEFAULT_STATE_WORK_INCLUDE_RE
-  const excludePattern = readStaterc(root, 'STATE_WORK_EXCLUDE_RE') || DEFAULT_STATE_WORK_EXCLUDE_RE
-  return {
-    indexByArea,
-    areaByIndex,
-    scopes: scopes.sort((a, b) => b.prefix.length - a.prefix.length),
-    workIncludeRe: new RegExp(includePattern),
-    workExcludeRe: new RegExp(excludePattern),
-  }
 }
 
 function sessionId(payload) {
@@ -176,6 +122,7 @@ function stateSemantics(root, config) {
 }
 
 function isWorkFile(path, config) {
+  if (path === '.staterc') return true
   return !isState(path, config) &&
     config.workIncludeRe.test(path) &&
     !config.workExcludeRe.test(path)

@@ -28,22 +28,17 @@ root=$(git -C "$candidate" rev-parse --show-toplevel 2>/dev/null || true)
 # or .staterc. A .staterc without STATE.md intentionally surfaces a missing-index warning.
 [ -f "$root/.staterc" ] || [ -f "$root/STATE.md" ] || exit 0
 
-# During branch-by-branch migration, do not run the same event twice. User-global
-# Codex hooks identify themselves explicitly; plugin-bundled Claude hooks do likewise.
-case "${STATE_LEDGER_HOST:-}" in
-  codex) local_config="$root/.codex/config.toml" ;;
-  claude) local_config="$root/.claude/settings.json" ;;
-  *)
-    if [ -n "${PLUGIN_ROOT:-}" ]; then
-      local_config="$root/.codex/config.toml"
-    else
-      local_config="$root/.claude/settings.json"
-    fi
-    ;;
-esac
-if [ -f "$local_config" ] && grep -qF "/$hook_script" "$local_config"; then
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+host="${STATE_LEDGER_HOST:-}"
+if [ -z "$host" ]; then
+  if [ -n "${PLUGIN_ROOT:-}" ]; then host=codex; else host=claude; fi
+fi
+
+# During migration, let a real project-local STATE hook own the event. Parse
+# JSON/TOML commands; comments and unrelated text must never disable the global hook.
+if command -v node >/dev/null 2>&1 && \
+  node "$script_dir/detect-local-state-hook.mjs" "$root" "$host" "$hook_script" >/dev/null 2>&1; then
   exit 0
 fi
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 printf '%s' "$input" | HOOK_PROJECT_DIR="$root" bash "$script_dir/$hook_script"

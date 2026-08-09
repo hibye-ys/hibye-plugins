@@ -18,20 +18,27 @@ input=$(cat)
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-# .staterc — KEY="value" 고정 형식만 읽는다 (source ✕: set -u 중단·변수 오염·임의 실행 방지)
-read_staterc() {
-  [ -f "$root/.staterc" ] || return 0
-  sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" "$root/.staterc" | head -1
-}
-v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
-
 out=""
+indexes=""
+config_error=""
+if ! command -v node >/dev/null 2>&1; then
+  config_error="node가 PATH에 없어 STATE_INDEXES를 안전하게 검증하지 못했습니다."
+elif ! indexes=$(HOOK_PROJECT_DIR="$root" node "$script_dir/state-config.mjs" indexes 2>&1); then
+  config_error="STATE 설정 거부: ${indexes:0:400}"
+  indexes=""
+fi
+if [ -n "$config_error" ]; then
+  out="=== STATE hook 경고 ===
+$config_error"
+fi
 
 # 첫 사용자 프롬프트 전에도 기준점이 존재하게 하되 compact/resume가 진행 중인
 # 턴의 기존 기준점을 덮어쓰지 않도록 없을 때만 생성한다.
 baseline_error=""
 baseline_result=""
-if ! command -v node >/dev/null 2>&1; then
+if [ -n "$config_error" ]; then
+  baseline_error=""
+elif ! command -v node >/dev/null 2>&1; then
   baseline_error="node가 PATH에 없어 STATE 턴 기준점을 저장하지 못했습니다."
 elif ! baseline_result=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-turn-baseline.mjs" snapshot-if-absent 2>&1); then
   baseline_error="STATE 턴 기준점 저장 실패: ${baseline_result:0:400}"
@@ -48,17 +55,41 @@ if [ "${concurrent_count:-0}" -gt 0 ]; then
 같은 worktree에서 최근 30분 내 다른 활성 세션 ${concurrent_count}개가 감지됐습니다. 변경 귀속이 불명확하므로 Stop의 code↔STATE 판정은 보류됩니다."
 fi
 
-for f in $STATE_INDEXES; do
+total_bytes=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
   [ -f "$root/$f" ] || continue
+  bytes=$(wc -c < "$root/$f" 2>/dev/null || echo 0)
+  if [ "${bytes:-0}" -gt 16384 ]; then
+    out="${out}${out:+
+
+}=== STATE hook 경고 ===
+$f ${bytes}B — SessionStart 주입 cap 16384B를 초과해 생략했습니다."
+    continue
+  fi
+  total_bytes=$((total_bytes + bytes))
+  if [ "$total_bytes" -gt 65536 ]; then
+    out="${out}${out:+
+
+}=== STATE hook 경고 ===
+STATE 인덱스 합계가 SessionStart 주입 cap 65536B를 초과해 $f부터 생략했습니다."
+    break
+  fi
   out="${out}${out:+
 
 }=== $f ===
 $(cat "$root/$f")"
-done
+done <<EOF
+$indexes
+EOF
 
 # STATE↔git 브랜치 정합 + 크기·라우팅 예산 warn (warn-only)
-sync=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-branch-sync.sh" 2>/dev/null || true)
-budget=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-wip-cap.sh" 2>&1 || true)
+sync=""
+budget=""
+if [ -z "$config_error" ]; then
+  sync=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-branch-sync.sh" 2>/dev/null || true)
+  budget=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-wip-cap.sh" 2>&1 || true)
+fi
 warns="${sync}${sync:+${budget:+
 }}${budget}"
 if [ -n "$warns" ]; then
