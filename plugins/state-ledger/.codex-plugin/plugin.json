@@ -1,0 +1,31 @@
+{
+  "name": "state-ledger",
+  "version": "0.3.0+codex.20260809084430",
+  "description": "Global warn-only STATE ledger lifecycle for Codex, Claude Code, and compatible agent tools.",
+  "author": {
+    "name": "hibye-ys"
+  },
+  "license": "MIT",
+  "keywords": [
+    "state",
+    "coordination",
+    "ledger",
+    "multi-agent"
+  ],
+  "interface": {
+    "displayName": "State Ledger",
+    "shortDescription": "Keep project STATE ledgers aligned with each turn.",
+    "longDescription": "Injects project STATE indexes and reports warn-only ownership, structure, and turn-attribution drift across repositories.",
+    "developerName": "hibye-ys",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Lifecycle hooks",
+      "STATE validation",
+      "Turn attribution"
+    ],
+    "defaultPrompt": [
+      "Set up this repository to use the global STATE ledger.",
+      "Check the current STATE ledger for structural warnings."
+    ]
+  }
+}

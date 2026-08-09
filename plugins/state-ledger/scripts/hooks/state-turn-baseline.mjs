@@ -17,12 +17,15 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const SNAPSHOT_VERSION = 5
+const SNAPSHOT_VERSION = 6
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const ACTIVE_SESSION_MS = 30 * 60 * 1000
 const DEFAULT_STATE_INDEXES = 'STATE.md'
-const DEFAULT_STATE_CODE_RE = String.raw`\.(ts|tsx|js|jsx|sh|py|css|ya?ml|json|sql|toml)$|(^|/)Dockerfile`
+const DEFAULT_STATE_WORK_INCLUDE_RE = String.raw`(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml|go|rs|java|kt|swift|c|cc|cpp|h|hpp|png|jpe?g|webp|gif|avif|woff2?|ttf|otf)$|(^|/)(prompts?|agents?|skills?|commands?)/.*\.md$`
+const DEFAULT_STATE_WORK_EXCLUDE_RE = String.raw`(^|/)(node_modules|dist|build|coverage|vendor)/`
+const STATE_SCRIPTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' })
@@ -81,12 +84,14 @@ function stateConfig(root) {
 
   if (indexes.length === 0) throw new Error('STATE_INDEXES must contain at least one path')
 
-  const codePattern = readStaterc(root, 'STATE_CODE_RE') || DEFAULT_STATE_CODE_RE
+  const includePattern = readStaterc(root, 'STATE_WORK_INCLUDE_RE') || DEFAULT_STATE_WORK_INCLUDE_RE
+  const excludePattern = readStaterc(root, 'STATE_WORK_EXCLUDE_RE') || DEFAULT_STATE_WORK_EXCLUDE_RE
   return {
     indexByArea,
     areaByIndex,
     scopes: scopes.sort((a, b) => b.prefix.length - a.prefix.length),
-    codeRe: new RegExp(codePattern),
+    workIncludeRe: new RegExp(includePattern),
+    workExcludeRe: new RegExp(excludePattern),
   }
 }
 
@@ -171,7 +176,9 @@ function stateSemantics(root, config) {
 }
 
 function isWorkFile(path, config) {
-  return !isState(path, config) && config.codeRe.test(path)
+  return !isState(path, config) &&
+    config.workIncludeRe.test(path) &&
+    !config.workExcludeRe.test(path)
 }
 
 function workArea(path, config) {
@@ -362,7 +369,7 @@ function stateAreaIsValid(root, area, config) {
   if (!index) return false
   try {
     if (!lstatSync(join(root, index)).isFile()) return false
-    execFileSync('bash', [join(root, 'scripts/check-state-wip-cap.sh')], {
+    execFileSync('bash', [join(STATE_SCRIPTS_DIR, 'check-state-wip-cap.sh')], {
       cwd: root,
       env: {
         ...process.env,

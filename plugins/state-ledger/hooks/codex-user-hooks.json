@@ -1,0 +1,52 @@
+{
+  "description": "Global STATE ledger lifecycle backed by state-ledger@hibye-plugins.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" session-start",
+            "statusMessage": "STATE 주입 중",
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" turn-start",
+            "statusMessage": "STATE 턴 기준점 저장 중"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" stamp",
+            "statusMessage": "STATE meta 스탬프 중"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STATE_LEDGER_HOST=codex bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/scripts/hooks/global-state-hook.sh\" stop",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

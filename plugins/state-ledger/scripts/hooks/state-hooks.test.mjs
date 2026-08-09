@@ -14,6 +14,10 @@ const SNAPSHOT_SCRIPT = fileURLToPath(new URL('./turn-start-state-snapshot.sh', 
 const COMMIT_MSG_SCRIPT = fileURLToPath(new URL('./commit-msg-state-check.sh', import.meta.url))
 const BRANCH_SYNC_SCRIPT = fileURLToPath(new URL('../check-state-branch-sync.sh', import.meta.url))
 const WIP_CHECK_SCRIPT = fileURLToPath(new URL('../check-state-wip-cap.sh', import.meta.url))
+const GLOBAL_SCRIPT = fileURLToPath(new URL('./global-state-hook.sh', import.meta.url))
+
+const EUNHA_WORK_INCLUDE_RE = String.raw`^(\.github/|\.(agents|claude|codex|design-sync|opencode|openai|system-sync)/|(scripts|patches|design|handoff|eslint-rules|supabase)/|docs/(decisions|operations)/|(apps|packages)/)|(^|/)Dockerfile$|^[^/]+\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml)$`
+const EUNHA_WORK_EXCLUDE_RE = String.raw`^(apps|packages)/.*(AGENTS|CLAUDE|README|INVENTORY)\.md$`
 
 function git(cwd, args) {
   return execFileSync('git', ['-c', 'core.excludesfile=/dev/null', ...args], {
@@ -44,6 +48,48 @@ function runHook(script, root, payload, extraEnv = {}) {
   return result.stdout.trim()
 }
 
+function runGlobalHook(mode, root, payload, extraEnv = {}) {
+  const result = spawnSync('bash', [GLOBAL_SCRIPT, mode], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOOK_PROJECT_DIR: root,
+      STATE_HOOK_DATA_DIR: `${root}-hook-data`,
+      ...extraEnv,
+    },
+    input: JSON.stringify(payload),
+  })
+  assert.equal(result.status, 0, result.stderr)
+  return result.stdout.trim()
+}
+
+function stateIndex(area) {
+  return `# ${area} STATE
+
+## 1. 활성
+
+## 2. 다음
+
+## 3. 미래
+
+## 4. 미해결
+`
+}
+
+function writeDetail(root, relative, content) {
+  write(root, relative, content)
+  const [, , area, filename] = relative.split('/')
+  const id = filename.replace(/\.md$/, '')
+  const indexPath = area === 'root' ? 'STATE.md' : `apps/${area}/STATE.md`
+  const index = readFileSync(join(root, indexPath), 'utf8')
+  if (!index.includes(`- [${id}]`)) {
+    write(root, indexPath, index.replace('## 3. 미래', `- [${id}] fixture
+
+## 3. 미래`))
+  }
+}
+
 function withRepo(fn) {
   const root = mkdtempSync(join(tmpdir(), 'state-hooks-'))
   try {
@@ -53,17 +99,11 @@ function withRepo(fn) {
     write(
       root,
       '.staterc',
-      'STATE_INDEXES="STATE.md apps/api/STATE.md apps/web/STATE.md"\nSTATE_DEFAULT_BRANCH="main"\nSTATE_CODE_RE=".*"\nSTATE_BRANCH_EXCLUDE="task-loop/* goal/*-itm-*"\n',
+      `STATE_INDEXES="STATE.md apps/api/STATE.md apps/web/STATE.md"\nSTATE_DEFAULT_BRANCH="main"\nSTATE_WORK_INCLUDE_RE="${EUNHA_WORK_INCLUDE_RE}"\nSTATE_WORK_EXCLUDE_RE="${EUNHA_WORK_EXCLUDE_RE}"\nSTATE_BRANCH_EXCLUDE="task-loop/* goal/*-itm-*"\n`,
     )
-    write(root, 'STATE.md', '# STATE\n')
-    write(root, 'apps/api/STATE.md', '# api STATE\n')
-    write(root, 'apps/web/STATE.md', '# web STATE\n')
-    write(root, 'scripts/check-state-branch-sync.sh', '#!/bin/bash\nexit 0\n')
-    write(
-      root,
-      'scripts/check-state-wip-cap.sh',
-      '#!/bin/bash\n[ -z "${STATE_TEST_WIP_WARNING:-}" ] || echo "$STATE_TEST_WIP_WARNING" >&2\n[ "${STATE_TEST_STRICT_FAILURE:-0}" != "1" ] || [ "${STATE_CHECK_STRICT:-0}" != "1" ] || exit 1\nexit 0\n',
-    )
+    write(root, 'STATE.md', stateIndex('root'))
+    write(root, 'apps/api/STATE.md', stateIndex('api'))
+    write(root, 'apps/web/STATE.md', stateIndex('web'))
     git(root, ['add', '-A'])
     git(root, ['commit', '-q', '-m', 'base'])
     return fn(root)
@@ -73,22 +113,24 @@ function withRepo(fn) {
   }
 }
 
-function detail(id, body) {
-  return `---
-id: ${id}
-area: web
-owner: —
-branch: —
-touched: —
-hash: stale
----
-
-# ${id}
+function detail(id, body, stale = false, area = 'web') {
+  const detailBody = `# ${id}
 
 ## 현재
 
 ${body}
 `
+  const serializedBody = `\n${detailBody}`
+  const hash = stale ? 'stale' : createHash('sha256').update(serializedBody).digest('hex').slice(0, 8)
+  return `---
+id: ${id}
+area: ${area}
+owner: —
+branch: —
+touched: —
+hash: ${hash}
+---
+${serializedBody}`
 }
 
 const GOAL_TRACK_PATH = 'docs/goal-runs/test-run/TRACK.md'
@@ -192,7 +234,7 @@ test('Stop reminder stays silent when a STATE detail changed with code', () =>
     const sessionId = 'code-with-state'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     write(root, 'apps/web/src/changed.ts', 'export const changed = true\n')
-    write(root, 'docs/state/web/work.md', detail('work', 'tracked in STATE'))
+    writeDetail(root, 'docs/state/web/work.md', detail('work', 'tracked in STATE'))
 
     const output = runHook(STOP_SCRIPT, root, {
       session_id: sessionId,
@@ -206,7 +248,7 @@ test('Stop reminder stays silent when a STATE detail changed with code', () =>
 test('pre-existing STATE dirt does not hide code changed during this turn', () =>
   withRepo((root) => {
     const sessionId = 'old-state-new-code'
-    write(root, 'docs/state/web/old-work.md', detail('old-work', 'older STATE change'))
+    writeDetail(root, 'docs/state/web/old-work.md', detail('old-work', 'older STATE change'))
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
 
     const codePath = 'apps/web/src/new-change.ts'
@@ -276,7 +318,7 @@ test('another edit to an already-dirty STATE detail covers this turn code delta'
   withRepo((root) => {
     const sessionId = 'dirty-state-edited-again'
     const statePath = 'docs/state/web/existing.md'
-    write(root, statePath, detail('existing', 'revision 1'))
+    writeDetail(root, statePath, detail('existing', 'revision 1'))
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     write(root, 'apps/web/src/covered.ts', 'export const covered = true\n')
     write(root, statePath, detail('existing', 'revision 2'))
@@ -296,7 +338,7 @@ test('STATE from the wrong area does not cover a web code delta', () =>
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     const codePath = 'apps/web/src/web-only.ts'
     write(root, codePath, 'export const webOnly = true\n')
-    write(root, 'docs/state/api/wrong-area.md', detail('wrong-area', 'API STATE change'))
+    writeDetail(root, 'docs/state/api/wrong-area.md', detail('wrong-area', 'API STATE change', false, 'api'))
 
     const output = runHook(STOP_SCRIPT, root, {
       session_id: sessionId,
@@ -312,7 +354,7 @@ test('custom STATE_INDEXES derive a non-EUNHA area without hardcoded paths', () 
     write(
       root,
       '.staterc',
-      'STATE_INDEXES="STATE.md services/worker/STATE.md"\nSTATE_DEFAULT_BRANCH="main"\nSTATE_CODE_RE=".*"\nSTATE_BRANCH_EXCLUDE="task-loop/*"\n',
+      'STATE_INDEXES="STATE.md services/worker/STATE.md"\nSTATE_DEFAULT_BRANCH="main"\nSTATE_WORK_INCLUDE_RE=".*"\nSTATE_WORK_EXCLUDE_RE="a^"\nSTATE_BRANCH_EXCLUDE="task-loop/*"\n',
     )
     write(root, 'services/worker/STATE.md', '# worker STATE\n')
     git(root, ['add', '.staterc', 'services/worker/STATE.md'])
@@ -420,7 +462,7 @@ test('a structurally invalid STATE edit cannot clear debt', () =>
 test('metadata-only STATE changes cannot clear debt', () =>
   withRepo((root) => {
     const statePath = 'docs/state/web/metadata.md'
-    write(root, statePath, detail('metadata', 'unchanged ledger body'))
+    writeDetail(root, statePath, detail('metadata', 'unchanged ledger body'))
     git(root, ['add', statePath])
     git(root, ['commit', '-q', '-m', 'state baseline'])
     const sessionId = 'metadata-only-state'
@@ -446,7 +488,7 @@ test('metadata-only STATE changes cannot clear debt', () =>
 test('an owner claim is a meaningful STATE change', () =>
   withRepo((root) => {
     const statePath = 'docs/state/web/owner-claim.md'
-    write(root, statePath, detail('owner-claim', 'same ledger body'))
+    writeDetail(root, statePath, detail('owner-claim', 'same ledger body'))
     git(root, ['add', statePath])
     git(root, ['commit', '-q', '-m', 'unclaimed state'])
     const sessionId = 'owner-claim-state'
@@ -470,9 +512,10 @@ test('a STATE edit made before the last code edit cannot cover that code', () =>
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     const statePath = join(root, 'docs/state/web/early.md')
     const codePath = join(root, 'apps/web/src/later.ts')
-    write(root, 'docs/state/web/early.md', detail('early', 'written first'))
+    writeDetail(root, 'docs/state/web/early.md', detail('early', 'written first'))
     write(root, 'apps/web/src/later.ts', 'export const later = true\n')
     utimesSync(statePath, new Date(1_000_000), new Date(1_000_000))
+    utimesSync(join(root, 'apps/web/STATE.md'), new Date(1_000_000), new Date(1_000_000))
     utimesSync(codePath, new Date(2_000_000), new Date(2_000_000))
 
     const message = JSON.parse(runHook(STOP_SCRIPT, root, {
@@ -601,6 +644,98 @@ test('API prompt Markdown changes are tracked as API work', () =>
     assert.match(JSON.parse(output).systemMessage, new RegExp(`\\[api/working\\] ${promptPath}`))
   }))
 
+test('shipped defaults track runtime assets and prompts but ignore goal-run Markdown', () =>
+  withRepo((root) => {
+    write(
+      root,
+      '.staterc',
+      'STATE_INDEXES="STATE.md apps/api/STATE.md apps/web/STATE.md"\nSTATE_DEFAULT_BRANCH="main"\nSTATE_BRANCH_EXCLUDE="task-loop/* goal/*-itm-*"\n',
+    )
+    git(root, ['add', '.staterc'])
+    git(root, ['commit', '-q', '-m', 'use shipped work classifier'])
+
+    const sessionId = 'default-work-classifier'
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    const tracked = [
+      '.agents/hooks/session.mjs',
+      'apps/api/src/prompts/agents/runtime.md',
+      'apps/web/public/scene.png',
+    ]
+    for (const path of tracked) write(root, path, `fixture:${path}\n`)
+    write(root, 'docs/goal-runs/example/TRACK.md', '# goal-only bookkeeping\n')
+
+    const message = JSON.parse(runHook(STOP_SCRIPT, root, {
+      session_id: sessionId,
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+    })).systemMessage
+
+    for (const path of tracked) assert.match(message, new RegExp(path.replaceAll('.', '\\.')))
+    assert.doesNotMatch(message, /docs\/goal-runs\/example\/TRACK\.md/)
+  }))
+
+test('work include and exclude use one JavaScript RegExp contract', () =>
+  withRepo((root) => {
+    write(
+      root,
+      '.staterc',
+      'STATE_INDEXES="STATE.md apps/api/STATE.md apps/web/STATE.md"\nSTATE_WORK_INCLUDE_RE="^(?!docs/goal-runs/).*\\.md$"\nSTATE_WORK_EXCLUDE_RE="(^|/)README\\.md$"\n',
+    )
+    git(root, ['add', '.staterc'])
+    git(root, ['commit', '-q', '-m', 'configure JavaScript regex'])
+
+    const sessionId = 'javascript-regexp'
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    write(root, 'apps/web/src/prompts/runtime.md', '# tracked\n')
+    write(root, 'apps/web/README.md', '# excluded\n')
+    write(root, 'docs/goal-runs/example/TRACK.md', '# excluded goal\n')
+
+    const message = JSON.parse(runHook(STOP_SCRIPT, root, {
+      session_id: sessionId,
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+    })).systemMessage
+    assert.match(message, /apps\/web\/src\/prompts\/runtime\.md/)
+    assert.doesNotMatch(message, /README\.md|goal-runs/)
+  }))
+
+test('global dispatcher is inert outside an onboarded STATE repository', () => {
+  const root = mkdtempSync(join(tmpdir(), 'state-global-noop-'))
+  try {
+    git(root, ['init', '-q', '-b', 'main'])
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-noop',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.equal(output, '')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(`${root}-hook-data`, { recursive: true, force: true })
+  }
+})
+
+test('global dispatcher runs plugin-owned lifecycle without project script copies', () =>
+  withRepo((root) => {
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-plugin-runtime',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /=== STATE\.md ===/)
+  }))
+
+test('global dispatcher suppresses a matching project-local Codex hook during migration', () =>
+  withRepo((root) => {
+    write(root, '.codex/config.toml', 'command = "bash scripts/hooks/session-start-state-inject.sh"\n')
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-deduplicate',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.equal(output, '')
+  }))
+
 test('baseline storage failure is visible instead of silently downgrading', () =>
   withRepo((root) => {
     const sessionId = 'baseline-write-failure'
@@ -628,8 +763,7 @@ test('baseline storage failure is visible instead of silently downgrading', () =
 
     const message = JSON.parse(stopOutput).systemMessage
     assert.match(message, /기준점 평가 실패/)
-    assert.match(message, /coarse fallback/)
-    assert.match(message, new RegExp(codePath))
+    assert.doesNotMatch(message, /coarse fallback/)
   }))
 
 test('unresolved code debt persists until matching-area STATE changes', () =>
@@ -655,7 +789,7 @@ test('unresolved code debt persists until matching-area STATE changes', () =>
     assert.match(JSON.parse(secondStop).systemMessage, new RegExp(codePath))
 
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'docs/state/web/debt.md', detail('debt', 'debt resolved'))
+    writeDetail(root, 'docs/state/web/debt.md', detail('debt', 'debt resolved'))
     const resolvedStop = runHook(STOP_SCRIPT, root, {
       session_id: sessionId,
       hook_event_name: 'Stop',
@@ -686,8 +820,8 @@ test('a STATE commit before a later code commit does not cover the code', () =>
   withRepo((root) => {
     const sessionId = 'state-commit-before-code'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'docs/state/web/early-commit.md', detail('early-commit', 'state first'))
-    git(root, ['add', 'docs/state/web/early-commit.md'])
+    writeDetail(root, 'docs/state/web/early-commit.md', detail('early-commit', 'state first'))
+    git(root, ['add', 'apps/web/STATE.md', 'docs/state/web/early-commit.md'])
     git(root, ['commit', '-q', '-m', 'state first'])
     const codePath = 'apps/web/src/code-after-state.ts'
     write(root, codePath, 'export const codeAfterState = true\n')
@@ -712,8 +846,8 @@ test('a STATE commit after a code commit covers the code', () =>
     write(root, codePath, 'export const codeBeforeState = true\n')
     git(root, ['add', codePath])
     git(root, ['commit', '-q', '-m', 'code first'])
-    write(root, 'docs/state/web/late-commit.md', detail('late-commit', 'state after code'))
-    git(root, ['add', 'docs/state/web/late-commit.md'])
+    writeDetail(root, 'docs/state/web/late-commit.md', detail('late-commit', 'state after code'))
+    git(root, ['add', 'apps/web/STATE.md', 'docs/state/web/late-commit.md'])
     git(root, ['commit', '-q', '-m', 'state after code'])
 
     const output = runHook(STOP_SCRIPT, root, {
@@ -729,7 +863,7 @@ test('a dirty STATE edit cannot cover a committed code change even when written 
   withRepo((root) => {
     const sessionId = 'dirty-state-before-commit'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'docs/state/web/dirty-first.md', detail('dirty-first', 'dirty state first'))
+    writeDetail(root, 'docs/state/web/dirty-first.md', detail('dirty-first', 'dirty state first'))
     const codePath = 'apps/web/src/committed-after-dirty-state.ts'
     write(root, codePath, 'export const committedAfterDirtyState = true\n')
     git(root, ['add', codePath])
@@ -753,7 +887,7 @@ test('a dirty STATE edit cannot cover a committed code change even when written 
     write(root, codePath, 'export const committedBeforeDirtyState = true\n')
     git(root, ['add', codePath])
     git(root, ['commit', '-q', '-m', 'commit code first'])
-    write(root, 'docs/state/web/dirty-later.md', detail('dirty-later', 'dirty state later'))
+    writeDetail(root, 'docs/state/web/dirty-later.md', detail('dirty-later', 'dirty state later'))
 
     const message = JSON.parse(runHook(STOP_SCRIPT, root, {
       session_id: sessionId,
@@ -770,7 +904,7 @@ test('concurrent sessions make worktree attribution inconclusive instead of clea
     runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-a' })
     runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-b' })
     write(root, 'apps/web/src/concurrent.ts', 'export const concurrent = true\n')
-    write(root, 'docs/state/web/concurrent.md', detail('concurrent', 'other session state'))
+    writeDetail(root, 'docs/state/web/concurrent.md', detail('concurrent', 'other session state'))
 
     const message = JSON.parse(runHook(STOP_SCRIPT, root, {
       session_id: 'concurrent-a',
@@ -804,16 +938,16 @@ test('Stop rechecks structural STATE warnings when STATE changed without a code 
         hook_event_name: 'Stop',
         stop_hook_active: false,
       },
-      { STATE_TEST_WIP_WARNING: 'WARN: stale STATE hash' },
+      {},
     )
 
-    assert.match(JSON.parse(output).systemMessage, /WARN: stale STATE hash/)
+    assert.match(JSON.parse(output).systemMessage, /인덱스에 없음/)
   }))
 
 test('STATE stamp accepts Claude file_path input', () =>
   withRepo((root) => {
     const relative = 'docs/state/web/claude.md'
-    write(root, relative, detail('claude', 'Claude edit'))
+    write(root, relative, detail('claude', 'Claude edit', true))
 
     runHook(STAMP_SCRIPT, root, { tool_input: { file_path: relative } })
 
@@ -824,8 +958,8 @@ test('STATE stamp accepts Codex multi-file apply_patch input', () =>
   withRepo((root) => {
     const first = 'docs/state/web/codex-a.md'
     const second = 'docs/state/web/codex-b.md'
-    write(root, first, detail('codex-a', 'Codex edit A'))
-    write(root, second, detail('codex-b', 'Codex edit B'))
+    write(root, first, detail('codex-a', 'Codex edit A', true))
+    write(root, second, detail('codex-b', 'Codex edit B', true))
 
     runHook(STAMP_SCRIPT, root, {
       tool_input: {

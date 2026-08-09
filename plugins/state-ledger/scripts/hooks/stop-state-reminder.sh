@@ -33,16 +33,6 @@ root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 
 cd "$root" 2>/dev/null || exit 0
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-read_staterc() {
-  [ -f ".staterc" ] || return 0
-  sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" .staterc | head -1
-}
-
-# 기준점 엔진 자체가 실패했을 때만 쓰는 보수적 확장자 fallback. 정상 경로의
-# 단일 정본은 state-turn-baseline.mjs 의 isWorkFile 이다.
-DEFAULT_CODE_RE='\.(ts|tsx|js|jsx|sh|py|css|ya?ml|json|sql|toml)$|(^|/)Dockerfile'
-v=$(read_staterc STATE_CODE_RE); code_re="${v:-$DEFAULT_CODE_RE}"
-
 # STATE 갱신 = 변경 코드의 설정된 영역에 대응하는 인덱스 또는 detail만 인정.
 # evaluate는 세션별 턴 기준점 차분을 계산하고 미해결 code debt를 다음 snapshot에
 # 원자적으로 보존한다. 기준점 부재·저장 실패는 정상으로 숨기지 않고 경고한다.
@@ -107,22 +97,16 @@ if printf '%s' "$delta" | jq -e '
 }STATE reminder: 같은 worktree의 다른 활성 세션 ${concurrent_count}개가 감지되어 이번 턴의 code↔STATE 귀속 판정을 보류했습니다. worktree를 분리하세요."
   fi
 else
-  # helper 자체가 실패한 경우 누락 방지를 위해 coarse 검사를 하되 강등 사실을 알린다.
-  changed=$(git status --porcelain=v1 --untracked-files=all 2>/dev/null | cut -c4-)
-  state_diff=$(printf '%s\n' "$changed" | grep -E '(^|/)STATE\.md$|(^|/)docs/state/' || true)
-  code_diff=$(printf '%s\n' "$changed" | grep -vE '(^|/)STATE\.md$|(^|/)docs/state/' | grep -E "$code_re" | head -5 || true)
-  if [ -n "$code_diff" ] && [ -z "$state_diff" ]; then
-    files=$(echo "$code_diff" | tr '\n' ' ' | sed 's/ $//')
-    msg="${msg}${msg:+
-}STATE reminder(coarse fallback): 코드 변경 있는데 STATE 미갱신 — $files. 기준점 엔진 복구 후 해당 영역 STATE를 갱신하세요 (block ✕)."
-  fi
+  # 분류 정본은 JavaScript RegExp 한 곳뿐이다. 엔진 실패를 다른 regex dialect로
+  # 추측하지 않고 위의 명시적 오류를 유지한다.
+  state_diff=""
 fi
 
 # 이번 턴에 STATE가 바뀐 경우 구조/hash를 재검한다. 시작 때 발견한 기존 경고를 매
 # Stop마다 반복하지 않으면서, shell 등 편집 도구 밖에서 빠진 stamp는 즉시 노출한다.
 state_warnings=""
-if [ -n "$state_diff" ] && [ -f "$root/scripts/check-state-wip-cap.sh" ]; then
-  state_warnings=$(bash "$root/scripts/check-state-wip-cap.sh" 2>&1 || true)
+if [ -n "$state_diff" ]; then
+  state_warnings=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-wip-cap.sh" 2>&1 || true)
 fi
 if [ -n "$state_warnings" ]; then
   msg="${msg}${msg:+

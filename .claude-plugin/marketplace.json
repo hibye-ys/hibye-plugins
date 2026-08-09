@@ -16,7 +16,7 @@
       "description": "STATE 원장 시스템 — 턴 기준점·영역·의미·순서·dirty/commit 채널을 구분하는 warn-only lifecycle (Claude/Codex/opencode 공용).",
       "category": "development",
       "source": "./plugins/state-ledger",
-      "version": "0.2.0"
+      "version": "0.3.0"
     },
     {
       "name": "stack-backend-python",

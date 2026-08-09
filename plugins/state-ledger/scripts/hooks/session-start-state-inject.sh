@@ -57,8 +57,8 @@ $(cat "$root/$f")"
 done
 
 # STATE↔git 브랜치 정합 + 크기·라우팅 예산 warn (warn-only)
-sync=$(HOOK_PROJECT_DIR="$root" bash "$root/scripts/check-state-branch-sync.sh" 2>/dev/null || true)
-budget=$( (cd "$root" && bash scripts/check-state-wip-cap.sh 2>&1) || true )
+sync=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-branch-sync.sh" 2>/dev/null || true)
+budget=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-wip-cap.sh" 2>&1 || true)
 warns="${sync}${sync:+${budget:+
 }}${budget}"
 if [ -n "$warns" ]; then
