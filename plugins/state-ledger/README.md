@@ -8,6 +8,8 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 - **완료 사실은 git log 가 정본** — STATE 는 완료 로그를 누적하지 않는다. 커밋 메시지에 `[id=<id>]`, archive 시 `archive [id=...]`.
 - **인덱스는 싸고, 상세는 lazy** — 세션 시작에 주입되는 것은 1줄/항목 인덱스뿐. 작업을 잡을 때만 `docs/state/<area>/<id>.md` 를 읽는다.
 - **게이트는 전부 warn-only** — 막지 않고 알린다. warn 은 0 으로 수렴시켜야 채널이 살아있다 (방치하면 배경소음).
+- **턴 귀속은 기준점 이후 차분으로 판정** — UserPromptSubmit 때 repo 밖에 HEAD·dirty hash·STATE 의미 digest를 저장하고 Stop에서 committed/dirty 채널과 변경 순서를 따로 대조한다.
+- **goal-run과 무관한 전역 lifecycle** — STATE는 live ownership만 담당한다. goal TRACK·item branch 같은 파이프라인 규칙은 해당 스킬이 소유한다.
 
 ## 스키마 (대상 프로젝트 AGENTS.md 에 붙여 넣는 작성규칙)
 
@@ -19,10 +21,11 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
   본문: ## 현재 (필수 — 요약·남은 것·WHY) + ## 원장 (선택 — WHY·실측 기록만, 완료 서사는 커밋 메시지로)
 - `id`는 3–12자 stable identifier다. commit message에서 `[id=<id>]`로 참조한다. id 없는 줄은 §3 placeholder만 허용한다.
 - meta는 detail frontmatter가 정본 — post-edit hook이 touched·hash만 자동 스탬프한다. owner·branch는 수동 claim이다.
-- SessionStart는 인덱스만 주입한다. 작업을 잡으면 해당 docs/state/<area>/<id>.md를 읽는다.
+- SessionStart는 인덱스만 주입하고 기준점이 없을 때만 생성한다. UserPromptSubmit은 턴마다 repo 밖 세션별 기준점(HEAD·작업 파일 status/hash/mtime·STATE 의미 digest)을 저장한다.
 - `expires`가 지난 항목은 갱신하거나 archive한다.
 - archive = 인덱스 줄 + detail 파일 삭제, commit message에 `archive [id=...]`.
-- 정합은 warn-only 세 겹: 인덱스↔detail 존재·자수·크기·frontmatter(id·area·hash·expires·§1 owner) = check-state-wip-cap.sh, 브랜치 포인터·유령 브랜치 = check-state-branch-sync.sh, [id=]·archive 커밋 규약 = commit-msg 훅. 앞 둘은 SessionStart 주입에 표면화된다.
+- Stop은 대응 영역의 의미 있는 STATE 차분만 인정한다. touched/hash·주석·공백만 바뀐 경우, 구조가 깨진 경우, 작업보다 먼저 갱신된 경우, committed/dirty 채널이 다른 경우에는 debt를 해제하지 않는다. 같은 worktree의 다른 활성 세션이 감지되면 새 귀속 판정을 보류한다.
+- 정합은 warn-only 세 겹: 인덱스↔detail 존재·자수·크기·frontmatter(id·area·hash·expires·§1 유효 owner) = check-state-wip-cap.sh, 브랜치 포인터·유령 브랜치 = check-state-branch-sync.sh, 실제 변경 id와 일치하는 [id=]·archive 커밋 규약 = commit-msg 훅. 앞 둘은 SessionStart 주입에 표면화된다.
 - 멀티 에이전트 작업은 branch·worktree를 분리하고 같은 파일을 같은 worktree에서 동시에 편집하지 않는다.
 ```
 
@@ -32,10 +35,12 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | --- | --- |
 | `scripts/check-state-wip-cap.sh` | WIP cap·섹션 존재·줄 200자·인덱스 4KB·인덱스↔detail 양방향·id 3–12자·문자집합·§1·§2·§4 id 필수·frontmatter(id/area/owner/branch/touched/hash/expires/§1 owner)·`## 현재` 필수·detail 16KB |
 | `scripts/check-state-branch-sync.sh` | §1·§2 branch 포인터 소멸/기머지 (빈 예약 브랜치 오탐 제외) + 유령 브랜치 (frontmatter `branch:` 만 등재로 인정, 제외 glob = `STATE_BRANCH_EXCLUDE`) |
-| `scripts/hooks/session-start-state-inject.sh` | SessionStart — 인덱스 전문 + 위 두 체커의 warn 주입 |
+| `scripts/hooks/session-start-state-inject.sh` | SessionStart — 인덱스 전문 + 위 두 체커의 warn 주입 + 기준점이 없을 때만 생성 |
+| `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점 저장, 동시 세션 경고 |
+| `scripts/hooks/state-turn-baseline.mjs` | HEAD·dirty content·STATE 의미 digest 차분, committed/dirty 순서·debt·동시 세션 판정 엔진 |
 | `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
-| `scripts/hooks/stop-state-reminder.sh` | Stop — staged·unstaged·untracked 코드 변경 있는데 STATE 미갱신이면 알림 (코드 판정 = `STATE_CODE_RE`) |
-| `scripts/hooks/commit-msg-state-check.sh` | commit-msg — docs/state 변경인데 완결 `[id=<id>]` 토큰 없음 / detail 삭제인데 파일별 `archive [id=<그 id>]` 없음 |
+| `scripts/hooks/stop-state-reminder.sh` | Stop — 기준점 이후 작업과 대응 STATE의 영역·구조·의미·순서·채널을 검사하고 미해결 debt를 유지 |
+| `scripts/hooks/commit-msg-state-check.sh` | commit-msg — 인덱스/detail에서 실제 바뀐 모든 id별 `[id=<id>]` / detail 삭제 파일별 `archive [id=<id>]` 검사 |
 
 ## 설정 — `.staterc` (선택)
 
@@ -50,7 +55,9 @@ STATE_BRANCH_EXCLUDE="task-loop/*"  # 유령 검사 제외 glob (공백 구분)
 
 area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → 부모 디렉토리 이름 (`apps/api/STATE.md` → `api`). detail 은 항상 `docs/state/<area>/<id>.md`.
 
-알려진 한계: opencode 는 SessionStart 를 instructions 방식으로 대신하므로 정합 warn 이 세션 시작에 표면화되지 않는다 — 필요하면 체커 2종을 수동 실행한다.
+`STATE_CODE_RE`는 턴 작업으로 간주할 모든 경로를 포함해야 한다. 문서형 prompt, 이미지·폰트·SVG, hook/config 등도 운영 변경이면 프로젝트 정규식에 명시한다. 여러 영역의 작업이 한 턴에 섞이면 root STATE가 대응 영역이다.
+
+알려진 한계: 의미 digest는 metadata-only 눈속임을 막지만, 바뀐 STATE 서사가 실제 코드와 관련 있는지까지 자동 이해하지는 못한다. 최종 의미 관련성은 리뷰 대상이다. opencode는 SessionStart를 instructions 방식으로 대신하므로 정합 warn이 세션 시작에 표면화되지 않는다.
 
 ## 설치
 
@@ -61,4 +68,6 @@ area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → �
 - stamp 가 owner·branch 를 덮어쓰지 않는 이유: 스치는 편집이 소유권을 바꾸는 사고 방지 — 소유는 claim, 기록은 touched·hash.
 - hash 를 게이트가 재검산하는 이유: 훅을 우회한 편집(외부 편집기·heredoc)을 커밋 전에 감지.
 - 유령 브랜치를 frontmatter 로만 판정하는 이유: 본문 서사의 substring 매치는 경고를 조용히 삼킨다.
+- dirty와 committed 채널을 서로 대신하지 못하게 하는 이유: 이미 커밋된 구현을 뒤늦은 미커밋 STATE가 덮었다고 오판하거나 그 반대가 되는 것을 막는다.
+- 동시 세션에서 판정을 보류하는 이유: 같은 worktree의 파일 mtime과 HEAD만으로 어느 세션이 변경했는지 확정할 수 없다.
 - Codex CLI 는 Claude 호환 훅 스키마(`hookSpecificOutput`·`additionalContext`·`stop_hook_active`)를 내장한다 — 바이너리 실측 확인. 같은 스크립트가 두 도구에서 그대로 동작한다.

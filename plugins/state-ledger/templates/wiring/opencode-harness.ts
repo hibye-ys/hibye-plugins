@@ -21,14 +21,43 @@ const runHook = async (
 }
 
 export const StateLedgerPlugin: Plugin = async ({ client, $, worktree }) => {
+  const hookMessage = (out: string): string => {
+    if (!out) return ""
+    try {
+      const parsed = JSON.parse(out)
+      return parsed?.systemMessage ?? parsed?.hookSpecificOutput?.additionalContext ?? parsed?.reason ?? ""
+    } catch {
+      return out
+    }
+  }
+
   return {
+    "chat.message": async (input: any) => {
+      const out = await runHook($, worktree, "turn-start-state-snapshot.sh", {
+        session_id: input.sessionID,
+      })
+      const msg = hookMessage(out)
+      if (!msg) return
+      await client.app.log({
+        body: {
+          service: "state-ledger",
+          level: "warn",
+          message: "STATE 기준점 경고",
+          extra: { message: msg },
+        },
+      })
+    },
+
     "tool.execute.after": async (input: any) => {
       if (input.tool !== "write" && input.tool !== "edit") return
       const filePath: unknown = input.args?.filePath
       if (typeof filePath !== "string" || !filePath) return
 
       // 트리거 매칭(docs/state/**)은 스크립트 내부 case 게이트가 담당 — 비매치는 즉시 exit 0.
-      const payload = { tool_input: { file_path: filePath } }
+      const payload = {
+        session_id: input.sessionID,
+        tool_input: { file_path: filePath },
+      }
       // state-stamp: 파일 직접 수정 — 후속 도구 호출과의 race 방지 위해 await.
       await runHook($, worktree, "post-edit-state-stamp.sh", payload)
     },
@@ -36,24 +65,19 @@ export const StateLedgerPlugin: Plugin = async ({ client, $, worktree }) => {
     event: async ({ event }: any) => {
       // session.idle = Stop 과 유사. stop-reminder 실행.
       if (event.type !== "session.idle") return
-      const out = await runHook($, worktree, "stop-state-reminder.sh", {})
-      if (!out) return
-      try {
-        const parsed = JSON.parse(out)
-        const msg = parsed?.hookSpecificOutput?.additionalContext ?? parsed?.reason ?? ""
-        if (msg) {
-          await client.app.log({
-            body: {
-              service: "state-ledger",
-              level: "warn",
-              message: "STATE reminder",
-              extra: { message: msg },
-            },
-          })
-        }
-      } catch {
-        // 비JSON 출력은 무시
-      }
+      const out = await runHook($, worktree, "stop-state-reminder.sh", {
+        session_id: event.properties.sessionID,
+      })
+      const msg = hookMessage(out)
+      if (!msg) return
+      await client.app.log({
+        body: {
+          service: "state-ledger",
+          level: "warn",
+          message: "STATE reminder",
+          extra: { message: msg },
+        },
+      })
     },
   }
 }

@@ -1,8 +1,7 @@
 #!/bin/bash
 # commit-msg hook — STATE ↔ git log 연결 규약 검사 (warn-only, block ✕).
-# ① docs/state/** 를 건드리는 커밋인데 메시지에 완결된 `[id=<3–12자>]` 토큰 없음 → 추적 끊김.
-# ② detail 파일 삭제는 파일별로 `archive [id=<그 id>]` 를 요구 → 흔적 없는 소멸 방지
-#    (경계 검사로 'unarchive' 오인 방지).
+# ① STATE 인덱스/detail 에서 바뀐 각 id 가 메시지의 [id=...] 와 일치해야 한다.
+# ② detail 파일 삭제는 파일별로 `archive [id=<그 id>]` 를 요구한다.
 # 훅 디렉터리가 체크아웃 간 공유되는 프로젝트에서는 스크립트 부재 시 조용히 통과하도록 배선한다.
 
 set -u
@@ -11,15 +10,35 @@ msgfile="${1:-}"
 { [ -n "$msgfile" ] && [ -f "$msgfile" ]; } || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 
+read_staterc() {
+  [ -f ".staterc" ] || return 0
+  sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" .staterc | head -1
+}
+v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
+
 staged=$(git diff --cached --name-only 2>/dev/null || true)
 state_touched=$(printf '%s\n' "$staged" | grep -E '^docs/state/[^/]+/[^/]+\.md$' || true)
+for index in $STATE_INDEXES; do
+  if printf '%s\n' "$staged" | grep -qxF "$index"; then
+    state_touched="${state_touched}${state_touched:+
+}$index"
+  fi
+done
 [ -n "$state_touched" ] || exit 0
 
 msg=$(cat "$msgfile")
 
-if ! printf '%s' "$msg" | grep -qE '\[id=[a-z0-9-]{3,12}\]'; then
-  echo "WARN: docs/state 변경인데 commit message 에 [id=<id>] 없음 — git log 정본에서 이 작업이 끊긴다 (block ✕)" >&2
-fi
+detail_ids=$(printf '%s\n' "$staged" \
+  | sed -nE 's#^docs/state/[^/]+/([a-z0-9-]{3,12})\.md$#\1#p')
+index_ids=$(git diff --cached -U0 -- $STATE_INDEXES 2>/dev/null \
+  | sed -nE 's/^[+-]- \[([a-z0-9-]{3,12})\].*/\1/p')
+required_ids=$(printf '%s\n%s\n' "$detail_ids" "$index_ids" | sed '/^$/d' | sort -u)
+
+for id in $required_ids; do
+  if ! printf '%s' "$msg" | grep -qE "\\[id=$id\\]"; then
+    echo "WARN: STATE [id=$id] 변경인데 commit message 에 '[id=$id]' 없음 — git log 정본과 실제 변경이 불일치한다 (block ✕)" >&2
+  fi
+done
 
 deleted=$(git diff --cached --name-only --diff-filter=D 2>/dev/null | grep -E '^docs/state/[^/]+/[^/]+\.md$' || true)
 for d in $deleted; do

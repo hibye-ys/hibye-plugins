@@ -21,6 +21,22 @@ read_staterc() {
   sed -nE "s/^$1=\"([^\"]*)\"[[:space:]]*\$/\1/p" .staterc | head -1
 }
 v=$(read_staterc STATE_INDEXES); STATE_INDEXES="${v:-STATE.md}"
+TARGET_AREA="${STATE_CHECK_AREA:-}"
+
+if [ -n "$TARGET_AREA" ]; then
+  known=0
+  for configured_index in $STATE_INDEXES; do
+    case "$configured_index" in
+      STATE.md) configured_area=root ;;
+      *) configured_area=$(basename "$(dirname "$configured_index")") ;;
+    esac
+    [ "$configured_area" = "$TARGET_AREA" ] && known=1
+  done
+  if [ "$known" -ne 1 ]; then
+    echo "WARN: 알 수 없는 STATE_CHECK_AREA=$TARGET_AREA" >&2
+    exit 2
+  fi
+fi
 
 CAPS_ACTIVE=6
 CAPS_NEXT=6
@@ -43,11 +59,15 @@ count_section() {
 }
 
 for f in $STATE_INDEXES; do
-  [ -f "$f" ] || continue
   case "$f" in
     STATE.md) area=root ;;
     *) area=$(basename "$(dirname "$f")") ;;
   esac
+  [ -z "$TARGET_AREA" ] || [ "$TARGET_AREA" = "$area" ] || continue
+  if [ ! -f "$f" ]; then
+    warn "$f 없음 — 필수 STATE 인덱스 소실"
+    continue
+  fi
 
   active=$(count_section "$f" "1\\. 활성")
   next=$(count_section "$f" "2\\. 다음")
@@ -80,7 +100,10 @@ for f in $STATE_INDEXES; do
   for id in $(awk '/^## /{ in_sec = ($0 ~ /^## 1\./); next } in_sec' "$f" | sed -nE 's/^- \[([a-z0-9-]+)\].*/\1/p'); do
     df="docs/state/$area/$id.md"
     [ -f "$df" ] || continue
-    awk '/^---$/{n++; next} n==1' "$df" | grep -qE '^owner: .+' || warn "$df — §1 활성인데 frontmatter owner 없음"
+    owner=$(awk '/^---$/{n++; next} n==1' "$df" | sed -nE 's/^owner: (.+)$/\1/p' | head -1)
+    case "$owner" in
+      ""|-|—) warn "$df — §1 활성인데 유효한 frontmatter owner 없음" ;;
+    esac
   done
 
   # §1·§2·§4 는 id 필수 (id 없는 줄은 §3 placeholder 만 허용), 토큰 문자집합은 [a-z0-9-]
@@ -106,15 +129,20 @@ for f in $STATE_INDEXES; do
 done
 
 # detail frontmatter·hash·expires·크기 — stamp 훅과 동일한 파싱(python)으로 검사
-if command -v python3 >/dev/null 2>&1 && [ -d docs/state ]; then
+if ! command -v python3 >/dev/null 2>&1; then
+  warn "python3가 PATH에 없어 detail 구조·hash 검사를 실행하지 못함"
+elif [ -d docs/state ]; then
   while IFS= read -r w; do
     [ -n "$w" ] && warn "$w"
-  done < <(TODAY=$(date +%Y-%m-%d) DETAIL_BYTE_CAP=$DETAIL_BYTE_CAP python3 - <<'PYEOF'
+  done < <(TODAY=$(date +%Y-%m-%d) DETAIL_BYTE_CAP=$DETAIL_BYTE_CAP TARGET_AREA=$TARGET_AREA python3 - <<'PYEOF'
 import glob, hashlib, os, re
 
 today = os.environ["TODAY"]
 cap = int(os.environ["DETAIL_BYTE_CAP"])
+target_area = os.environ.get("TARGET_AREA", "")
 for p in sorted(glob.glob("docs/state/*/*.md")):
+    if target_area and p.split("/")[-2] != target_area:
+        continue
     size = os.path.getsize(p)
     if size > cap:
         print(f"{p} {size}B (detail cap {cap}B 초과) — 완료 서사는 커밋으로, 원장은 WHY·실측만")
@@ -148,6 +176,10 @@ PYEOF
 fi
 
 if [ "$violations" -gt 0 ]; then
+  if [ "${STATE_CHECK_STRICT:-0}" = "1" ]; then
+    echo "WARN: STATE 정합 $violations 건. strict 검사 실패." >&2
+    exit 1
+  fi
   echo "WARN: STATE 정합 $violations 건. commit 은 진행 (exit 0)." >&2
 fi
 

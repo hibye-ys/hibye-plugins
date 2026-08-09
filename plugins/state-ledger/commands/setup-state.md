@@ -11,11 +11,12 @@ description: 현재 프로젝트에 STATE 원장 시스템(1줄 인덱스 + docs
 ```bash
 P="$(ls -d "$HOME"/.claude/plugins/cache/hibye-plugins/state-ledger/*/ 2>/dev/null | head -1)"
 [ -n "$P" ] || P="<marketplace>/plugins/state-ledger"  # 캐시 미설치 시 수동 지정
-command -v git >/dev/null && command -v jq >/dev/null && command -v python3 >/dev/null \
-  || echo "의존성 부족: git·jq·python3 필수 — 없으면 훅이 조용히 비활성화된다"
+command -v git >/dev/null && command -v jq >/dev/null && command -v python3 >/dev/null && command -v node >/dev/null \
+  || echo "의존성 부족: git·jq·python3·node 필수 — 훅이 경고를 출력하고 해당 검사를 건너뛴다"
 mkdir -p scripts/hooks docs/state/root
 cp "$P"/scripts/check-state-wip-cap.sh "$P"/scripts/check-state-branch-sync.sh scripts/
 cp "$P"/scripts/hooks/*.sh scripts/hooks/
+cp "$P"/scripts/hooks/state-turn-baseline.mjs scripts/hooks/
 chmod +x scripts/*.sh scripts/hooks/*.sh
 ```
 
@@ -36,7 +37,7 @@ chmod +x scripts/*.sh scripts/hooks/*.sh
 "commit-msg": "[ ! -f scripts/hooks/commit-msg-state-check.sh ] || bash scripts/hooks/commit-msg-state-check.sh \"$1\""
 ```
 
-6. 검증: `bash scripts/check-state-wip-cap.sh && bash scripts/check-state-branch-sync.sh` 가 warn 0 으로 통과하고, 새 세션 시작 시 STATE 인덱스가 주입되는지 확인합니다.
+6. 검증: 플러그인 정본에서 `node scripts/hooks/state-hooks.test.mjs`를 통과시킨 뒤, 대상 프로젝트에서 `bash scripts/check-state-wip-cap.sh && bash scripts/check-state-branch-sync.sh`가 warn 0인지 확인합니다. 새 세션에서는 STATE 인덱스 주입과 UserPromptSubmit 기준점 저장을 함께 확인합니다.
 
 7. 대상 프로젝트의 AGENTS.md(또는 CLAUDE.md)에 README 의 "작성규칙" 블록을 붙여 넣습니다 — 에이전트가 스키마를 알아야 게이트가 의미를 가집니다.
 

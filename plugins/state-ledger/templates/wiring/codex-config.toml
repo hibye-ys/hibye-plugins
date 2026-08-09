@@ -11,6 +11,13 @@ type = "command"
 command = 'HOOK_PROJECT_DIR="$(git rev-parse --show-toplevel)" bash "$(git rev-parse --show-toplevel)/scripts/hooks/session-start-state-inject.sh"'
 statusMessage = "STATE 주입 중"
 
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = 'HOOK_PROJECT_DIR="$(git rev-parse --show-toplevel)" bash "$(git rev-parse --show-toplevel)/scripts/hooks/turn-start-state-snapshot.sh"'
+statusMessage = "STATE 턴 기준점 저장 중"
+
 [[hooks.PostToolUse]]
 # Codex 파일 편집 툴 = apply_patch (matcher 로 Edit|Write 도 허용).
 matcher = "apply_patch|Edit|Write"

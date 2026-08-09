@@ -12,8 +12,14 @@
 
 set -u
 
-if ! command -v jq >/dev/null 2>&1; then exit 0; fi
-if ! command -v python3 >/dev/null 2>&1; then exit 0; fi
+if ! command -v jq >/dev/null 2>&1; then
+  printf '%s\n' '{"systemMessage":"jq가 PATH에 없어 STATE detail meta를 스탬프하지 못했습니다."}'
+  exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' '{"systemMessage":"python3가 PATH에 없어 STATE detail meta를 스탬프하지 못했습니다."}'
+  exit 0
+fi
 
 input=$(cat)
 
