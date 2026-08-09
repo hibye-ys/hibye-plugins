@@ -1,6 +1,6 @@
 {
   "name": "state-ledger",
-  "version": "0.3.0+codex.20260809093929",
+  "version": "0.3.0+codex.20260809190759",
   "description": "Global warn-only STATE ledger lifecycle for Codex, Claude Code, and compatible agent tools.",
   "author": {
     "name": "hibye-ys"

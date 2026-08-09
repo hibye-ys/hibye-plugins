@@ -811,9 +811,53 @@ test('global dispatcher runs plugin-owned lifecycle without project script copie
 
 test('global dispatcher suppresses an active project-local Codex TOML hook during migration', () =>
   withRepo((root) => {
-    write(root, '.codex/config.toml', 'command = "bash scripts/hooks/session-start-state-inject.sh"\n')
+    write(root, '.codex/config.toml', '[[hooks.SessionStart.hooks]]\ncommand = "bash scripts/hooks/session-start-state-inject.sh"\n')
     const output = runGlobalHook('session-start', root, {
       session_id: 'global-deduplicate',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.equal(output, '')
+  }))
+
+test('global dispatcher detects multiline Codex TOML hook commands', () =>
+  withRepo((root) => {
+    write(root, '.codex/config.toml', `[[hooks.SessionStart.hooks]]
+type = "command"
+command = """
+bash scripts/hooks/session-start-state-inject.sh
+"""
+`)
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-multiline-deduplicate',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.equal(output, '')
+  }))
+
+test('global dispatcher detects inline-table Codex TOML hook commands', () =>
+  withRepo((root) => {
+    write(root, '.codex/config.toml', `hooks = [{ type = "command", command = 'bash scripts/hooks/session-start-state-inject.sh' }]
+`)
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-inline-table-deduplicate',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.equal(output, '')
+  }))
+
+test('global dispatcher detects a project-local hook through a regular config symlink', () =>
+  withRepo((root) => {
+    write(root, '.codex/config.shared.toml', `[[hooks.SessionStart.hooks]]
+"command" = '''
+bash scripts/hooks/session-start-state-inject.sh
+'''
+`)
+    symlinkSync('config.shared.toml', join(root, '.codex/config.toml'))
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-symlinked-config-deduplicate',
       hook_event_name: 'SessionStart',
       source: 'startup',
     }, { STATE_LEDGER_HOST: 'codex' })
@@ -825,6 +869,20 @@ test('global dispatcher ignores a commented-out project-local Codex hook', () =>
     write(root, '.codex/config.toml', '# command = "bash scripts/hooks/session-start-state-inject.sh"\n')
     const output = runGlobalHook('session-start', root, {
       session_id: 'global-comment-is-not-hook',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'codex' })
+    assert.match(JSON.parse(output).hookSpecificOutput.additionalContext, /=== STATE\.md ===/)
+  }))
+
+test('global dispatcher ignores unrelated TOML strings that mention a hook script', () =>
+  withRepo((root) => {
+    write(root, '.codex/config.toml', `description = "example: command = bash scripts/hooks/session-start-state-inject.sh"
+[mcp_servers.lookalike]
+command = "bash scripts/hooks/session-start-state-inject.sh"
+`)
+    const output = runGlobalHook('session-start', root, {
+      session_id: 'global-unrelated-string',
       hook_event_name: 'SessionStart',
       source: 'startup',
     }, { STATE_LEDGER_HOST: 'codex' })
@@ -844,6 +902,35 @@ test('global dispatcher detects an active project-local Codex hooks.json command
       source: 'startup',
     }, { STATE_LEDGER_HOST: 'codex' })
     assert.equal(output, '')
+  }))
+
+test('global dispatcher detects only typed Claude command hooks', () =>
+  withRepo((root) => {
+    write(root, '.claude/settings.json', JSON.stringify({
+      note: 'bash scripts/hooks/session-start-state-inject.sh',
+      unrelated: { type: 'command', command: 'bash scripts/hooks/session-start-state-inject.sh' },
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'prompt', command: 'bash scripts/hooks/session-start-state-inject.sh' }] }],
+      },
+    }))
+    const firstOutput = runGlobalHook('session-start', root, {
+      session_id: 'global-claude-non-command',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'claude' })
+    assert.match(JSON.parse(firstOutput).hookSpecificOutput.additionalContext, /=== STATE\.md ===/)
+
+    write(root, '.claude/settings.local.json', JSON.stringify({
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: 'bash scripts/hooks/session-start-state-inject.sh' }] }],
+      },
+    }))
+    const secondOutput = runGlobalHook('session-start', root, {
+      session_id: 'global-claude-command',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }, { STATE_LEDGER_HOST: 'claude' })
+    assert.equal(secondOutput, '')
   }))
 
 test('baseline storage failure is visible instead of silently downgrading', () =>
