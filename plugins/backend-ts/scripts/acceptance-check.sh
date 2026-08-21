@@ -170,14 +170,17 @@ if [ -n "$PROJECT" ] && has_tool codex; then
         ;;
     esac
   done
-  if ! node -e '
-    const fs = require("node:fs")
-    const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
-    const rows = data.hooks?.SessionStart ?? []
-    const commands = rows.flatMap((row) => row.hooks ?? []).map((hook) => hook.command ?? "")
-    process.exit(commands.some((command) => command.includes(".agents/hooks/session-start-profiler.mjs")) ? 0 : 1)
-  ' "$PROJECT/.codex/hooks.json"; then
-    record_fail "Codex SessionStart hook is not installed"
+  # Codex는 SessionStart 훅을 .codex/hooks.json 또는 .codex/config.toml 의 inline
+  # [[hooks.SessionStart.hooks]] 중 하나로 선언한다. 둘을 함께 두면 Codex가 merge하며
+  # 경고하므로 정확히 하나만 인정한다. 판정은 detect-codex-hook.mjs 가 소유한다 —
+  # 문자열 포함이 아니라 profiler 경로가 이 프로젝트를 가리키는지까지 본다.
+  HOOK_LINES="$(node "$PLUGIN_DIR/scripts/detect-codex-hook.mjs" --project "$PROJECT")"
+  HOOK_SOURCES="$(printf '%s' "$HOOK_LINES" | paste -sd' ' -)"
+  HOOK_SOURCE_COUNT="$(printf '%s' "$HOOK_LINES" | grep -c . || true)"
+  if [ "$HOOK_SOURCE_COUNT" -eq 0 ]; then
+    record_fail "Codex SessionStart hook is not installed (declare it in .codex/hooks.json or as inline [[hooks.SessionStart.hooks]] in .codex/config.toml, pointing at this project's .agents/hooks/session-start-profiler.mjs)"
+  elif [ "$HOOK_SOURCE_COUNT" -gt 1 ]; then
+    record_fail "Codex SessionStart hook declared in $HOOK_SOURCES; Codex merges both and warns — keep exactly one"
   fi
 fi
 
