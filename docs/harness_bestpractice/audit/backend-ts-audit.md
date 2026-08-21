@@ -1294,7 +1294,7 @@
    - ✅ **18 TOML 실제 구축**: `plugins/backend-ts/.codex/agents/` 에 18 TOML 작성 (총 1,144줄):
      - 5 read-only auditors: architecture_reviewer / architecture_validator (inherit) / invariant_compliance_checker / rule_consistency_auditor / spec_diff_auditor
      - 13 managers: agent_loop_manager / api_manager / data_state_manager / infra_performance_manager / new_agent_builder / output_stream_manager / prompt_context_manager / provider_manager / security_manager / settings_hooks_maintainer / sub_agent_manager / test_manager / tools_manager
-     - python plugin (`stack-backend-python/skills/codex-subagents/references/agents/`) 의 18 reference 본문을 TS 도메인 + Codex TOML 형식으로 변환
+     - python plugin (`archive/stack-backend-python/skills/codex-subagents/references/agents/`) 의 18 reference 본문을 TS 도메인 + Codex TOML 형식으로 변환
      - 64 unique `[[skill-name]]` cite 모두 backend-ts 의 실재 skill 로 resolve (broken 0)
 
 **위험**: 중간. audit 정합성 결정 (#1) 은 본문 재작성. (#3) 은 *방향 reset* 2회 — Codex subagents 시스템 실재 확인 후 v4 turn 에 (a) 옵션 실제 구축.

@@ -2,7 +2,9 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "hibye-plugins",
   "description": "Shared agent assets — workflows, LLM backend principles, stack rules.",
-  "owner": { "name": "hibye-ys" },
+  "owner": {
+    "name": "hibye-ys"
+  },
   "plugins": [
     {
       "name": "backend-ts",
@@ -17,13 +19,6 @@
       "category": "development",
       "source": "./plugins/state-ledger",
       "version": "0.3.0"
-    },
-    {
-      "name": "stack-backend-python",
-      "description": "Python FastAPI AI agent backend rules + skills (legacy 보존, ref/iyaki-zip-ai 흡수).",
-      "category": "development",
-      "source": "./plugins/stack-backend-python",
-      "version": "0.0.1"
     }
   ]
 }

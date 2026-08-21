@@ -7,7 +7,6 @@ Claude Code와 Codex가 같은 로컬 소스를 읽는 개인용 에이전트 �
 | 이름 | 목적 |
 |---|---|
 | `backend-ts` | EUNHA TypeScript API의 agent, context, provider, tool, MCP, HTTP, SSE 런타임 스킬 10개와 검증 하네스 |
-| `stack-backend-python` | 기존 Python FastAPI 백엔드 하네스 |
 
 ## backend-ts 배선
 

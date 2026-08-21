@@ -13,7 +13,7 @@
 - 최종 **78 skill** (18 invariant + 39 workflow + 21 audit)
 - iyaki-rebuild 측: 기존 1 + 이전 8 = **9 project-local skill**
 
-**Reference:** `plugins/stack-backend-python/` 의 generalization pattern (특히 `data-audit/SKILL.md`, `backend-overview/references/subsystem-08.md` 의 `<domain>` 사용 예시).
+**Reference:** `archive/stack-backend-python/` 의 generalization pattern (특히 `data-audit/SKILL.md`, `backend-overview/references/subsystem-08.md` 의 `<domain>` 사용 예시).
 
 **Tech Stack:** Markdown SKILL.md, bash scripts (acceptance-check / forbidden-scan / audit-all / generate-agents-md / link-cache), Claude Code plugin marketplace.
 
