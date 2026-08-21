@@ -1,6 +1,6 @@
 ---
 name: subagent-runtime
-description: Maintain EUNHA child-agent spawning, background execution, cancellation, or spawn state. Use for `apps/api/src/sub-agent`, spawn tools, depth limits, or parent-child execution changes.
+description: EUNHA child-agent spawning, background execution, cancellation, spawn state, depth limits. `apps/api/src/sub-agent`.
 ---
 
 # Subagent Runtime

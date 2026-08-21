@@ -1,6 +1,6 @@
 ---
 name: context-runtime
-description: Maintain EUNHA prompt assembly, retrieved context, token estimates, and message compaction. Use for changes under `apps/api/src/context`, `agent-loop/compaction.ts`, or prompt-cache behavior.
+description: EUNHA prompt assembly, retrieved context, token estimates, compaction, prompt cache. `apps/api/src/context`, `agent-loop/compaction.ts`.
 ---
 
 # Context Runtime

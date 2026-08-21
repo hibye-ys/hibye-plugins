@@ -13,16 +13,16 @@
 
 | Skill | Description |
 |---|---|
-| [`agent-definition`](skills/agent-definition/SKILL.md) | Add or modify an EUNHA runtime agent definition or its loader. Use for `apps/api/src/prompts/agents/*.md`, `src/agents/loader.ts`, discovery, schema, or agent prompt changes. |
-| [`agent-loop-runtime`](skills/agent-loop-runtime/SKILL.md) | Maintain the EUNHA API agent loop, stop decisions, tool rounds, overflow recovery, or loop state. Use for changes under `apps/api/src/agent-loop` or the foreground and headless adapters that call it. |
-| [`backend-audit`](skills/backend-audit/SKILL.md) | Run deterministic validation for the EUNHA TypeScript API after backend changes or before handoff. Use for quick typecheck and lint gates, or the full API test and dead-code gate. |
-| [`context-runtime`](skills/context-runtime/SKILL.md) | Maintain EUNHA prompt assembly, retrieved context, token estimates, and message compaction. Use for changes under `apps/api/src/context`, `agent-loop/compaction.ts`, or prompt-cache behavior. |
-| [`http-contract`](skills/http-contract/SKILL.md) | Add or modify EUNHA Hono routes, middleware, RFC 7807 errors, project authorization, CORS, or idempotency. Use for `apps/api/src/routes`, `src/middleware`, and HTTP contracts. |
-| [`mcp-runtime`](skills/mcp-runtime/SKILL.md) | Maintain EUNHA MCP client bridging or the local stdio MCP server. Use for `apps/api/src/mcp`, `src/mcp-server`, MCP tool exposure, namespace, queue, or shutdown changes. |
-| [`provider-runtime`](skills/provider-runtime/SKILL.md) | Add or modify an EUNHA LLM provider, model resolution, retry classification, conversion, streaming, or usage handling. Use for `apps/api/src/providers` and provider-facing adapters. |
-| [`stream-contract`](skills/stream-contract/SKILL.md) | Maintain EUNHA SSE event production, persistence, replay, terminal states, or disconnect cleanup. Use for `apps/api/src/ai/sse-emit.ts`, streaming routes, adapters, or shared SSE schemas. |
-| [`subagent-runtime`](skills/subagent-runtime/SKILL.md) | Maintain EUNHA child-agent spawning, background execution, cancellation, or spawn state. Use for `apps/api/src/sub-agent`, spawn tools, depth limits, or parent-child execution changes. |
-| [`tool-runtime`](skills/tool-runtime/SKILL.md) | Add or modify EUNHA model tools, registry ordering, schemas, authorization, concurrency, or dispatch. Use for `apps/api/src/tools` and `src/ai/tool-runtime.ts`. |
+| [`agent-definition`](skills/agent-definition/SKILL.md) | EUNHA runtime agent definitions, loader, discovery, and schema. `apps/api/src/prompts/agents/*.md`, `src/agents/loader.ts`. |
+| [`agent-loop-runtime`](skills/agent-loop-runtime/SKILL.md) | EUNHA agent loop, stop decisions, tool rounds, overflow recovery, loop state. `apps/api/src/agent-loop` and its foreground/headless adapters. |
+| [`backend-audit`](skills/backend-audit/SKILL.md) | Deterministic EUNHA API validation: quick typecheck and lint, or the full test and dead-code gate. |
+| [`context-runtime`](skills/context-runtime/SKILL.md) | EUNHA prompt assembly, retrieved context, token estimates, compaction, prompt cache. `apps/api/src/context`, `agent-loop/compaction.ts`. |
+| [`http-contract`](skills/http-contract/SKILL.md) | EUNHA Hono routes, middleware, RFC 7807 errors, project authorization, CORS, idempotency. `apps/api/src/routes`, `src/middleware`. |
+| [`mcp-runtime`](skills/mcp-runtime/SKILL.md) | EUNHA MCP client bridge and stdio MCP server: tool exposure, namespace, queue, shutdown. `apps/api/src/mcp`, `src/mcp-server`. |
+| [`provider-runtime`](skills/provider-runtime/SKILL.md) | EUNHA LLM providers, model resolution, retry classification, conversion, streaming, usage. `apps/api/src/providers`. |
+| [`stream-contract`](skills/stream-contract/SKILL.md) | EUNHA SSE event production, persistence, replay, terminal states, disconnect cleanup. `apps/api/src/ai/sse-emit.ts`, streaming routes. |
+| [`subagent-runtime`](skills/subagent-runtime/SKILL.md) | EUNHA child-agent spawning, background execution, cancellation, spawn state, depth limits. `apps/api/src/sub-agent`. |
+| [`tool-runtime`](skills/tool-runtime/SKILL.md) | EUNHA model tools, registry ordering, schemas, authorization, concurrency, dispatch. `apps/api/src/tools`, `src/ai/tool-runtime.ts`. |
 
 ## 검증
 

@@ -1,6 +1,6 @@
 ---
 name: mcp-runtime
-description: Maintain EUNHA MCP client bridging or the local stdio MCP server. Use for `apps/api/src/mcp`, `src/mcp-server`, MCP tool exposure, namespace, queue, or shutdown changes.
+description: EUNHA MCP client bridge and stdio MCP server: tool exposure, namespace, queue, shutdown. `apps/api/src/mcp`, `src/mcp-server`.
 ---
 
 # MCP Runtime

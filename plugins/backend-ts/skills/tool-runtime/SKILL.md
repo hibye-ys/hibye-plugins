@@ -1,6 +1,6 @@
 ---
 name: tool-runtime
-description: Add or modify EUNHA model tools, registry ordering, schemas, authorization, concurrency, or dispatch. Use for `apps/api/src/tools` and `src/ai/tool-runtime.ts`.
+description: EUNHA model tools, registry ordering, schemas, authorization, concurrency, dispatch. `apps/api/src/tools`, `src/ai/tool-runtime.ts`.
 ---
 
 # Tool Runtime

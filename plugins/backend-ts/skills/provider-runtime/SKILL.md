@@ -1,6 +1,6 @@
 ---
 name: provider-runtime
-description: Add or modify an EUNHA LLM provider, model resolution, retry classification, conversion, streaming, or usage handling. Use for `apps/api/src/providers` and provider-facing adapters.
+description: EUNHA LLM providers, model resolution, retry classification, conversion, streaming, usage. `apps/api/src/providers`.
 ---
 
 # Provider Runtime

@@ -1,6 +1,6 @@
 ---
 name: stream-contract
-description: Maintain EUNHA SSE event production, persistence, replay, terminal states, or disconnect cleanup. Use for `apps/api/src/ai/sse-emit.ts`, streaming routes, adapters, or shared SSE schemas.
+description: EUNHA SSE event production, persistence, replay, terminal states, disconnect cleanup. `apps/api/src/ai/sse-emit.ts`, streaming routes.
 ---
 
 # Stream Contract

@@ -1,6 +1,6 @@
 ---
 name: agent-loop-runtime
-description: Maintain the EUNHA API agent loop, stop decisions, tool rounds, overflow recovery, or loop state. Use for changes under `apps/api/src/agent-loop` or the foreground and headless adapters that call it.
+description: EUNHA agent loop, stop decisions, tool rounds, overflow recovery, loop state. `apps/api/src/agent-loop` and its foreground/headless adapters.
 ---
 
 # Agent Loop Runtime

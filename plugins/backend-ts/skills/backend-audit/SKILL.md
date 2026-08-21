@@ -1,6 +1,6 @@
 ---
 name: backend-audit
-description: Run deterministic validation for the EUNHA TypeScript API after backend changes or before handoff. Use for quick typecheck and lint gates, or the full API test and dead-code gate.
+description: Deterministic EUNHA API validation: quick typecheck and lint, or the full test and dead-code gate.
 ---
 
 # Backend Audit

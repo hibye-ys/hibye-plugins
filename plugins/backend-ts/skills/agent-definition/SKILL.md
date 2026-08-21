@@ -1,6 +1,6 @@
 ---
 name: agent-definition
-description: Add or modify an EUNHA runtime agent definition or its loader. Use for `apps/api/src/prompts/agents/*.md`, `src/agents/loader.ts`, discovery, schema, or agent prompt changes.
+description: EUNHA runtime agent definitions, loader, discovery, and schema. `apps/api/src/prompts/agents/*.md`, `src/agents/loader.ts`.
 ---
 
 # Agent Definition
