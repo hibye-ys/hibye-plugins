@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -77,6 +77,12 @@ function main() {
     conversationId: sid,
     workspacePaths: [repoRoot],
   })
+
+  // Clear any stale stop flag from a previously interrupted turn
+  const stopFlag = path.join(tmpdir(), `antigravity-state-stop-${sid}.flag`)
+  try {
+    if (existsSync(stopFlag)) unlinkSync(stopFlag)
+  } catch {}
 
   // 1. Snapshot turn start
   try {

@@ -15,6 +15,9 @@ const COMMIT_MSG_SCRIPT = fileURLToPath(new URL('./commit-msg-state-check.sh', i
 const BRANCH_SYNC_SCRIPT = fileURLToPath(new URL('../check-state-branch-sync.sh', import.meta.url))
 const WIP_CHECK_SCRIPT = fileURLToPath(new URL('../check-state-wip-cap.sh', import.meta.url))
 const GLOBAL_SCRIPT = fileURLToPath(new URL('./global-state-hook.sh', import.meta.url))
+const ANTIGRAVITY_PRE_INVOCATION = fileURLToPath(new URL('../../hooks/antigravity-pre-invocation.sh', import.meta.url))
+const ANTIGRAVITY_POST_TOOL_USE = fileURLToPath(new URL('../../hooks/antigravity-post-tool-use.sh', import.meta.url))
+const ANTIGRAVITY_STOP = fileURLToPath(new URL('../../hooks/antigravity-stop.sh', import.meta.url))
 
 const EUNHA_WORK_INCLUDE_RE = String.raw`^(\.github/|\.(agents|claude|codex|design-sync|opencode|openai|system-sync)/|(scripts|patches|design|handoff|eslint-rules|supabase)/|docs/(decisions|operations)/|(apps|packages)/)|(^|/)Dockerfile$|^[^/]+\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml)$`
 const EUNHA_WORK_EXCLUDE_RE = String.raw`^(apps|packages)/.*(AGENTS|CLAUDE|README|INVENTORY)\.md$`
@@ -1242,6 +1245,92 @@ test('STATE stamp rejects a traversal path that resolves outside the repository'
   } finally {
     rmSync(root, { recursive: true, force: true })
     rmSync(outside, { force: true })
+    rmSync(`${root}-hook-data`, { recursive: true, force: true })
+  }
+})
+
+test('Antigravity PreInvocation injects session start on invocation 1 and suppresses on invocation 2', () => {
+  const root = mkdtempSync(join(tmpdir(), 'antigravity-pre-invoc-'))
+  try {
+    git(root, ['init', '-b', 'main'])
+    write(root, 'STATE.md', '# STATE\n\n## 1. 활성 (지금 작업 중)\n- [test] Title — note\n\n## 2. 다음\n\n## 3. 미래\n\n## 4. 미해결\n')
+    write(root, 'docs/state/root/test.md', detail('test', 'first', true))
+    git(root, ['add', '.'])
+    git(root, ['commit', '-m', 'init [id=test]'])
+
+    const sid = `test-anti-${Date.now()}`
+    const p1 = { conversationId: sid, invocationNum: 1, workspacePaths: [root] }
+    const out1 = JSON.parse(runHook(ANTIGRAVITY_PRE_INVOCATION, root, p1))
+    assert.ok(out1.injectSteps?.[0]?.ephemeralMessage)
+
+    const p2 = { conversationId: sid, invocationNum: 2, workspacePaths: [root] }
+    const out2 = JSON.parse(runHook(ANTIGRAVITY_PRE_INVOCATION, root, p2))
+    assert.deepEqual(out2, {})
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(`${root}-hook-data`, { recursive: true, force: true })
+  }
+})
+
+test('Antigravity PostToolUse stamps state detail file from TargetFile', () => {
+  const root = mkdtempSync(join(tmpdir(), 'antigravity-post-tool-'))
+  try {
+    git(root, ['init', '-b', 'main'])
+    write(root, 'STATE.md', '# STATE\n\n## 1. 활성 (지금 작업 중)\n- [test] Title — note\n\n## 2. 다음\n\n## 3. 미래\n\n## 4. 미해결\n')
+    write(root, 'docs/state/root/test.md', detail('test', 'before', true))
+    git(root, ['add', '.'])
+    git(root, ['commit', '-m', 'init [id=test]'])
+
+    const target = join(root, 'docs/state/root/test.md')
+    const before = readFileSync(target, 'utf8')
+    write(root, 'docs/state/root/test.md', detail('test', 'after modification', true))
+
+    const payload = {
+      toolCall: {
+        name: 'replace_file_content',
+        args: { TargetFile: target },
+      },
+      workspacePaths: [root],
+    }
+    const out = runHook(ANTIGRAVITY_POST_TOOL_USE, root, payload)
+    assert.equal(out, '{}')
+
+    const after = readFileSync(target, 'utf8')
+    assert.notEqual(after, before)
+    assert.match(after, /hash: [0-9a-f]{8}/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(`${root}-hook-data`, { recursive: true, force: true })
+  }
+})
+
+test('Antigravity Stop returns continue when uncommitted code debt exists', () => {
+  const root = mkdtempSync(join(tmpdir(), 'antigravity-stop-debt-'))
+  try {
+    git(root, ['init', '-b', 'main'])
+    write(root, 'STATE.md', '# STATE\n\n## 1. 활성 (지금 작업 중)\n- [test] Title — note\n\n## 2. 다음\n\n## 3. 미래\n\n## 4. 미해결\n')
+    write(root, 'docs/state/root/test.md', detail('test', 'initial', true))
+    write(root, 'app.js', 'console.log("initial");\n')
+    git(root, ['add', '.'])
+    git(root, ['commit', '-m', 'init [id=test]'])
+
+    const sid = `test-anti-stop-${Date.now()}`
+    runHook(ANTIGRAVITY_PRE_INVOCATION, root, { conversationId: sid, invocationNum: 1, workspacePaths: [root] })
+
+    // Modify code without updating STATE
+    write(root, 'app.js', 'console.log("changed work");\n')
+
+    const stopPayload = { conversationId: sid, executionNum: 1, workspacePaths: [root] }
+    const out1 = JSON.parse(runHook(ANTIGRAVITY_STOP, root, stopPayload))
+    assert.equal(out1.decision, 'continue')
+    assert.match(out1.reason, /STATE\.md 원장 검토 필요/)
+
+    // Re-entry allows exit to avoid deadlock
+    const reEntryPayload = { conversationId: sid, executionNum: 2, workspacePaths: [root] }
+    const out2 = JSON.parse(runHook(ANTIGRAVITY_STOP, root, reEntryPayload))
+    assert.equal(out2.decision, 'allow')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
     rmSync(`${root}-hook-data`, { recursive: true, force: true })
   }
 })

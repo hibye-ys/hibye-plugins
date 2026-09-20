@@ -73,7 +73,7 @@ function main() {
     return
   }
 
-  let targetFile = args.TargetFile || args.file_path || args.filePath || args.path || ''
+  let targetFile = args.TargetFile || args.file_path || args.filePath || args.path || args.file || ''
   const command = args.CommandLine || args.command || ''
 
   if (!targetFile && command) {
@@ -83,13 +83,16 @@ function main() {
     }
   }
 
+  const sid = j.conversationId || j.session_id || j.sessionId || ''
   const normalized = {
     tool_name: toolCall.name || '',
     tool_input: {
       file_path: targetFile,
       command: command,
     },
-    conversationId: j.conversationId || '',
+    conversationId: sid,
+    session_id: sid,
+    sessionID: sid,
     stepIdx: j.stepIdx ?? 0,
   }
 
