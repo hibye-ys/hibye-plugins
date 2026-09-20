@@ -240,6 +240,10 @@ if (host === 'codex') {
   found = jsonContains(join(root, '.codex', 'hooks.json')) || tomlContains(join(root, '.codex', 'config.toml'))
 } else if (host === 'claude') {
   found = jsonContains(join(root, '.claude', 'settings.json')) || jsonContains(join(root, '.claude', 'settings.local.json'))
+} else if (host === 'antigravity') {
+  found = jsonContains(join(root, '.agents', 'hooks.json'))
+} else if (host === 'muse') {
+  found = false
 } else if (host === 'opencode') {
   // opencode lifecycle은 프로젝트 adapter 자체가 소유한다. Claude/Codex 로컬
   // 설정은 다른 host의 중복 배선이므로 opencode 이벤트를 억제하면 안 된다.
