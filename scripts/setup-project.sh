@@ -4,16 +4,16 @@
 # 단일 SoT(마켓플레이스 plugin) → 프로젝트에 자산별 배선:
 #   skills   : .agents/skills/<s> (Codex+OpenCode) + .claude/skills/<s> → ../../.agents/skills/<s> (Claude)
 #   subagent : .claude/agents/*.md / .codex/agents/*.toml / .opencode/agents/*.md
-#   hook     : .agents/hooks/<script> + Claude settings.json 머지 / .codex/hooks.json / .opencode/plugins/*-hooks.js
+#   hook     : .agents/hooks/<script> + Claude settings.json 머지 / .codex/hooks.json / .opencode/plugins/*-hooks.js / .agents/hooks.json (Antigravity)
 #   command  : .claude/commands / .codex/prompts / .opencode/commands  (plugin 에 commands/ 있을 때)
 #   AGENTS.md: 별도 규칙 파일이 필요한 일반 plugin만 AGENTS.<plugin>.md 참조 symlink
 #
 # Usage:
 #   setup-project.sh --list
-#   setup-project.sh <project-dir> [--plugin <name>]... [--skills a,b,c] [--tools claude,codex,opencode] [--no-hooks]
+#   setup-project.sh <project-dir> [--plugin <name>]... [--skills a,b,c] [--tools claude,codex,opencode,antigravity] [--no-hooks]
 # 예:
 #   setup-project.sh ~/proj --plugin backend-ts
-#   setup-project.sh ~/proj --plugin backend-ts --tools claude,codex
+#   setup-project.sh ~/proj --plugin backend-ts --tools claude,codex,antigravity
 set -euo pipefail
 
 MARKET="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,7 +23,7 @@ PLUGINS_DIR="$MARKET/plugins"
 PROJECT=""
 declare -a SEL_PLUGINS=()
 SKILLS_CSV=""
-TOOLS_CSV="claude,codex,opencode"
+TOOLS_CSV="claude,codex,opencode,antigravity"
 DO_HOOKS=1
 LIST=0
 
@@ -146,12 +146,12 @@ for plugin in "${SEL_PLUGINS[@]}"; do
       if [ -n "$SKILLS_CSV" ]; then IFS=',' read -ra SKILLS <<< "$SKILLS_CSV"; else
         for s in "$PP/skills"/*/; do SKILLS+=("$(basename "$s")"); done
       fi
-      ( has_tool codex || has_tool opencode ) && mkdir -p "$PROJECT/.agents/skills"
+      ( has_tool codex || has_tool opencode || has_tool antigravity ) && mkdir -p "$PROJECT/.agents/skills"
       has_tool claude && mkdir -p "$PROJECT/.claude/skills"
       echo "  [skills] ${#SKILLS[@]}개"
       for s in "${SKILLS[@]}"; do
         [ -d "$PP/skills/$s" ] || { echo "    WARN: 스킬 없음: $s"; continue; }
-        if has_tool codex || has_tool opencode; then link "$PP/skills/$s" "$PROJECT/.agents/skills/$s" || true; fi
+        if has_tool codex || has_tool opencode || has_tool antigravity; then link "$PP/skills/$s" "$PROJECT/.agents/skills/$s" || true; fi
         if has_tool claude; then
           if [ -e "$PROJECT/.agents/skills/$s" ]; then link "../../.agents/skills/$s" "$PROJECT/.claude/skills/$s" || true
           else link "$PP/skills/$s" "$PROJECT/.claude/skills/$s" || true; fi
@@ -184,7 +184,7 @@ for plugin in "${SEL_PLUGINS[@]}"; do
   if [ "$DO_HOOKS" -eq 1 ] && [ -d "$PP/hooks" ]; then
     echo "  [hook]"
     mkdir -p "$PROJECT/.agents/hooks"
-    for sc in "$PP/hooks"/*.mjs; do [ -e "$sc" ] && link "$sc" "$PROJECT/.agents/hooks/$(basename "$sc")" || true; done
+    for sc in "$PP/hooks"/*.mjs "$PP/hooks"/*.sh; do [ -e "$sc" ] && link "$sc" "$PROJECT/.agents/hooks/$(basename "$sc")" || true; done
     # backend-ts Claude hook is loaded by the project-scoped plugin. Codex has
     # no equivalent marketplace install here, so only Codex gets a project hook.
     if has_tool claude && [ "$plugin" != "backend-ts" ] && [ -f "$PP/dist/claude/settings.hooks.json" ]; then
@@ -197,6 +197,9 @@ for plugin in "${SEL_PLUGINS[@]}"; do
       mkdir -p "$PROJECT/.opencode/plugins"
       cp "$PP/dist/opencode/plugins/$plugin-hooks.js" "$PROJECT/.opencode/plugins/$plugin-hooks.js"  # symlink 불가(import.meta realpath)
       echo "    copy: .opencode/plugins/$plugin-hooks.js"
+    fi
+    if has_tool antigravity && [ -f "$PP/hooks/antigravity-hooks.json" ]; then
+      merge_json_hooks "$PP/hooks/antigravity-hooks.json" "$PROJECT/.agents/hooks.json"
     fi
   fi
 

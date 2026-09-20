@@ -103,6 +103,14 @@ for plugin_dir in "$MARKETPLACE_ROOT/plugins/"*/; do
         ln -sfn "$plugin_dir/skills" "$target_dir/skills"
         echo "LINK: $target_dir/skills -> $plugin_dir/skills (flat)"
     fi
+
+    # Antigravity (Google Antigravity / Gemini) cache
+    if [ -d "$HOME/.gemini/antigravity" ] || [ -d "$HOME/.gemini/config" ]; then
+        antigravity_cache="$HOME/.gemini/antigravity/plugins/cache/hibye-plugins"
+        mkdir -p "$antigravity_cache/$plugin_name"
+        ln -sfn "$plugin_dir" "$antigravity_cache/$plugin_name/current"
+        echo "LINK: antigravity $antigravity_cache/$plugin_name/current -> $plugin_dir"
+    fi
 done
 
 if [ "$CODEX_DEV_LINKS" = "0" ]; then

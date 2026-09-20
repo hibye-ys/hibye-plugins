@@ -1,0 +1,30 @@
+{
+  "state-ledger": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "if [ -f \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/hooks/antigravity-pre-invocation.sh\" ]; then bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/hooks/antigravity-pre-invocation.sh\"; elif [ -f \"$HOME/Desktop/workplace/hibye-plugins/plugins/state-ledger/hooks/antigravity-pre-invocation.sh\" ]; then bash \"$HOME/Desktop/workplace/hibye-plugins/plugins/state-ledger/hooks/antigravity-pre-invocation.sh\"; else printf '%s\\n' '{}'; fi",
+        "timeout": 30
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "replace_file_content|write_to_file|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/hooks/antigravity-post-tool-use.sh\" ]; then bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/hooks/antigravity-post-tool-use.sh\"; elif [ -f \"$HOME/Desktop/workplace/hibye-plugins/plugins/state-ledger/hooks/antigravity-post-tool-use.sh\" ]; then bash \"$HOME/Desktop/workplace/hibye-plugins/plugins/state-ledger/hooks/antigravity-post-tool-use.sh\"; else printf '%s\\n' '{}'; fi",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "if [ -f \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/hooks/antigravity-stop.sh\" ]; then bash \"$HOME/.codex/plugins/cache/hibye-plugins/state-ledger/current/hooks/antigravity-stop.sh\"; elif [ -f \"$HOME/Desktop/workplace/hibye-plugins/plugins/state-ledger/hooks/antigravity-stop.sh\" ]; then bash \"$HOME/Desktop/workplace/hibye-plugins/plugins/state-ledger/hooks/antigravity-stop.sh\"; else printf '%s\\n' '{\"decision\":\"allow\"}'; fi",
+        "timeout": 30
+      }
+    ]
+  }
+}
