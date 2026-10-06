@@ -1,0 +1,4 @@
+interface:
+  display_name: "Muse Delegate"
+  short_description: "muse를 언급하면 Orca로 muse 워커에 구현을 위임하고 검수"
+  default_prompt: "$muse-delegate로 이 구현 작업을 muse에 맡기고 결과를 검증해줘."

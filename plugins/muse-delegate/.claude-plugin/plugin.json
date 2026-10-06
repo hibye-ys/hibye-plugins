@@ -1,0 +1,8 @@
+{
+  "name": "muse-delegate",
+  "version": "0.1.4",
+  "description": "Delegate implementation to Muse workers via Orca, only when the user mentions muse.",
+  "author": {
+    "name": "hibye-ys"
+  }
+}

@@ -19,6 +19,13 @@
       "category": "development",
       "source": "./plugins/state-ledger",
       "version": "0.3.0"
+    },
+    {
+      "name": "muse-delegate",
+      "description": "muse를 언급할 때만 Orca로 muse 워커에 구현을 위임하고 결과를 검증 (Claude/Codex 공용).",
+      "category": "development",
+      "source": "./plugins/muse-delegate",
+      "version": "0.1.4"
     }
   ]
 }
