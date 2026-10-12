@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "{{CONTRACT_URI}}",
+  "title": "{{CONTRACT_TITLE}}",
+  "description": "{{CONTRACT_PURPOSE}}",
+  "$comment": "This schema defaults to rejecting unknown fields at the current receiver. Keep x-contract.unknown_fields and additionalProperties consistent. Compatibility depends on each receiving version's schema and runtime semantics, not solely on this current policy. x-contract is metadata, not enforcement; execute its referenced validators and fixtures.",
+  "x-contract": {
+    "contract_id": "{{CONTRACT_ID}}",
+    "release_version": "{{SEMANTIC_VERSION}}",
+    "lifecycle_status": "PROPOSED",
+    "authority": "{{AUTHORITATIVE_SCHEMA_PATH_OR_URI}}",
+    "owner": "{{ACCOUNTABLE_OWNER}}",
+    "producer": "{{PRODUCER}}",
+    "consumers": [
+      "{{CONSUMER}}"
+    ],
+    "boundary": "{{REQUEST_RESPONSE_EVENT_FILE_CONFIG_OR_PERSISTED_DATA}}",
+    "operation": "{{CREATE_READ_REPLACE_PATCH_OR_APPEND}}",
+    "unknown_fields": {
+      "mode": "REJECT",
+      "schema_keyword": "additionalProperties: false",
+      "reason": "{{WHY_UNKNOWN_FIELDS_ARE_REJECTED}}"
+    },
+    "omission_and_null": {
+      "omitted_means": "{{MEANING_OF_AN_ABSENT_FIELD}}",
+      "null_means": "{{MEANING_OF_NULL_OR_NOT_ALLOWED}}",
+      "defaults_policy": "{{WHERE_DEFAULTS_ARE_APPLIED_OR_NONE}}"
+    },
+    "compatibility": {
+      "baseline_version": "{{BASELINE_SEMANTIC_VERSION}}",
+      "baseline_digest": "{{BASELINE_DIGEST_OR_NOT_ESTABLISHED}}",
+      "previous_producer_current_consumer": {
+        "status": "{{SUPPORTED_UNSUPPORTED_OR_NOT_APPLICABLE}}",
+        "receiver_schema_and_runtime_policy": "{{CURRENT_RECEIVER_SCHEMA_AND_RUNTIME_POLICY_IDENTITY}}",
+        "mechanism": "{{EXACT_COMPATIBILITY_MECHANISM}}",
+        "evidence": "{{PREVIOUS_PAYLOAD_CURRENT_RECEIVER_SCHEMA_AND_SEMANTIC_TESTS}}",
+        "deprecation_window": "{{MEASURABLE_REMOVAL_CONDITION}}"
+      },
+      "current_producer_previous_consumer_or_data": {
+        "status": "{{SUPPORTED_SUPPORTED_WITH_GUARD_UNSUPPORTED_OR_NOT_APPLICABLE}}",
+        "receiver_schema_and_runtime_policy": "{{BASELINE_RECEIVER_SCHEMA_AND_RUNTIME_POLICY_IDENTITY}}",
+        "emission_rule": "Validate the actual emitted payload against the receiving baseline version and its semantics. Extra fields may be compatible with a tolerant previous receiver; a rejecting previous receiver requires compatible unchanged output or a proven negotiated projection. The current schema's unknown-field policy alone decides neither case.",
+        "mechanism": "{{TOLERANT_RECEIVER_COMPATIBLE_OUTPUT_OR_NEGOTIATED_PROJECTION_MECHANISM}}",
+        "evidence": "{{CURRENT_EMITTED_PAYLOAD_BASELINE_RECEIVER_SCHEMA_AND_SEMANTIC_TESTS}}",
+        "deprecation_window": "{{MEASURABLE_REMOVAL_CONDITION}}"
+      },
+      "migration_guide": "{{REFERENCE_OR_NOT_REQUIRED_WITH_REASON}}"
+    },
+    "verification": {
+      "schema_command": "{{VALIDATION_COMMAND}}",
+      "compatibility_command": "{{COMPATIBILITY_COMMAND_OR_NOT_APPLICABLE_WITH_REASON}}",
+      "positive_fixtures": [
+        "{{VALID_EXAMPLE_OR_FIXTURE}}"
+      ],
+      "negative_fixtures": [
+        "{{INVALID_EXAMPLE_OR_FIXTURE}}"
+      ],
+      "semantic_invariants": [
+        {
+          "invariant": "{{RULE_NOT_FULLY_EXPRESSIBLE_IN_JSON_SCHEMA}}",
+          "validator": "{{VALIDATOR_AND_TEST_REFERENCE}}"
+        },
+        {
+          "invariant": "Compatibility claims bind producer output to the actual receiver version, including required fields, schema_version, unknown-field handling and runtime semantics. Additive changes or schema acceptance alone do not prove semantic compatibility; a required guard must be exercised on the real emission path.",
+          "validator": "{{RECEIVER_VERSION_AND_EMISSION_PATH_COMPATIBILITY_TEST}}"
+        }
+      ]
+    },
+    "generated_projections": [
+      "{{GENERATED_TYPE_CLIENT_DOCUMENTATION_OR_NONE}}"
+    ]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Version of the instance shape, distinct from the contract release version."
+    },
+    "{{FIELD_NAME}}": {
+      "type": "{{FIELD_TYPE}}",
+      "description": "{{FIELD_MEANING}}"
+    }
+  },
+  "required": [
+    "schema_version",
+    "{{FIELD_NAME}}"
+  ]
+}

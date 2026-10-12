@@ -1,0 +1,99 @@
+schema_version: 1
+
+# A tier says when a gate must pass, not where it runs.
+tier_definitions:
+  change: "Must pass before a change is accepted."
+  integration: "Must pass before changes enter the shared integration line."
+  release: "Must pass for the exact release candidate before mutation or publication."
+  scheduled: "Must pass on a time or operations cadence independent of code changes."
+
+result_states:
+  - NOT_RUN
+  - PASS
+  - FAIL
+  - SKIPPED
+  - ENV_LIMIT
+  - BLOCKED
+
+# Hooks, local runners, hosted jobs, release tooling, and generated documentation
+# should derive their gate identity from this registry instead of redefining it.
+derived_consumers:
+  - "{{HOOK_RUNNER_OR_NONE}}"
+  - "{{HOSTED_RUNNER_OR_NONE}}"
+  - "{{RELEASE_RUNNER_OR_NONE}}"
+  - "{{GENERATED_DOCUMENTATION_OR_NONE}}"
+
+gates:
+  - id: "{{GATE_ID}}"
+    title: "{{GATE_TITLE}}"
+    status: PROPOSED # PROPOSED | ACTIVE | DORMANT | UNAVAILABLE | RETIRED
+    owner: "{{ACCOUNTABLE_OWNER}}"
+
+    protects:
+      contract: "{{CONTRACT_OR_INVARIANT_PROVED}}"
+      failure_if_absent: "{{WHAT_CAN_BREAK_SILENTLY_WITHOUT_THIS_GATE}}"
+
+    tier: "{{CHANGE_INTEGRATION_RELEASE_OR_SCHEDULED}}"
+    enforcement: REQUIRED # REQUIRED | ADVISORY
+
+    scope:
+      selection: "{{ALL_CHANGED_PATHS_OR_EXPLICIT_INPUT}}"
+      paths:
+        - "{{PATH_OR_PATTERN}}"
+      conditions:
+        - "{{OPTIONAL_TRIGGER_CONDITION}}"
+      contract_epoch: "{{PINNED_REVISION_OR_NOT_APPLICABLE_WITH_REASON}}"
+      selector_verification: "{{HOW_ZERO_AND_MULTI_MATCH_CASES_ARE_TESTED}}"
+
+    # This is the exact local reproduction command for this gate identity.
+    command: "{{LOCALLY_REPRODUCIBLE_COMMAND}}"
+    execution:
+      invoked_by:
+        - "{{HOOK_LOCAL_CI_RELEASE_OR_SCHEDULED_OWNER}}"
+      environment: "{{REQUIRED_ENVIRONMENT_OR_NONE}}"
+      prerequisites:
+        - "{{PREREQUISITE_OR_NONE}}"
+      fixture: "{{FIXTURE_OR_NONE}}"
+      side_effects: "{{NONE_OR_EXACT_MUTATION_AND_CLEANUP}}"
+
+    oracle:
+      source_of_truth: "{{AUTHORITATIVE_EXPECTED_STATE}}"
+      pass_signal: "{{EXACT_PASS_SIGNAL}}"
+      negative_case: "{{CASE_THAT_MUST_STILL_FAIL}}"
+
+    budget:
+      measured_seconds: "{{MEASURED_SECONDS_OR_NOT_MEASURED}}"
+      ceiling_seconds: "{{MAXIMUM_ACCEPTABLE_SECONDS}}"
+      measured_at: "{{DATE_AND_ENVIRONMENT_OR_NOT_MEASURED}}"
+
+    result_semantics:
+      fail_means: "{{WHAT_A_PRODUCT_OR_CONTRACT_FAILURE_PROVES}}"
+      skipped_means: "{{WHEN_SKIP_IS_ALLOWED_OR_NEVER}}"
+      env_limit_means: "{{MISSING_CAPABILITY_THAT_PREVENTED_THE_ASSERTION}}"
+      blocked_means: "{{POLICY_OR_EXTERNAL_DEPENDENCY_BLOCKER}}"
+
+    evidence:
+      bind_to: "{{REVISION_ARTIFACT_OR_RELEASE_CANDIDATE_ID}}"
+      output: "{{EVIDENCE_PATH_OR_NONE}}"
+      freshness: "{{HOW_LONG_THE_RESULT_REMAINS_VALID}}"
+
+    lifecycle:
+      introduced_at: "{{REVISION_OR_DATE}}"
+      activation_proof: "{{ACTUAL_TIER_RUN_REFERENCE_OR_NOT_YET_ACTIVE}}"
+      last_exercised_at: "{{DATE_OR_NEVER}}"
+      dormant_trigger: "{{TRIGGER_OR_NOT_APPLICABLE_WITH_REASON}}"
+      unavailable_reason: "{{MISSING_PREREQUISITE_OR_NOT_APPLICABLE_WITH_REASON}}"
+
+rules:
+  - The registry entry, not a hook or hosted job, defines a gate's identity.
+  - A tier defines when the gate must pass; execution sites are declared separately.
+  - Every gate names the contract it proves and the silent failure it prevents.
+  - A required gate has an exact locally reproducible command, environment, fixture, and oracle.
+  - Path or input selectors have their own zero-match and multi-match verification, or the tier runs unconditionally.
+  - NOT_RUN, SKIPPED, ENV_LIMIT, and BLOCKED are never reported as PASS.
+  - A new gate becomes ACTIVE only after passing under its actual tier conditions.
+  - DORMANT means executable but not yet triggered; UNAVAILABLE means a prerequisite is missing.
+  - A relaxation records the protection it loses and adds a negative case that must remain red.
+  - Expensive gates move to the latest tier that still protects the boundary; required coverage is not silently discarded.
+  - Side effects and cleanup are explicit, especially for release and scheduled gates.
+  - Runners and generated documentation derive from this registry and do not maintain competing gate lists.

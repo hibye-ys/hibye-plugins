@@ -1,0 +1,84 @@
+schema_version: 1
+kit_id: project-launch-kit
+kit_version: 1
+placeholder_syntax: "{{UPPER_SNAKE_CASE}}"
+
+# mode:
+# - singleton: create once at the declared target.
+# - per_item: instantiate at target_pattern when a real item exists.
+# - per_event: instantiate for each runtime event; do not prefill fictional events.
+core:
+  - source: core/PROJECT_BRIEF.template.md
+    mode: singleton
+    activation: bootstrap
+    target: PROJECT_BRIEF.md
+  - source: core/AGENTS.template.md
+    mode: singleton
+    activation: bootstrap
+    target: AGENTS.md
+  - source: core/STATE.template.md
+    mode: singleton
+    activation: bootstrap
+    target: STATE.md
+  - source: core/BUILD_SLICE.template.md
+    mode: per_item
+    activation: first_user_slice
+    target_pattern: "docs/build/{{SLICE_ID}}.md"
+  - source: core/SYSTEM_MAP.template.md
+    mode: singleton
+    activation: first_real_entrypoint
+    target: SYSTEM_MAP.md
+  - source: core/GATE_REGISTRY.template.yaml
+    mode: singleton
+    activation: before_first_change_acceptance
+    target: ops/gate-registry.yaml
+  - source: core/STATE_DETAIL.template.md
+    mode: per_item
+    activation: state_item_needs_detail
+    target_pattern: "docs/state/{{ID}}.md"
+  - source: core/DECISION_RECORD.template.md
+    mode: per_item
+    activation: material_decision
+    target_pattern: "docs/decisions/{{DATE}}-{{DECISION_ID}}.md"
+
+conditional:
+  - trigger: shared_contract
+    source: conditional/CONTRACT.template.schema.json
+    mode: per_item
+    target_pattern: "docs/contracts/{{CONTRACT_ID}}.schema.json"
+  - trigger: environment_or_secret
+    source: conditional/ENVIRONMENT_MATRIX.template.md
+    mode: singleton
+    target: docs/operations/environment-matrix.md
+  - trigger: sensitive_or_irreversible
+    source: conditional/RISK_REVIEW.template.md
+    mode: per_item
+    target_pattern: "docs/risk/{{REVIEW_ID}}.md"
+  - trigger: duplicated_fact
+    source: conditional/COUPLING_MAP.template.md
+    mode: singleton
+    target: docs/operations/coupling-map.md
+  - trigger: user_reachable_deployment
+    source: conditional/RELEASE_RUNBOOK.template.md
+    mode: per_item
+    target_pattern: "docs/operations/releases/{{RELEASE_LANE}}.md"
+    # Configure lane procedures in the full source; leave per-attempt inputs/results blank.
+    # At execution preparation, manually copy this heading through EOF to a new record.
+    record_source_heading: "## 실행별 기록 양식"
+    record_mode: per_event
+    record_activation: release_attempt_preparation_before_mutation
+    record_target_pattern: "docs/releases/{{RELEASE_LANE}}/{{OPERATION_ID}}/{{ATTEMPT_ID}}.md"
+  - trigger: incident_or_recovery_ownership
+    source: conditional/INCIDENT_RUNBOOK.template.md
+    mode: per_event
+    activation: incident_detected
+    target_pattern: "docs/incidents/{{INCIDENT_ID}}.md"
+  - trigger: design_transplant
+    source: conditional/DESIGN_HANDOFF.template.md
+    mode: per_item
+    target_pattern: "docs/design/handoffs/{{HANDOFF_ID}}.md"
+  - trigger: reusable_lesson
+    source: conditional/LESSON.template.md
+    mode: per_item
+    target_pattern: "docs/lessons/{{LESSON_ID}}.md"
+    index_target: docs/lessons/README.md
