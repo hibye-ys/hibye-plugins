@@ -100,23 +100,28 @@ function main() {
   } catch {}
 
   let reminderMsg = ''
+  // stop-state-reminder는 이번 턴에 새로 생긴 항목(새 debt·덧붙임·이번 턴 STATE 구조 경고)이
+  // 있을 때만 stateLedgerContinue=true를 낸다. 이전 턴에서 이월된 debt·엔진 오류·정보성 알림만
+  // 남았으면 에이전트를 강제로 이어 돌리지 않는다. 필드가 없는 이전 버전 출력은 기존처럼 continue.
+  let wantsContinue = true
   if (stopOut) {
     try {
       const parsed = JSON.parse(stopOut)
       reminderMsg = parsed?.systemMessage || parsed?.hookSpecificOutput?.additionalContext || ''
+      if (parsed?.stateLedgerContinue === false) wantsContinue = false
     } catch {
       reminderMsg = stopOut
     }
   }
 
-  if (reminderMsg && reminderMsg.trim()) {
+  if (reminderMsg && reminderMsg.trim() && wantsContinue) {
     try {
       writeFileSync(flagFile, '1')
     } catch {}
     process.stdout.write(
       JSON.stringify({
         decision: 'continue',
-        reason: '⚠️ STATE.md 원장 검토 필요:\n' + reminderMsg.trim(),
+        reason: 'STATE 알림:\n' + reminderMsg.trim(),
       }) + '\n',
     )
   } else {

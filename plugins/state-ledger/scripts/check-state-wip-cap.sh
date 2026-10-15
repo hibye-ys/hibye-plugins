@@ -8,7 +8,7 @@
 #   ·expires 경과·§1 owner·'## 현재' 필수
 # - detail 크기: 파일 ≤8KB·'## 현재' ≤4KB. STATE는 공유 상태판이므로 완료 경과는 커밋 메시지로 보낸다.
 #   크기 경고는 구조 실패가 아니다 — STATE_CHECK_STRICT=1 에서도 실패로 세지 않는다
-#   (Stop 엔진의 debt 해제 판정이 크기 때문에 막히지 않게).
+#   (strict는 Stop 엔진의 validStateAreas 같은 구조 판정용이며 크기 초과는 그와 다른 범주다).
 #
 # 프로젝트 설정: 루트 `.staterc` (선택) — STATE_INDEXES="STATE.md apps/api/STATE.md" 식.
 # area 규칙: 루트 STATE.md → root, 그 외 → 부모 디렉토리 이름 (apps/api/STATE.md → api).
