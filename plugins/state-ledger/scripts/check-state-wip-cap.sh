@@ -99,11 +99,11 @@ while IFS= read -r f; do
   done
 
   bytes=$(wc -c < "$f")
-  [ "$bytes" -gt "$FILE_BYTE_CAP" ] && warn "$f ${bytes}B (파일 cap ${FILE_BYTE_CAP}B 초과) — 서사는 docs/state/$area/<id>.md 로"
+  [ "$bytes" -gt "$FILE_BYTE_CAP" ] && warn "$f ${bytes}B (파일 cap ${FILE_BYTE_CAP}B 초과) — 인덱스는 1줄 항목만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로"
 
   while IFS= read -r line; do
     n=${#line}
-    [ "$n" -gt "$LINE_CHAR_CAP" ] && warn "$f \"${line:0:36}…\" ${n}자 (줄 cap ${LINE_CHAR_CAP}자 초과) — 서사는 detail 파일로"
+    [ "$n" -gt "$LINE_CHAR_CAP" ] && warn "$f \"${line:0:36}…\" ${n}자 (줄 cap ${LINE_CHAR_CAP}자 초과) — 줄은 제목·짧은 상태만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로"
   done < <(grep '^- ' "$f" || true)
 
   for id in $(sed -nE 's/^- \[([a-z0-9-]+)\].*/\1/p' "$f"); do

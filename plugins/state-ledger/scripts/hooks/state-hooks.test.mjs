@@ -1254,6 +1254,27 @@ test('detail and ## 현재 size caps warn without failing the strict structural 
     assert.match(message, /heavy-now\.md ## 현재 \d+B \(cap 4096B\)/)
   }))
 
+test('index line and file cap warnings send progress to commit messages', () =>
+  withRepo((root) => {
+    const longLines = Array.from({ length: 5 }, (_, i) => `- placeholder ${i} ${'x'.repeat(900)}`).join('\n')
+    write(root, 'STATE.md', stateIndex('root').replace('## 4. 미해결', `${longLines}\n\n## 4. 미해결`))
+    const result = spawnSync('bash', [WIP_CHECK_SCRIPT], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, HOOK_PROJECT_DIR: root, STATE_CHECK_AREA: 'root' },
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(
+      result.stderr,
+      /자 \(줄 cap 200자 초과\) — 줄은 제목·짧은 상태만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로/,
+    )
+    assert.match(
+      result.stderr,
+      /B \(파일 cap 4096B 초과\) — 인덱스는 1줄 항목만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로/,
+    )
+    assert.doesNotMatch(result.stderr, /서사는/)
+  }))
+
 test('amending or dropping an untagged commit within the turn leaves nothing to report', () =>
   withRepo((root) => {
     seedStateItem(root, 'alpha')
