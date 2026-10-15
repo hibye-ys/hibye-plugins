@@ -53,7 +53,7 @@ if [ "${concurrent_count:-0}" -gt 0 ]; then
   out="${out}${out:+
 
 }=== STATE hook 경고 ===
-같은 worktree에서 최근 30분 내 다른 활성 세션 ${concurrent_count}개가 감지됐습니다. 변경 귀속이 불명확하므로 Stop의 커밋 [id=] 판정은 보류됩니다."
+같은 worktree에서 최근 30분 내 다른 활성 세션 ${concurrent_count}개가 감지됐습니다. 변경 귀속이 불명확하므로 Stop의 새 커밋 [id=] 판정은 보류됩니다."
 fi
 
 STATE_PRINCIPLE='STATE = 공유 상태판. 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다. 작업 기록은 커밋 메시지 [id=<id>] (STATE 항목과 무관하면 [id=-]).'
