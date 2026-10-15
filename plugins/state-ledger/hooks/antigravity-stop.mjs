@@ -99,29 +99,26 @@ function main() {
     stopOut = (res.stdout || '').trim()
   } catch {}
 
+  // stop-state-reminder는 이번 턴 알림(태그 없는 커밋·덧붙임·크기 외 구조 경고)이 있을 때만
+  // stateLedgerContinue=true를 낸다. 엔진 오류·동시 세션 보류·크기 경고만 있으면 continue하지 않는다.
   let reminderMsg = ''
-  // stop-state-reminder는 이번 턴에 새로 생긴 항목(새 debt·덧붙임·이번 턴 STATE 구조 경고)이
-  // 있을 때만 stateLedgerContinue=true를 낸다. 이전 턴에서 이월된 debt·엔진 오류·정보성 알림만
-  // 남았으면 에이전트를 강제로 이어 돌리지 않는다. 필드가 없는 이전 버전 출력은 기존처럼 continue.
-  let wantsContinue = true
+  let wantsContinue = false
   if (stopOut) {
     try {
       const parsed = JSON.parse(stopOut)
-      reminderMsg = parsed?.systemMessage || parsed?.hookSpecificOutput?.additionalContext || ''
-      if (parsed?.stateLedgerContinue === false) wantsContinue = false
-    } catch {
-      reminderMsg = stopOut
-    }
+      reminderMsg = typeof parsed?.systemMessage === 'string' ? parsed.systemMessage.trim() : ''
+      wantsContinue = parsed?.stateLedgerContinue === true
+    } catch {}
   }
 
-  if (reminderMsg && reminderMsg.trim() && wantsContinue) {
+  if (reminderMsg && wantsContinue) {
     try {
       writeFileSync(flagFile, '1')
     } catch {}
     process.stdout.write(
       JSON.stringify({
         decision: 'continue',
-        reason: 'STATE 알림:\n' + reminderMsg.trim(),
+        reason: 'STATE 알림:\n' + reminderMsg,
       }) + '\n',
     )
   } else {

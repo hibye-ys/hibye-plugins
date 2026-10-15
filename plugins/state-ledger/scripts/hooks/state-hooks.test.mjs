@@ -22,6 +22,7 @@ const ANTIGRAVITY_STOP = fileURLToPath(new URL('../../hooks/antigravity-stop.sh'
 
 const EUNHA_WORK_INCLUDE_RE = String.raw`^(\.github/|\.(agents|claude|codex|design-sync|opencode|openai|system-sync)/|(scripts|patches|design|handoff|eslint-rules|supabase)/|docs/(decisions|operations)/|(apps|packages)/)|(^|/)Dockerfile$|^[^/]+\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml)$`
 const EUNHA_WORK_EXCLUDE_RE = String.raw`^(apps|packages)/.*(AGENTS|CLAUDE|README|INVENTORY)\.md$`
+const UNTAGGED_GUIDANCE = '작업 기록은 커밋 메시지 [id=<id>]로 남긴다(STATE 항목과 무관한 잡무는 [id=-]). 직접 만든 미push 직전 커밋이면 git commit --amend로 붙이고, 아니면 다음 커밋부터 붙인다. STATE에 경과를 적어 대신하지 않는다.'
 
 function git(cwd, args) {
   return execFileSync('git', ['-c', 'core.excludesfile=/dev/null', ...args], {
@@ -89,6 +90,23 @@ function commit(root, paths, message) {
   git(root, ['commit', '-q', '-m', message])
 }
 
+// 경로마다 따로 커밋하고 sha를 돌려준다 (작업 파일 분류 검사용).
+function commitEach(root, paths) {
+  return paths.map((path) => {
+    commit(root, [path], `change ${path}`)
+    return headSha(root)
+  })
+}
+
+// 팀원이 오래전에 만든 커밋을 흉내 낸다 (committer 시각이 기준점보다 이르다).
+function commitAt(root, paths, message, date = '2020-01-01T00:00:00Z') {
+  git(root, ['add', '-A', '--', ...paths])
+  execFileSync('git', ['commit', '-q', '-m', message], {
+    cwd: root,
+    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+  })
+}
+
 function stop(root, sessionId, extraEnv = {}) {
   return runHook(STOP_SCRIPT, root, {
     session_id: sessionId,
@@ -103,18 +121,17 @@ function stopMessage(root, sessionId, extraEnv = {}) {
   return JSON.parse(output).systemMessage
 }
 
-// 기준점 커밋에 STATE 항목(인덱스 줄 + detail)을 둔다. 기본은 owner가 claim한 §1 활성 항목,
-// section 2면 writeDetail처럼 §2 다음에 미착수 항목으로 둔다.
-function seedStateItem(root, id, area = 'web', body = 'live item', section = 1) {
+function untaggedShas(root, sessionId) {
+  return runEngine(root, { session_id: sessionId }).untaggedCommits.map((entry) => entry.sha)
+}
+
+// 기준점 커밋에 owner가 claim한 §1 활성 STATE 항목(인덱스 줄 + detail)을 둔다.
+function seedStateItem(root, id, area = 'web', body = 'live item') {
   const path = `docs/state/${area}/${id}.md`
   const index = area === 'root' ? 'STATE.md' : `apps/${area}/STATE.md`
-  if (section === 1) {
-    write(root, path, detail(id, body, false, area, 'agent'))
-    const text = readFileSync(join(root, index), 'utf8')
-    write(root, index, text.replace(/^(## 1\.[^\n]*\n)/m, `$1- [${id}] fixture\n`))
-  } else {
-    writeDetail(root, path, detail(id, body, false, area))
-  }
+  write(root, path, detail(id, body, false, area, 'agent'))
+  const text = readFileSync(join(root, index), 'utf8')
+  write(root, index, text.replace(/^(## 1\.[^\n]*\n)/m, `$1- [${id}] fixture\n`))
   commit(root, [index, path], `seed [id=${id}]`)
   return path
 }
@@ -161,6 +178,19 @@ function withRepo(fn) {
     write(root, 'apps/web/STATE.md', stateIndex('web'))
     git(root, ['add', '-A'])
     git(root, ['commit', '-q', '-m', 'base'])
+    return fn(root)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(`${root}-hook-data`, { recursive: true, force: true })
+  }
+}
+
+function withEmptyRepo(fn) {
+  const root = mkdtempSync(join(tmpdir(), 'state-hooks-empty-'))
+  try {
+    git(root, ['init', '-q', '-b', 'main'])
+    git(root, ['config', 'user.email', 'test@example.com'])
+    git(root, ['config', 'user.name', 'test'])
     return fn(root)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -221,6 +251,10 @@ function headSha(root) {
   return git(root, ['rev-parse', 'HEAD']).trim()
 }
 
+function short(commitSha) {
+  return commitSha.slice(0, 7)
+}
+
 function assertStamped(root, relative) {
   const text = readFileSync(join(root, relative), 'utf8')
   const match = text.match(/^---\n(.*?)\n---\n(.*)$/s)
@@ -231,24 +265,24 @@ function assertStamped(root, relative) {
   assert.match(frontmatter, new RegExp(`^hash: ${expected}$`, 'm'))
 }
 
-test('Stop reminder reports an untagged commit in a new directory with the shared message shape', () =>
+test('Stop lists an untagged commit of this turn with the shared message shape', () =>
   withRepo((root) => {
     const sessionId = 'untracked-code'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     const codePath = 'apps/web/e2e/design-lab/graph-appearance/node.ts'
     write(root, codePath, 'export const node = true\n')
     commit(root, [codePath], 'add node fixture')
+    // stop_hook_active 재진입은 판정 없이 끝난다.
+    assert.equal(runHook(STOP_SCRIPT, root, { session_id: sessionId, stop_hook_active: true }), '')
 
     const parsed = JSON.parse(stop(root, sessionId))
 
-    const untaggedSha = headSha(root).slice(0, 7)
-    assert.match(parsed.systemMessage, new RegExp(`커밋 메시지에 STATE \\[id=\\]가 없는 커밋 — ${untaggedSha} \\(${codePath}\\)\\.`))
-    assert.match(parsed.systemMessage, /git commit --allow-empty -m "<sha> \[id=<id>\]"/)
-    assert.match(parsed.systemMessage, /직접 만든 미push HEAD 커밋이면 git commit --amend/)
-    assert.match(parsed.systemMessage, /정말 무관한 작업만 \[id=-\]/)
-    assert.match(parsed.systemMessage, /STATE 내용을 고치거나 덧붙여서는 풀리지 않는다/)
-    assert.doesNotMatch(parsed.systemMessage, /dirty STATE/)
+    assert.equal(
+      parsed.systemMessage,
+      `STATE reminder: 이번 턴 커밋 중 STATE id 태그가 없는 커밋 — ${short(headSha(root))} add node fixture. ${UNTAGGED_GUIDANCE}`,
+    )
     assert.equal(parsed.hookSpecificOutput, undefined)
+    assert.equal(parsed.stateLedgerContinue, undefined)
   }))
 
 test('SessionStart injects the shared STATE context shape', () =>
@@ -340,7 +374,7 @@ test('SessionStart compact does not overwrite an active turn baseline', () =>
       source: 'compact',
     })
 
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
+    assert.match(stopMessage(root, sessionId), /[0-9a-f]{7} commit before compact\./)
   }))
 
 test('Stop reminder stays silent when a STATE detail changed with code', () =>
@@ -359,7 +393,7 @@ test('Stop reminder stays silent when a STATE detail changed with code', () =>
     assert.equal(output, '')
   }))
 
-test('pre-existing STATE dirt does not hide code changed during this turn', () =>
+test('pre-existing STATE dirt does not hide code committed during this turn', () =>
   withRepo((root) => {
     const sessionId = 'old-state-new-code'
     writeDetail(root, 'docs/state/web/old-work.md', detail('old-work', 'older STATE change'))
@@ -369,7 +403,7 @@ test('pre-existing STATE dirt does not hide code changed during this turn', () =
     write(root, codePath, 'export const changedThisTurn = true\n')
     commit(root, [codePath], 'code only')
 
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
+    assert.match(stopMessage(root, sessionId), new RegExp(`${short(headSha(root))} code only\\.`))
   }))
 
 test('pre-existing code dirt does not create a false reminder for an unchanged turn', () =>
@@ -387,6 +421,18 @@ test('pre-existing code dirt does not create a false reminder for an unchanged t
     assert.equal(output, '')
   }))
 
+test('uncommitted work is never judged, only commits are', () =>
+  withRepo((root) => {
+    const sessionId = 'dirty-code-edited-again'
+    const codePath = 'apps/web/src/already-dirty.ts'
+    write(root, codePath, 'export const revision = 1\n')
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    write(root, codePath, 'export const revision = 2\n')
+    write(root, 'apps/web/src/new-file.ts', 'export const fresh = true\n')
+
+    assert.equal(stop(root, sessionId), '')
+  }))
+
 test('STATE reminder is unchanged when an executing goal exists', () =>
   withRepo((root) => {
     installExecutingGoal(root)
@@ -396,30 +442,10 @@ test('STATE reminder is unchanged when an executing goal exists', () =>
     write(root, codePath, 'export const stateStillGlobal = true\n')
     commit(root, [codePath], 'code only')
 
-    const output = JSON.parse(
-      runHook(STOP_SCRIPT, root, {
-        session_id: sessionId,
-        hook_event_name: 'Stop',
-        stop_hook_active: false,
-      }),
-    )
+    const output = JSON.parse(stop(root, sessionId))
 
-    assert.match(output.systemMessage, new RegExp(codePath))
+    assert.match(output.systemMessage, /[0-9a-f]{7} code only\./)
     assert.equal(output.decision, undefined)
-  }))
-
-test('content hashing detects another edit to a code file that was already dirty without creating debt', () =>
-  withRepo((root) => {
-    const sessionId = 'dirty-code-edited-again'
-    const codePath = 'apps/web/src/already-dirty.ts'
-    write(root, codePath, 'export const revision = 1\n')
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, codePath, 'export const revision = 2\n')
-
-    const result = runEngine(root, { session_id: sessionId })
-
-    assert.deepEqual(result.codeChanged, [codePath])
-    assert.deepEqual(result.debt, [])
   }))
 
 test('another edit to an already-dirty STATE detail is a meaningful STATE change', () =>
@@ -435,19 +461,6 @@ test('another edit to an already-dirty STATE detail is a meaningful STATE change
     assert.deepEqual(result.stateChanged, [statePath])
   }))
 
-test('STATE from the wrong area does not cover a web code delta', () =>
-  withRepo((root) => {
-    const sessionId = 'wrong-area-state'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const codePath = 'apps/web/src/web-only.ts'
-    write(root, codePath, 'export const webOnly = true\n')
-    commit(root, [codePath], 'web code')
-    writeDetail(root, 'docs/state/api/wrong-area.md', detail('wrong-area', 'API STATE change', false, 'api'))
-    commit(root, ['apps/api/STATE.md', 'docs/state/api/wrong-area.md'], 'api state')
-
-    assert.match(stopMessage(root, sessionId), new RegExp(`[0-9a-f]{7} \\(${codePath}\\)`))
-  }))
-
 test('custom STATE_INDEXES derive a non-EUNHA area without hardcoded paths', () =>
   withRepo((root) => {
     write(
@@ -461,11 +474,13 @@ test('custom STATE_INDEXES derive a non-EUNHA area without hardcoded paths', () 
 
     const sessionId = 'custom-worker-area'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const codePath = 'services/worker/src/job.ts'
-    write(root, codePath, 'export const job = true\n')
-    commit(root, [codePath], 'worker job')
+    write(root, 'services/worker/src/job.ts', 'export const job = true\n')
+    commit(root, ['services/worker/src/job.ts'], 'worker job')
+    // 설정된 인덱스 경로는 작업 파일이 아니다 (include가 .*여도).
+    write(root, 'services/worker/STATE.md', '# worker STATE\n\n## 1. 활성\n')
+    commit(root, ['services/worker/STATE.md'], 'worker ledger only')
 
-    assert.match(stopMessage(root, sessionId), new RegExp(`[0-9a-f]{7} \\(${codePath}\\)`))
+    assert.match(stopMessage(root, sessionId), / — [0-9a-f]{7} worker job\. /)
   }))
 
 test('web SVG HTML and PNG changes are tracked as work files', () =>
@@ -478,9 +493,9 @@ test('web SVG HTML and PNG changes are tracked as work files', () =>
       'apps/web/src/assets/new-scene.png',
     ]
     for (const path of paths) write(root, path, `asset:${path}\n`)
-    commit(root, paths, 'web assets')
+    const shas = commitEach(root, paths)
 
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.path), [...paths].sort())
+    assert.deepEqual(untaggedShas(root, sessionId), shas)
   }))
 
 test('root infrastructure and Supabase files are tracked as work files', () =>
@@ -498,12 +513,12 @@ test('root infrastructure and Supabase files are tracked as work files', () =>
       'docs/operations/new-runbook.md',
     ]
     for (const path of paths) write(root, path, `fixture:${path}\n`)
-    commit(root, paths, 'root infrastructure')
+    const shas = commitEach(root, paths)
 
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.path), [...paths].sort())
+    assert.deepEqual(untaggedShas(root, sessionId), shas)
   }))
 
-test('deleting a required STATE index cannot cover code work', () =>
+test('deleting a required STATE index is reported next to the untagged commit', () =>
   withRepo((root) => {
     const sessionId = 'deleted-state-index'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
@@ -515,11 +530,11 @@ test('deleting a required STATE index cannot cover code work', () =>
 
     const message = stopMessage(root, sessionId)
 
-    assert.match(message, new RegExp(codePath))
+    assert.match(message, / — [0-9a-f]{7} code only\. /)
     assert.match(message, /apps\/web\/STATE\.md 없음 — 필수 STATE 인덱스 소실/)
   }))
 
-test('a structurally invalid STATE edit cannot clear debt', () =>
+test('an orphan detail is reported next to the untagged commit', () =>
   withRepo((root) => {
     const sessionId = 'invalid-state-area'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
@@ -531,101 +546,45 @@ test('a structurally invalid STATE edit cannot clear debt', () =>
 
     const message = stopMessage(root, sessionId)
 
-    assert.match(message, new RegExp(codePath))
+    assert.match(message, / — [0-9a-f]{7} code only\. /)
     assert.match(message, /docs\/state\/web\/invalid\.md — apps\/web\/STATE\.md 인덱스에 없음/)
   }))
 
-test('STATE release warnings stay silent when no debt remains', () =>
+test('fields carried by older snapshots are ignored and dropped', () =>
   withRepo((root) => {
-    const statePath = 'docs/state/web/quiet.md'
-    writeDetail(root, statePath, detail('quiet', 'unchanged ledger body'))
-    commit(root, ['apps/web/STATE.md', statePath], 'state baseline [id=quiet]')
-    const sessionId = 'quiet-release-warnings'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/quiet.ts', 'export const quiet = true\n')
-    write(root, statePath, readFileSync(join(root, statePath), 'utf8').replace('touched: —', 'touched: 2026-08-09T16:00'))
-
-    const result = runEngine(root, { session_id: sessionId })
-
-    assert.deepEqual(result.debt, [])
-  }))
-
-test('metadata-only STATE changes cannot clear debt', () =>
-  withRepo((root) => {
-    const statePath = 'docs/state/web/metadata.md'
-    writeDetail(root, statePath, detail('metadata', 'unchanged ledger body'))
-    git(root, ['add', statePath])
-    git(root, ['commit', '-q', '-m', 'state baseline'])
-    const sessionId = 'metadata-only-state'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const codePath = 'apps/web/src/metadata-only.ts'
-    write(root, codePath, 'export const metadataOnly = true\n')
-    commit(root, [codePath], 'code only')
-    const metadata = readFileSync(join(root, statePath), 'utf8').replace(
-      'touched: —',
-      'touched: 2026-08-09T16:00',
-    )
-    write(root, statePath, metadata)
-    commit(root, [statePath], 'touch state metadata')
-
-    const message = stopMessage(root, sessionId)
-
-    assert.match(message, new RegExp(codePath))
-    assert.doesNotMatch(message, /touched\/hash·주석·공백만/)
-  }))
-
-test('an owner claim is a meaningful STATE change but does not release commit debt', () =>
-  withRepo((root) => {
-    const statePath = 'docs/state/web/owner-claim.md'
-    writeDetail(root, statePath, detail('owner-claim', 'same ledger body'))
-    git(root, ['add', '-A'])
-    git(root, ['commit', '-q', '-m', 'unclaimed state'])
-    const sessionId = 'owner-claim-state'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/owner-claim.ts', 'export const ownerClaim = true\n')
-    commit(root, ['apps/web/src/owner-claim.ts'], 'code only')
-    const claimed = readFileSync(join(root, statePath), 'utf8').replace('owner: —', 'owner: Codex')
-    write(root, statePath, claimed)
-    commit(root, [statePath], 'claim [id=owner-claim]')
-
-    const result = runEngine(root, { session_id: sessionId })
-    assert.deepEqual(result.debt.map((item) => item.path), ['apps/web/src/owner-claim.ts'])
-  }))
-
-test('uncommitted work alone creates no debt and drops legacy working debt', () =>
-  withRepo((root) => {
-    const sessionId = 'uncommitted-only'
+    const statePath = seedStateItem(root, 'legacy', 'web', 'short summary')
+    write(root, 'apps/web/src/old.ts', 'export const old = true\n')
+    commit(root, ['apps/web/src/old.ts'], 'old untagged work')
+    const oldSha = headSha(root)
+    const sessionId = 'legacy-snapshot'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     const dataDir = `${root}-hook-data`
     const [snapshotFile] = readdirSync(dataDir).filter((name) => name.endsWith('.json'))
     const snapshotPath = join(dataDir, snapshotFile)
     const saved = JSON.parse(readFileSync(snapshotPath, 'utf8'))
-    const headSha = git(root, ['rev-parse', 'HEAD']).trim()
-    const carried = {
-      path: 'apps/web/src/old-committed.ts',
-      channel: 'committed',
-      sha: headSha,
-      reason: 'untagged',
-      ids: [],
+    // 0.3.x·0.4.0 초안이 남긴 이월 필드. 읽었다면 old.ts 커밋·덧붙임·claim을 다시 알렸을 것이다.
+    const legacy = {
+      debt: [
+        { path: 'apps/web/src/old.ts', channel: 'committed', sha: oldSha, reason: 'untagged', ids: [] },
+        { path: 'apps/web/src/old-working.ts', area: 'web', channel: 'working' },
+      ],
+      judgedHead: git(root, ['rev-parse', 'HEAD~1']).trim(),
+      judgedAt: '2020-01-01T00:00:00.000Z',
+      pendingWork: ['apps/web/src/old.ts'],
+      bodyRef: { [statePath]: 1 },
+      notifiedIds: [],
+      prompted: true,
+      seenAt: saved.capturedAt,
+      stateSemantics: {},
     }
-    saved.debt = [
-      { path: 'apps/web/src/old-working.ts', area: 'web', channel: 'working' },
-      { path: 'apps/web/src/old-legacy.ts', area: 'web' },
-      { path: 'apps/web/src/old-v03-committed.ts', area: 'web', channel: 'committed' },
-      carried,
-    ]
-    writeFileSync(snapshotPath, `${JSON.stringify(saved)}\n`)
-    write(root, 'apps/web/src/dirty-only.ts', 'export const dirtyOnly = true\n')
+    writeFileSync(snapshotPath, `${JSON.stringify({ ...saved, ...legacy })}\n`)
+    // 턴 시작보다 1000B 늘린다 (옛 bodyRef 1B 기준이면 1KB를 넘는다).
+    write(root, statePath, detail('legacy', `short summary${'s'.repeat(1000)}`, false, 'web', 'agent'))
 
-    const result = runEngine(root, { session_id: sessionId })
-
-    assert.deepEqual(result.codeChanged, ['apps/web/src/dirty-only.ts'])
-    assert.deepEqual(result.debt, [carried])
-    assert.deepEqual(result.freshDebt, [])
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const message = stopMessage(root, sessionId)
-    assert.match(message, /old-committed\.ts/)
-    assert.doesNotMatch(message, /old-working|old-legacy|old-v03|dirty-only/)
+    assert.equal(stop(root, sessionId), '')
+    const after = JSON.parse(readFileSync(snapshotPath, 'utf8'))
+    for (const key of Object.keys(legacy)) assert.equal(after[key], undefined, key)
+    assert.equal(runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId }), '')
   }))
 
 test('global branch sync ignores goal item branches but still reports ordinary orphan branches', () =>
@@ -774,7 +733,7 @@ test('API prompt Markdown changes are tracked as API work', () =>
     write(root, promptPath, '# runtime prompt\n')
     commit(root, [promptPath], 'prompt only')
 
-    assert.match(stopMessage(root, sessionId), new RegExp(`[0-9a-f]{7} \\(${promptPath}\\)`))
+    assert.match(stopMessage(root, sessionId), / — [0-9a-f]{7} prompt only\. /)
   }))
 
 test('shipped defaults track runtime assets and prompts but ignore goal-run Markdown', () =>
@@ -796,9 +755,9 @@ test('shipped defaults track runtime assets and prompts but ignore goal-run Mark
     ]
     for (const path of tracked) write(root, path, `fixture:${path}\n`)
     write(root, 'docs/goal-runs/example/TRACK.md', '# goal-only bookkeeping\n')
-    commit(root, [...tracked, 'docs/goal-runs/example/TRACK.md'], 'runtime assets')
+    const shas = commitEach(root, [...tracked, 'docs/goal-runs/example/TRACK.md'])
 
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.path), [...tracked].sort())
+    assert.deepEqual(untaggedShas(root, sessionId), shas.slice(0, tracked.length))
   }))
 
 test('work include and exclude use one JavaScript RegExp contract', () =>
@@ -816,12 +775,16 @@ test('work include and exclude use one JavaScript RegExp contract', () =>
     write(root, 'apps/web/src/prompts/runtime.md', '# tracked\n')
     write(root, 'apps/web/README.md', '# excluded\n')
     write(root, 'docs/goal-runs/example/TRACK.md', '# excluded goal\n')
-    commit(root, ['apps/web/src/prompts/runtime.md', 'apps/web/README.md', 'docs/goal-runs/example/TRACK.md'], 'markdown')
+    const [tracked] = commitEach(root, [
+      'apps/web/src/prompts/runtime.md',
+      'apps/web/README.md',
+      'docs/goal-runs/example/TRACK.md',
+    ])
 
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.path), ['apps/web/src/prompts/runtime.md'])
+    assert.deepEqual(untaggedShas(root, sessionId), [tracked])
   }))
 
-test('.staterc is always tracked as root work even when a custom include regex omits it', () =>
+test('.staterc is always tracked as work even when a custom include regex omits it', () =>
   withRepo((root) => {
     const sessionId = 'staterc-is-work'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
@@ -829,7 +792,7 @@ test('.staterc is always tracked as root work even when a custom include regex o
     write(root, '.staterc', `${current}# behavior changed\n`)
     commit(root, ['.staterc'], 'tune staterc')
 
-    assert.match(stopMessage(root, sessionId), /[0-9a-f]{7} \(\.staterc\)/)
+    assert.match(stopMessage(root, sessionId), / — [0-9a-f]{7} tune staterc\. /)
   }))
 
 test('global dispatcher is inert outside an onboarded STATE repository', () => {
@@ -1030,157 +993,90 @@ test('baseline storage failure is visible instead of silently downgrading', () =
     assert.doesNotMatch(message, /coarse fallback/)
   }))
 
-test('a commit tagged with a live STATE id creates no debt', () =>
+test('commits tagged with a live id, [id=-] or archive [id=] are not reported', () =>
   withRepo((root) => {
     seedStateItem(root, 'live-item')
-    const sessionId = 'tagged-commit'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const codePath = 'apps/web/src/tagged.ts'
-    write(root, codePath, 'export const tagged = true\n')
-    commit(root, [codePath], 'implement tagged work [id=live-item]')
-    write(root, 'apps/web/src/chore.ts', 'export const chore = true\n')
-    commit(root, ['apps/web/src/chore.ts'], 'bump tooling unrelated to any item [id=-]')
-
-    const result = runEngine(root, { session_id: sessionId })
-    assert.deepEqual(result.debt, [])
-    assert.deepEqual(result.freshDebt, [])
-  }))
-
-test('a tagged commit needs no STATE edit even when Stop runs the full hook', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'hook-item')
-    const sessionId = 'tagged-commit-hook'
+    const gonePath = seedStateItem(root, 'gone', 'root')
+    const sessionId = 'tagged-commits'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     write(root, 'apps/api/src/route.ts', 'export const route = true\n')
     write(root, 'apps/web/src/view.ts', 'export const view = true\n')
-    commit(root, ['apps/api/src/route.ts', 'apps/web/src/view.ts'], 'cross-area work [id=hook-item]')
+    commit(root, ['apps/api/src/route.ts', 'apps/web/src/view.ts'], 'cross-area work [id=live-item]')
+    write(root, 'apps/web/src/chore.ts', 'export const chore = true\n')
+    commit(root, ['apps/web/src/chore.ts'], 'bump tooling unrelated to any item [id=-]')
+    // 이번 턴에 archive한 id는 턴 시작 HEAD의 인덱스에 있으므로 유효하다. 태그는 본문에 있어도 된다.
+    write(root, 'STATE.md', readFileSync(join(root, 'STATE.md'), 'utf8').replace('- [gone] fixture\n', ''))
+    rmSync(join(root, gonePath))
+    write(root, 'apps/web/src/finished.ts', 'export const finished = true\n')
+    commit(root, ['STATE.md', gonePath, 'apps/web/src/finished.ts'], 'finish the work\n\narchive [id=gone]')
 
+    assert.doesNotMatch(readFileSync(join(root, 'STATE.md'), 'utf8'), /\[gone\]/)
     assert.equal(stop(root, sessionId), '')
   }))
 
-test('a commit tagged with an unknown id is still debt', () =>
+test('a tag whose id is in no STATE index is reported apart from untagged commits', () =>
   withRepo((root) => {
     seedStateItem(root, 'real-id')
     const sessionId = 'unknown-tag'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const codePath = 'apps/web/src/unknown-tag.ts'
-    write(root, codePath, 'export const unknownTag = true\n')
-    commit(root, [codePath], 'work [id=no-such-id]')
+    write(root, 'apps/web/src/unknown-tag.ts', 'export const unknownTag = true\n')
+    commit(root, ['apps/web/src/unknown-tag.ts'], 'work [id=no-such-id]')
 
-    assert.match(stopMessage(root, sessionId), new RegExp(`[0-9a-f]{7} \\[id=no-such-id\\] \\(${codePath}\\)`))
+    const result = runEngine(root, { session_id: sessionId })
+    assert.deepEqual(result.untaggedCommits, [])
+    assert.deepEqual(result.unknownIdCommits, [{ sha: headSha(root), subject: 'work [id=no-such-id]', ids: ['no-such-id'] }])
+
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    write(root, 'apps/web/src/unknown-tag.ts', 'export const unknownTag = 2\n')
+    commit(root, ['apps/web/src/unknown-tag.ts'], 'more work [id=no-such-id]')
+    assert.equal(
+      stopMessage(root, sessionId),
+      `STATE reminder: 이번 턴 커밋의 [id=no-such-id]가 STATE 인덱스에 없다 — ${short(headSha(root))} more work [id=no-such-id]. 오타·archive된 id인지 확인하고, 새 작업이면 인덱스에 한 줄 등재한다.`,
+    )
   }))
 
-test('a path changed by both tagged and untagged commits stays in debt', () =>
+test('each commit of the turn is judged by its own message', () =>
   withRepo((root) => {
     seedStateItem(root, 'mixed')
     const sessionId = 'mixed-tags'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     const codePath = 'apps/web/src/mixed.ts'
     write(root, codePath, 'export const version = 1\n')
-    commit(root, [codePath], 'first pass [id=mixed]')
+    commit(root, [codePath], 'wip')
+    const wip = headSha(root)
     write(root, codePath, 'export const version = 2\n')
+    commit(root, [codePath], 'first pass [id=mixed]')
+    write(root, codePath, 'export const version = 3\n')
     commit(root, [codePath], 'quick fix')
+    const quickFix = headSha(root)
+    // 작업 파일을 바꾸지 않은 커밋(빈 커밋, STATE만 바꾼 커밋)은 판정하지 않는다.
+    git(root, ['commit', '-q', '--allow-empty', '-m', 'empty note'])
+    writeDetail(root, 'docs/state/web/note.md', detail('note', 'next step'))
+    commit(root, ['apps/web/STATE.md', 'docs/state/web/note.md'], 'note next step')
 
-    const quickFix = git(root, ['rev-parse', 'HEAD']).trim()
-
-    const result = runEngine(root, { session_id: sessionId })
-    assert.deepEqual(result.debt, [
-      { path: codePath, channel: 'committed', sha: quickFix, reason: 'untagged', ids: [] },
+    assert.deepEqual(runEngine(root, { session_id: sessionId }).untaggedCommits, [
+      { sha: wip, subject: 'wip' },
+      { sha: quickFix, subject: 'quick fix' },
     ])
   }))
 
-test('an archive commit for an id removed from STATE covers the work it carries', () =>
+test('commits brought in by pull or merge and merge commits are not judged', () =>
   withRepo((root) => {
-    const detailPath = seedStateItem(root, 'gone', 'root')
-    const sessionId = 'archive-tag'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'STATE.md', readFileSync(join(root, 'STATE.md'), 'utf8').replace('- [gone] fixture\n', ''))
-    rmSync(join(root, detailPath))
-    const codePath = 'apps/web/src/finished.ts'
-    write(root, codePath, 'export const finished = true\n')
-    commit(root, ['STATE.md', detailPath, codePath], 'finish the work archive [id=gone]')
-
-    const result = runEngine(root, { session_id: sessionId })
-    assert.doesNotMatch(readFileSync(join(root, 'STATE.md'), 'utf8'), /\[gone\]/)
-    assert.deepEqual(result.debt, [])
-  }))
-
-test('merge commits are not judged on their own', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'merge-item')
-    git(root, ['checkout', '-q', '-b', 'feature'])
-    write(root, 'apps/web/src/feature.ts', 'export const feature = true\n')
-    commit(root, ['apps/web/src/feature.ts'], 'feature work [id=merge-item]')
+    git(root, ['checkout', '-q', '-b', 'up'])
+    write(root, 'apps/web/src/t.ts', 'export const teammate = true\n')
+    commitAt(root, ['apps/web/src/t.ts'], 'teammate change')
+    git(root, ['checkout', '-q', '-b', 'side', 'main'])
+    write(root, 'apps/api/src/side.ts', 'export const side = true\n')
+    commitAt(root, ['apps/api/src/side.ts'], 'teammate side change')
     git(root, ['checkout', '-q', 'main'])
-    write(root, 'apps/api/src/mainline.ts', 'export const mainline = true\n')
-    commit(root, ['apps/api/src/mainline.ts'], 'mainline work [id=merge-item]')
-    const sessionId = 'merge-commit'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['merge', '-q', '--no-ff', '-m', "Merge branch 'feature'", 'feature'])
 
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-  }))
-
-test('untagged committed debt survives STATE edits and is released by a commit naming its sha', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'debt')
-    const sessionId = 'persistent-debt'
-    const codePath = 'apps/web/src/debt.ts'
+    const sessionId = 'teammate-commits'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, codePath, 'export const debt = true\n')
-    commit(root, [codePath], 'code only')
-    const untaggedSha = git(root, ['rev-parse', 'HEAD']).trim()
-    assert.match(stopMessage(root, sessionId), new RegExp(`${untaggedSha.slice(0, 7)} \\(${codePath}\\)`))
+    git(root, ['merge', '-q', '--ff-only', 'up'])
+    git(root, ['merge', '-q', '--no-ff', '-m', "Merge branch 'side'", 'side'])
 
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
-
-    // 0.3.x처럼 STATE에 경과를 덧붙여 커밋해도 debt는 풀리지 않는다.
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'docs/state/web/debt.md', detail('debt', 'live item\n\n- 턴 경과: debt.ts 구현 완료', false, 'web', 'agent'))
-    commit(root, ['docs/state/web/debt.md'], 'record progress [id=debt]')
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
-
-    // 커밋 메시지에 남긴 [id=-]만으로는 sha가 없으면 해제되지 않는다.
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['commit', '-q', '--allow-empty', '-m', 'unrelated note [id=-]'])
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['commit', '-q', '--allow-empty', '-m', `record ${untaggedSha.slice(0, 7)} as debt work [id=debt]`])
+    assert.equal(git(root, ['rev-list', '--merges', '--count', 'HEAD']).trim(), '1')
     assert.equal(stop(root, sessionId), '')
-  }))
-
-test('untagged committed debt is released by a later tagged commit to the same path', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'tag-later')
-    const sessionId = 'debt-released-by-tag'
-    const codePath = 'apps/web/src/tag-later.ts'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, codePath, 'export const version = 1\n')
-    commit(root, [codePath], 'untagged change')
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/other.ts', 'export const other = true\n')
-    commit(root, ['apps/web/src/other.ts'], 'other work [id=tag-later]')
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, codePath, 'export const version = 2\n')
-    commit(root, [codePath], 'follow-up [id=tag-later]')
-    assert.equal(stop(root, sessionId), '')
-  }))
-
-test('code committed during the turn is still compared with STATE', () =>
-  withRepo((root) => {
-    const sessionId = 'committed-code'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const codePath = 'apps/web/src/committed.ts'
-    write(root, codePath, 'export const committed = true\n')
-    commit(root, [codePath], 'code only')
-
-    assert.match(stopMessage(root, sessionId), new RegExp(codePath))
   }))
 
 test('STATE edits never cover untagged commits, whatever their order or channel', () =>
@@ -1190,85 +1086,77 @@ test('STATE edits never cover untagged commits, whatever their order or channel'
         writeDetail(root, 'docs/state/web/early.md', detail('early', 'state first'))
         commit(root, ['apps/web/STATE.md', 'docs/state/web/early.md'], 'state first [id=early]')
         write(root, codePath, 'export const v = 1\n')
-        commit(root, [codePath], 'code after state')
+        commit(root, [codePath], 'code only state-commit-before')
       }],
       ['state-commit-after', (codePath) => {
         write(root, codePath, 'export const v = 1\n')
-        commit(root, [codePath], 'code first')
+        commit(root, [codePath], 'code only state-commit-after')
         writeDetail(root, 'docs/state/web/late.md', detail('late', 'state after code'))
         commit(root, ['apps/web/STATE.md', 'docs/state/web/late.md'], 'state after code [id=late]')
       }],
       ['dirty-state', (codePath) => {
         write(root, codePath, 'export const v = 1\n')
-        commit(root, [codePath], 'commit code only')
+        commit(root, [codePath], 'code only dirty-state')
         writeDetail(root, 'docs/state/web/dirty.md', detail('dirty', 'dirty state later'))
       }],
     ]
     for (const [sessionId, act] of cases) {
       runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-      const codePath = `apps/web/src/${sessionId}.ts`
-      act(codePath)
-      const message = stopMessage(root, sessionId)
-      assert.match(message, new RegExp(`[0-9a-f]{7} \\(${codePath}\\)`), sessionId)
-      assert.doesNotMatch(message, /앞서|아직 커밋되지 않아|dirty STATE/, sessionId)
-      git(root, ['add', '-A'])
-      git(root, ['commit', '-q', '--allow-empty', '-m', `settle ${sessionId} [id=-]`])
+      act(`apps/web/src/${sessionId}.ts`)
+      assert.match(stopMessage(root, sessionId), new RegExp(` — [0-9a-f]{7} code only ${sessionId}\\. `), sessionId)
     }
   }))
 
-test('concurrent sessions hold new attribution but still apply releases', () =>
+test('a concurrent session in the same worktree holds tag and append judgement', () =>
   withRepo((root) => {
-    seedStateItem(root, 'held')
+    const statePath = seedStateItem(root, 'held', 'web', 'short summary')
     runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-a' })
-    write(root, 'apps/web/src/held.ts', 'export const version = 1\n')
-    commit(root, ['apps/web/src/held.ts'], 'untagged held work')
-    assert.match(stopMessage(root, 'concurrent-a'), /held\.ts/)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-a' })
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-b' })
+    const second = JSON.parse(runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-b' }))
+    assert.match(second.systemMessage, /다른 활성 세션 1개가 감지됐습니다\. 변경 귀속이 불명확하므로 Stop의 커밋 태그·덧붙임 판정은 보류됩니다\./)
     write(root, 'apps/web/src/concurrent.ts', 'export const concurrent = true\n')
     commit(root, ['apps/web/src/concurrent.ts'], 'untagged concurrent work')
-    write(root, 'apps/web/src/held.ts', 'export const version = 2\n')
-    commit(root, ['apps/web/src/held.ts'], 'tagged follow-up [id=held]')
+    write(root, statePath, detail('held', `short summary\n${'- 경과\n'.repeat(300)}`, false, 'web', 'agent'))
 
-    // 보류 중에도 같은 경로의 [id=] 커밋은 이전 debt를 푼다. id 없는 새 커밋은 debt로 만들지 않는다.
-    const message = stopMessage(root, 'concurrent-a')
-    assert.match(message, /다른 활성 세션 1개/)
-    assert.doesNotMatch(message, /held\.ts|concurrent\.ts/)
-    assert.deepEqual(runEngine(root, { session_id: 'concurrent-a' }).debt, [])
-
-    const secondMessage = stopMessage(root, 'concurrent-b')
-    assert.match(secondMessage, /다른 활성 세션 1개/)
-    assert.doesNotMatch(secondMessage, /커밋 메시지에 STATE \[id=\]가 없는 커밋/)
+    const parsed = JSON.parse(stop(root, 'concurrent-a', { STATE_LEDGER_HOST: 'antigravity' }))
+    assert.equal(
+      parsed.systemMessage,
+      'STATE reminder: 같은 worktree의 다른 활성 세션 1개가 감지되어 이번 턴의 커밋 태그·덧붙임 판정을 보류했습니다. worktree를 분리하세요.',
+    )
+    assert.equal(parsed.stateLedgerContinue, false)
   }))
 
-test('Stop flags a detail body that grew by more than 1KB once and stays quiet on rewrites', () =>
+test('Stop flags a detail body that grew by more than 1KB during the turn', () =>
   withRepo((root) => {
     const statePath = seedStateItem(root, 'grow', 'web', 'short summary')
     const sessionId = 'appended-body'
+    const appended = () => runEngine(root, { session_id: sessionId }).appendedDetails
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const appendedBody = `short summary\n\n${'- 작업 경과 기록\n'.repeat(80)}`
-    write(root, statePath, detail('grow', appendedBody, false, 'web', 'agent'))
+    let body = `short summary\n\n${'- 작업 경과 기록\n'.repeat(80)}`
+    write(root, statePath, detail('grow', body, false, 'web', 'agent'))
+    const parsed = JSON.parse(stop(root, sessionId, { STATE_LEDGER_HOST: 'antigravity' }))
     assert.match(
-      stopMessage(root, sessionId),
-      /docs\/state\/web\/grow\.md 본문이 \d+ B 늘었습니다 — 작업 경과를 덧붙이지 말고 남은 일·결정·WHY를 바꿔 쓰세요\./,
+      parsed.systemMessage,
+      /^STATE reminder: docs\/state\/web\/grow\.md 본문이 이번 턴에 \d+ B 늘었습니다 — 작업 경과를 덧붙이지 말고 남은 일·결정·WHY를 바꿔 쓰세요\.$/,
     )
+    assert.equal(parsed.stateLedgerContinue, true)
 
-    // 알린 증가는 다시 알리지 않는다. 다음 턴의 작은 편집은 조용하다.
+    // 다음 턴은 그 턴 시작 크기와 비교한다: 정확히 1024B 증가·새 detail은 알리지 않는다.
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, statePath, detail('grow', `${appendedBody}- 한 줄 더\n`, false, 'web', 'agent'))
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).appendedDetails, [])
+    body += 'x'.repeat(1024)
+    write(root, statePath, detail('grow', body, false, 'web', 'agent'))
+    writeDetail(root, 'docs/state/web/fresh.md', detail('fresh', 'n'.repeat(1500)))
+    assert.deepEqual(appended(), [])
 
-    // 바꿔 쓰기와 새 항목 생성은 덧붙임이 아니다.
+    // 바꿔 쓰기는 덧붙임이 아니다.
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     write(root, statePath, detail('grow', 'rewritten summary — 남은 일과 결정만', false, 'web', 'agent'))
-    writeDetail(root, 'docs/state/web/fresh.md', detail('fresh', 'n'.repeat(1500)))
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).appendedDetails, [])
+    assert.deepEqual(appended(), [])
 
-    // ## 원장에 쌓는 경과도 같은 본문 기준으로 본다.
+    // ## 원장에 쌓는 경과도 본문 전체로 잰다. 커밋한 증가도 같다.
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     write(root, statePath, detail('grow', `rewritten summary\n\n## 원장\n\n${'- 턴 실측 기록\n'.repeat(80)}`, false, 'web', 'agent'))
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).appendedDetails.map((entry) => entry.path), [statePath])
+    commit(root, [statePath], 'record [id=grow]')
+    assert.deepEqual(appended().map((entry) => entry.path), [statePath])
   }))
 
 test('detail and ## 현재 size caps warn without failing the strict structural check', () =>
@@ -1305,90 +1193,36 @@ test('detail and ## 현재 size caps warn without failing the strict structural 
     assert.doesNotMatch(strict.stderr, /heavy-now\.md \d+B \(detail cap/)
 
     const message = stopMessage(root, sessionId)
-    assert.doesNotMatch(message, /커밋 메시지에 STATE \[id=\]가 없는 커밋/)
+    assert.doesNotMatch(message, /STATE id 태그가 없는 커밋/)
     assert.match(message, /heavy-now\.md ## 현재 \d+B \(cap 4096B\)/)
   }))
 
-test('a later tagged commit to the same path clears an untagged one within the same turn', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'alpha')
-    const sessionId = 'same-turn-follow-up'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const codePath = 'apps/web/src/app.ts'
-    write(root, codePath, 'export const v = 1\n')
-    commit(root, [codePath], 'wip')
-    write(root, codePath, 'export const v = 2\n')
-    commit(root, [codePath], 'finish [id=alpha]')
-
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-  }))
-
-test('a commit naming the untagged sha releases its debt even when the path was deleted', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'alpha')
-    write(root, 'apps/web/src/old.ts', 'export const old = true\n')
-    commit(root, ['apps/web/src/old.ts'], 'add old [id=alpha]')
-    const sessionId = 'sha-reference'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    rmSync(join(root, 'apps/web/src/old.ts'))
-    commit(root, ['apps/web/src/old.ts'], 'remove dead code')
-    const removal = headSha(root)
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.sha), [removal])
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['commit', '-q', '--allow-empty', '-m', 'ack removal [id=alpha]'])
-    assert.equal(runEngine(root, { session_id: sessionId }).debt.length, 1)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['commit', '-q', '--allow-empty', '-m', `${removal.slice(0, 7)} removed dead code for alpha [id=alpha]`])
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-  }))
-
-test('amending or dropping the untagged commit clears its debt', () =>
+test('amending or dropping an untagged commit within the turn leaves nothing to report', () =>
   withRepo((root) => {
     seedStateItem(root, 'alpha')
     const sessionId = 'amend-or-drop'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     write(root, 'apps/web/src/a.ts', 'export const a = true\n')
     commit(root, ['apps/web/src/a.ts'], 'quick fix')
-    assert.equal(runEngine(root, { session_id: sessionId }).debt.length, 1)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     git(root, ['commit', '-q', '--amend', '-m', 'quick fix [id=alpha]'])
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     write(root, 'apps/web/src/b.ts', 'export const b = true\n')
     commit(root, ['apps/web/src/b.ts'], 'throwaway')
-    assert.equal(runEngine(root, { session_id: sessionId }).debt.length, 1)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     git(root, ['reset', '-q', '--hard', 'HEAD~1'])
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
+
+    assert.equal(stop(root, sessionId), '')
   }))
 
-test('a working-tree registration makes an id valid and a later registration releases unknown-id debt', () =>
+test('an id registered only in the uncommitted working tree is valid', () =>
   withRepo((root) => {
-    const sessionId = 'register-later'
+    const sessionId = 'register-in-working-tree'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
     writeDetail(root, 'docs/state/web/newid.md', detail('newid', 'new item'))
     write(root, 'apps/web/src/n.ts', 'export const n = true\n')
     commit(root, ['apps/web/src/n.ts'], 'implement new item [id=newid]')
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
 
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/m.ts', 'export const m = true\n')
-    commit(root, ['apps/web/src/m.ts'], 'start the later item [id=later]')
-    const message = stopMessage(root, sessionId)
-    assert.match(
-      message,
-      /\[id=\]가 STATE 인덱스에 없는 커밋 — [0-9a-f]{7} \[id=later\] \(apps\/web\/src\/m\.ts\)\. 오타·archive된 id면 올바른 id로 다시 기록하고, 정말 새 항목일 때만/,
-    )
-    assert.doesNotMatch(message, /커밋 메시지에 STATE \[id=\]가 없는 커밋/)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    writeDetail(root, 'docs/state/web/later.md', detail('later', 'registered after the commit'))
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
+    const result = runEngine(root, { session_id: sessionId })
+    assert.deepEqual(result.untaggedCommits, [])
+    assert.deepEqual(result.unknownIdCommits, [])
   }))
 
 test('an id registered on the default branch is valid from a feature branch', () =>
@@ -1402,41 +1236,10 @@ test('an id registered on the default branch is valid from a feature branch', ()
     write(root, 'apps/web/src/feature.ts', 'export const feature = true\n')
     commit(root, ['apps/web/src/feature.ts'], 'implement on feature [id=mainid]')
 
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-  }))
-
-test('a tag stays valid when its item was archived on the branch it merges into', () =>
-  withRepo((root) => {
-    const detailPath = seedStateItem(root, 'old', 'root')
-    git(root, ['checkout', '-q', '-b', 'feature'])
-    write(root, 'apps/web/src/f.ts', 'export const f = true\n')
-    commit(root, ['apps/web/src/f.ts'], 'feature work [id=old]')
-    git(root, ['checkout', '-q', 'main'])
-    write(root, 'STATE.md', readFileSync(join(root, 'STATE.md'), 'utf8').replace('- [old] fixture\n', ''))
-    rmSync(join(root, detailPath))
-    commit(root, ['STATE.md', detailPath], 'archive [id=old]')
-    const sessionId = 'merge-after-archive'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['merge', '-q', '--no-ff', '-m', "Merge branch 'feature'", 'feature'])
-
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-  }))
-
-test('work left uncommitted at Stop is judged when it is committed between turns', () =>
-  withRepo((root) => {
-    const sessionId = 'between-turns'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/x.ts', 'export const x = true\n')
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-
-    // 턴 사이에 사람이 id 없이 커밋한다. Stop 때 미커밋이던 경로만 판정한다.
-    write(root, 'apps/api/src/unrelated.ts', 'export const unrelated = true\n')
-    commit(root, ['apps/web/src/x.ts', 'apps/api/src/unrelated.ts'], 'wip')
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-
+    assert.doesNotMatch(readFileSync(join(root, 'apps/web/STATE.md'), 'utf8'), /mainid/)
     const result = runEngine(root, { session_id: sessionId })
-    assert.deepEqual(result.debt.map((item) => item.path), ['apps/web/src/x.ts'])
-    assert.deepEqual(result.codeChanged, [])
+    assert.deepEqual(result.untaggedCommits, [])
+    assert.deepEqual(result.unknownIdCommits, [])
   }))
 
 test('the first commits of an empty repository are judged', () =>
@@ -1446,46 +1249,11 @@ test('the first commits of an empty repository are judged', () =>
     write(root, 'STATE.md', stateIndex('root'))
     write(root, 'src/a.ts', 'export const a = true\n')
     commit(root, ['STATE.md', 'src/a.ts'], 'initial untagged work')
+    const first = headSha(root)
     write(root, 'src/b.ts', 'export const b = true\n')
     commit(root, ['src/b.ts'], 'second untagged work')
 
-    const result = runEngine(root, { session_id: sessionId })
-    assert.deepEqual(result.debt.map((item) => item.path), ['src/a.ts', 'src/b.ts'])
-  }))
-
-function withEmptyRepo(fn) {
-  const root = mkdtempSync(join(tmpdir(), 'state-hooks-empty-'))
-  try {
-    git(root, ['init', '-q', '-b', 'main'])
-    git(root, ['config', 'user.email', 'test@example.com'])
-    git(root, ['config', 'user.name', 'test'])
-    return fn(root)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-    rmSync(`${root}-hook-data`, { recursive: true, force: true })
-  }
-}
-
-// 팀원이 오래전에 만든 커밋을 흉내 낸다(committer 시각이 기준점보다 이르다).
-function commitAt(root, paths, message, date = '2020-01-01T00:00:00Z') {
-  git(root, ['add', '-A', '--', ...paths])
-  execFileSync('git', ['commit', '-q', '-m', message], {
-    cwd: root,
-    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
-  })
-}
-
-test('a first commit made between turns in an empty repository is judged', () =>
-  withEmptyRepo((root) => {
-    const sessionId = 'empty-between'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'STATE.md', stateIndex('root'))
-    write(root, 'src/a.ts', 'export const a = true\n')
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-
-    commit(root, ['STATE.md', 'src/a.ts'], 'initial import')
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.path), ['src/a.ts'])
+    assert.deepEqual(untaggedShas(root, sessionId), [first, headSha(root)])
   }))
 
 test('git errors in an empty repository do not hide Stop warnings', () =>
@@ -1497,183 +1265,36 @@ test('git errors in an empty repository do not hide Stop warnings', () =>
     assert.match(stopMessage(root, sessionId), /docs\/state\/root\/broken\.md frontmatter 없음/)
   }))
 
-test('release commits made between turns clear debt, with or without touching the path', () =>
+test('a reported commit is not repeated and commits between turns are not judged', () =>
   withRepo((root) => {
-    seedStateItem(root, 'rel')
-    const sessionId = 'between-release'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/a.ts', 'export const a = 1\n')
-    write(root, 'apps/web/src/b.ts', 'export const b = 1\n')
-    commit(root, ['apps/web/src/a.ts'], 'add a')
-    const shaA = headSha(root)
-    commit(root, ['apps/web/src/b.ts'], 'add b')
-    assert.deepEqual(
-      runEngine(root, { session_id: sessionId }).debt.map((item) => item.path),
-      ['apps/web/src/a.ts', 'apps/web/src/b.ts'],
-    )
-
-    // 턴 사이에 사람이 터미널에서 sha를 적은 빈 커밋과 같은 경로의 [id=] 커밋을 남긴다.
-    git(root, ['commit', '-q', '--allow-empty', '-m', `record ${shaA.slice(0, 7)} [id=rel]`])
-    write(root, 'apps/web/src/b.ts', 'export const b = 2\n')
-    commit(root, ['apps/web/src/b.ts'], 'finish b [id=rel]')
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-  }))
-
-test('[id=-] on a later commit to the same path does not release earlier debt', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'feat')
-    const sessionId = 'dash-follow-up'
-    const codePath = 'apps/web/src/feature.ts'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, codePath, 'export const feature = 1\n')
-    commit(root, [codePath], 'feature without id')
-    const featureSha = headSha(root)
-    assert.equal(runEngine(root, { session_id: sessionId }).debt.length, 1)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, codePath, 'export const feature = 1 // typo\n')
-    commit(root, [codePath], 'typo [id=-]')
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.sha), [featureSha])
-  }))
-
-test('a release commit on a parallel branch clears debt whatever the topological order', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'topo')
-    const sessionId = 'topo-release'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['checkout', '-q', '-b', 'side'])
+    const sessionId = 'turn-only'
+    assert.equal(runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId }), '')
     write(root, 'apps/web/src/a.ts', 'export const a = true\n')
-    commit(root, ['apps/web/src/a.ts'], 'add a')
-    const sideSha = headSha(root)
-    git(root, ['checkout', '-q', 'main'])
-    git(root, ['commit', '-q', '--allow-empty', '-m', `release ${sideSha.slice(0, 7)} [id=topo]`])
-    git(root, ['merge', '-q', '--no-ff', '-m', "Merge branch 'side'", 'side'])
-
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-  }))
-
-test('a between-turn commit dropped during the turn leaves no debt', () =>
-  withRepo((root) => {
-    const sessionId = 'between-dropped'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/a.ts', 'export const a = true\n')
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt, [])
-
-    commit(root, ['apps/web/src/a.ts'], 'wip')
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['reset', '-q', '--hard', 'HEAD~1'])
-    const result = runEngine(root, { session_id: sessionId })
-    assert.deepEqual(result.debt, [])
-    assert.deepEqual(result.freshDebt, [])
-  }))
-
-test('commits made before the turn or the last Stop are not judged when merged in', () =>
-  withRepo((root) => {
-    write(root, 'apps/web/src/a.ts', '1\n2\n3\n4\n5\n')
-    commit(root, ['apps/web/src/a.ts'], 'add a [id=-]')
-    git(root, ['checkout', '-q', '-b', 'up'])
-    write(root, 'apps/web/src/t.ts', 'export const teammate = true\n')
-    commitAt(root, ['apps/web/src/t.ts'], 'teammate change')
-    git(root, ['checkout', '-q', '-b', 'up2'])
-    write(root, 'apps/web/src/a.ts', 'T\n2\n3\n4\n5\n')
-    commitAt(root, ['apps/web/src/a.ts'], 'teammate edit of a')
-    git(root, ['checkout', '-q', 'main'])
-
-    // 턴 안의 pull(fast-forward)로 들어온 남의 커밋.
-    const sessionId = 'teammate-commits'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    git(root, ['merge', '-q', '--ff-only', 'up'])
+    commit(root, ['apps/web/src/a.ts'], 'untagged a')
+    assert.match(stopMessage(root, sessionId), / — [0-9a-f]{7} untagged a\. /)
+    // 같은 턴에 Stop이 다시 와도 반복하지 않는다.
     assert.equal(stop(root, sessionId), '')
 
-    // Stop 때 미커밋이던 경로를 바꾼 남의 커밋이 턴 사이에 들어와도 이 세션의 debt가 아니다.
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/a.ts', '1\n2\n3\n4\nL\n')
-    assert.equal(stop(root, sessionId), '')
-    git(root, ['stash', '-q'])
-    git(root, ['merge', '-q', '--ff-only', 'up2'])
-    git(root, ['stash', 'pop', '-q'])
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    // 턴 사이에 만든 커밋은 판정하지 않고, 다음 턴 시작은 이전 판정을 주입하지 않는다.
+    write(root, 'apps/web/src/b.ts', 'export const b = true\n')
+    commit(root, ['apps/web/src/b.ts'], 'untagged b between turns')
+    assert.equal(runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId }), '')
     assert.equal(stop(root, sessionId), '')
   }))
 
-test('commits from a turn that ended without Stop are judged with the next turn', () =>
-  withRepo((root) => {
-    const sessionId = 'interrupted-turn'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    assert.equal(stop(root, sessionId), '')
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/a.ts', 'export const a = true\n')
-    commit(root, ['apps/web/src/a.ts'], 'add a')
-    // 사용자 중단: Stop 없이 다음 프롬프트가 온다.
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).debt.map((item) => item.path), ['apps/web/src/a.ts'])
-  }))
-
-test('debt is listed per commit with an overflow count', () =>
+test('untagged commits are listed up to six with an overflow count', () =>
   withRepo((root) => {
     const sessionId = 'per-commit'
     runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const big = Array.from({ length: 13 }, (_, i) => `apps/web/src/m${String(i).padStart(2, '0')}.ts`)
-    for (const path of big) write(root, path, `export const v = '${path}'\n`)
-    commit(root, big, 'big untagged')
-    const bigSha = headSha(root).slice(0, 7)
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 7; i += 1) {
       write(root, `apps/web/src/z${i}.ts`, `export const z = ${i}\n`)
-      commit(root, [`apps/web/src/z${i}.ts`], `small untagged ${i}`)
+      commit(root, [`apps/web/src/z${i}.ts`], i === 0 ? `small untagged 0 ${'w'.repeat(100)}` : `small untagged ${i}`)
     }
 
     const message = stopMessage(root, sessionId)
-    assert.match(message, new RegExp(`${bigSha} \\(apps/web/src/m00\\.ts 외 12개\\)`))
-    assert.match(message, /z4\.ts\) 외 1개 커밋\./)
-    assert.doesNotMatch(message, /\[web\]/)
-  }))
-
-test('the next turn start tells the agent about carried debt', () =>
-  withRepo((root) => {
-    const sessionId = 'inject-debt'
-    assert.equal(runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId }), '')
-    write(root, 'apps/web/src/a.ts', 'export const a = true\n')
-    commit(root, ['apps/web/src/a.ts'], 'untagged')
-    stopMessage(root, sessionId)
-
-    const output = JSON.parse(runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId }))
-    assert.equal(output.systemMessage, undefined)
-    assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit')
-    assert.match(
-      output.hookSpecificOutput.additionalContext,
-      /커밋 메시지에 유효 \[id=\]가 없는 커밋이 남아 있습니다 — [0-9a-f]{7} \(apps\/web\/src\/a\.ts\)\. 다음 커밋 메시지에 그 sha와 \[id=<id>\]/,
-    )
-  }))
-
-test('the §1 claim notice is shown once per id and respects a claim on the default branch', () =>
-  withRepo((root) => {
-    seedStateItem(root, 'gamma', 'web', 'live item', 2)
-    seedStateItem(root, 'omega', 'web', 'live item', 2)
-    git(root, ['branch', 'feature'])
-    const sessionId = 'claim-once'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/g.ts', 'export const g = 1\n')
-    commit(root, ['apps/web/src/g.ts'], 'work [id=gamma]')
-    assert.match(stopMessage(root, sessionId), /\[id=gamma\]\(§2\)/)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/g.ts', 'export const g = 2\n')
-    commit(root, ['apps/web/src/g.ts'], 'more work [id=gamma]')
-    assert.equal(stop(root, sessionId), '')
-
-    // 기본 브랜치에서 omega를 §1로 claim했으면 feature의 낡은 STATE 사본이 §2여도 알리지 않는다.
-    const index = readFileSync(join(root, 'apps/web/STATE.md'), 'utf8')
-      .replace('- [omega] fixture\n\n', '')
-      .replace('## 1. 활성\n', '## 1. 활성\n- [omega] fixture\n')
-    write(root, 'apps/web/STATE.md', index)
-    commit(root, ['apps/web/STATE.md'], 'claim [id=omega]')
-    git(root, ['checkout', '-q', 'feature'])
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/o.ts', 'export const o = 1\n')
-    commit(root, ['apps/web/src/o.ts'], 'work [id=omega]')
-    assert.equal(stop(root, sessionId), '')
+    assert.match(message, / — [0-9a-f]{7} small untagged 0 w+…, [0-9a-f]{7} small untagged 1, /)
+    assert.match(message, /small untagged 5 외 1개\. /)
+    assert.doesNotMatch(message, /small untagged 6/)
   }))
 
 const HAS_SSH_KEYGEN = spawnSync('ssh-keygen', ['-?'], { stdio: 'ignore' }).error === undefined
@@ -1698,8 +1319,9 @@ test(
       commit(root, ['apps/web/src/b.ts'], 'signed untagged work')
       assert.match(git(root, ['cat-file', 'commit', 'HEAD']), /gpgsig/)
 
-      const result = runEngine(root, { session_id: sessionId })
-      assert.deepEqual(result.debt.map((item) => item.path), ['apps/web/src/b.ts'])
+      assert.deepEqual(runEngine(root, { session_id: sessionId }).untaggedCommits, [
+        { sha: headSha(root), subject: 'signed untagged work' },
+      ])
     }),
 )
 
@@ -1719,34 +1341,12 @@ test('a commit range above the judgement cap is skipped instead of timing out', 
     execFileSync('git', ['fast-import', '--quiet', '--force'], { cwd: root, input: stream })
     git(root, ['reset', '-q', '--hard', 'main'])
 
-    const message = stopMessage(root, sessionId)
-    assert.match(message, /판정 상한\(1000개\)을 넘어/)
-    assert.doesNotMatch(message, /커밋 메시지에 STATE \[id=\]가 없는 커밋/)
-  }))
-
-test('small detail appends add up across turns, including an uncommitted new detail', () =>
-  withRepo((root) => {
-    const statePath = seedStateItem(root, 'steady', 'web', 'short summary')
-    const newPath = 'docs/state/web/delta.md'
-    const sessionId = 'cumulative-append'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    let deltaBody = 'p'.repeat(600)
-    writeDetail(root, newPath, detail('delta', deltaBody))
-    assert.deepEqual(runEngine(root, { session_id: sessionId }).appendedDetails, [])
-
-    let steadyBody = 'short summary'
-    const flagged = []
-    for (let turn = 2; turn <= 4; turn += 1) {
-      runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-      steadyBody += `\n- 턴${turn} 경과: ${'q'.repeat(400)}`
-      write(root, statePath, detail('steady', steadyBody, false, 'web', 'agent'))
-      commit(root, [statePath], 'progress [id=steady]')
-      deltaBody += `\n- 턴${turn} 경과: ${'r'.repeat(600)}`
-      write(root, newPath, detail('delta', deltaBody))
-      flagged.push(runEngine(root, { session_id: sessionId }).appendedDetails.map((entry) => entry.path).sort())
-    }
-    // 각 증가는 1KB를 넘긴 턴에 한 번만 알린다.
-    assert.deepEqual(flagged, [[], [newPath], [statePath]])
+    const parsed = JSON.parse(stop(root, sessionId, { STATE_LEDGER_HOST: 'antigravity' }))
+    assert.equal(
+      parsed.systemMessage,
+      'STATE reminder: 이번 턴 커밋이 판정 상한(1000개)을 넘어 커밋 태그 판정을 건너뛰었습니다.',
+    )
+    assert.equal(parsed.stateLedgerContinue, false)
   }))
 
 test('Stop rechecks only warnings that mention STATE paths changed this turn', () =>
@@ -1766,29 +1366,6 @@ test('Stop rechecks only warnings that mention STATE paths changed this turn', (
     assert.match(parsed.systemMessage, /docs\/state\/web\/bigitem\.md ## 현재 \d+B \(cap 4096B\)/)
     assert.doesNotMatch(parsed.systemMessage, /other\.md/)
     assert.equal(parsed.stateLedgerContinue, false)
-  }))
-
-test('committing work under an id outside §1 suggests claiming it instead of appending', () =>
-  withRepo((root) => {
-    const detailPath = seedStateItem(root, 'gamma', 'web', 'live item', 2)
-    const sessionId = 'unclaimed-id'
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    write(root, 'apps/web/src/g.ts', 'export const g = 1\n')
-    commit(root, ['apps/web/src/g.ts'], 'work [id=gamma]')
-    const message = stopMessage(root, sessionId)
-    assert.match(message, /\[id=gamma\]\(§2\) 로 작업을 커밋했지만 그 항목이 STATE §1 활성에 없습니다/)
-    assert.doesNotMatch(message, /커밋 메시지에 STATE \[id=\]가 없는 커밋/)
-
-    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
-    const index = readFileSync(join(root, 'apps/web/STATE.md'), 'utf8')
-      .replace('- [gamma] fixture\n\n', '')
-      .replace('## 1. 활성\n', '## 1. 활성\n- [gamma] fixture\n')
-    write(root, 'apps/web/STATE.md', index)
-    write(root, detailPath, readFileSync(join(root, detailPath), 'utf8').replace('owner: —', 'owner: Codex'))
-    commit(root, ['apps/web/STATE.md', detailPath], 'claim [id=gamma]')
-    write(root, 'apps/web/src/g.ts', 'export const g = 2\n')
-    commit(root, ['apps/web/src/g.ts'], 'more work [id=gamma]')
-    assert.equal(stop(root, sessionId), '')
   }))
 
 test('Stop rechecks structural STATE warnings when STATE changed without a code delta', () =>
@@ -1931,7 +1508,7 @@ test('Antigravity PostToolUse stamps state detail file from TargetFile', () => {
   }
 })
 
-test('Antigravity Stop allows uncommitted work and returns continue for an untagged commit', () => {
+test('Antigravity Stop continues once for this turn\'s reminders and allows otherwise', () => {
   const root = mkdtempSync(join(tmpdir(), 'antigravity-stop-debt-'))
   try {
     git(root, ['init', '-b', 'main'])
@@ -1942,38 +1519,46 @@ test('Antigravity Stop allows uncommitted work and returns continue for an untag
     git(root, ['commit', '-m', 'init [id=test]'])
 
     const sid = `test-anti-stop-${Date.now()}`
-    runHook(ANTIGRAVITY_PRE_INVOCATION, root, { conversationId: sid, invocationNum: 1, workspacePaths: [root] })
+    const turn = (invocationNum) =>
+      runHook(ANTIGRAVITY_PRE_INVOCATION, root, { conversationId: sid, invocationNum, workspacePaths: [root] })
+    const stopOnce = (executionNum = 1) =>
+      JSON.parse(runHook(ANTIGRAVITY_STOP, root, { conversationId: sid, executionNum, workspacePaths: [root] }))
 
-    // 미커밋 작업은 STATE 갱신 없이도 debt가 아니다.
+    // 미커밋 작업은 알리지 않는다.
+    turn(1)
     write(root, 'app.js', 'console.log("changed work");\n')
-    const dirtyStop = JSON.parse(runHook(ANTIGRAVITY_STOP, root, { conversationId: sid, executionNum: 1, workspacePaths: [root] }))
-    assert.equal(dirtyStop.decision, 'allow')
+    assert.equal(stopOnce().decision, 'allow')
 
-    // id 없는 커밋은 다음 턴에 debt로 알린다.
-    runHook(ANTIGRAVITY_PRE_INVOCATION, root, { conversationId: sid, invocationNum: 2, workspacePaths: [root] })
+    // 이번 턴의 태그 없는 커밋은 1회 continue, 재진입은 allow.
+    turn(2)
     git(root, ['add', 'app.js'])
     git(root, ['commit', '-q', '-m', 'change without an id'])
+    const reminded = stopOnce()
+    assert.equal(reminded.decision, 'continue')
+    assert.match(reminded.reason, /^STATE 알림:\nSTATE reminder: 이번 턴 커밋 중 STATE id 태그가 없는 커밋 — [0-9a-f]{7} change without an id\. /)
+    assert.equal(stopOnce(2).decision, 'allow')
 
-    const stopPayload = { conversationId: sid, executionNum: 1, workspacePaths: [root] }
-    const out1 = JSON.parse(runHook(ANTIGRAVITY_STOP, root, stopPayload))
-    assert.equal(out1.decision, 'continue')
-    assert.match(out1.reason, /^STATE 알림:/)
-    assert.doesNotMatch(out1.reason, /원장 검토 필요/)
-    assert.match(out1.reason, /커밋 메시지에 STATE \[id=\]가 없는 커밋 — [0-9a-f]{7} \(app\.js\)/)
+    // 다음 턴은 이전 턴 커밋을 다시 알리지 않는다. 태그 있는 커밋도 allow.
+    turn(3)
+    write(root, 'app.js', 'console.log("tagged work");\n')
+    git(root, ['add', 'app.js'])
+    git(root, ['commit', '-q', '-m', 'tagged work [id=test]'])
+    assert.equal(stopOnce().decision, 'allow')
 
-    // Re-entry allows exit to avoid deadlock
-    const reEntryPayload = { conversationId: sid, executionNum: 2, workspacePaths: [root] }
-    const out2 = JSON.parse(runHook(ANTIGRAVITY_STOP, root, reEntryPayload))
-    assert.equal(out2.decision, 'allow')
+    // 크기 외 구조 경고(인덱스에 없는 detail)는 continue.
+    turn(4)
+    write(root, 'docs/state/root/orphan.md', detail('orphan', 'not indexed', false, 'root'))
+    const structural = stopOnce()
+    assert.equal(structural.decision, 'continue')
+    assert.match(structural.reason, /docs\/state\/root\/orphan\.md — STATE\.md 인덱스에 없음/)
 
-    // 이전 턴에서 이월된 debt만 남은 턴은 강제로 이어 돌리지 않는다.
-    runHook(ANTIGRAVITY_PRE_INVOCATION, root, { conversationId: sid, invocationNum: 3, workspacePaths: [root] })
-    const carried = JSON.parse(runHook(ANTIGRAVITY_STOP, root, { conversationId: sid, executionNum: 1, workspacePaths: [root] }))
-    assert.equal(carried.decision, 'allow')
-    const plain = JSON.parse(stop(root, sid))
-    assert.match(plain.systemMessage, /[0-9a-f]{7} \(app\.js\)/)
-    assert.doesNotMatch(plain.systemMessage, /해제:/)
-    assert.equal(plain.stateLedgerContinue, undefined)
+    // 동시 세션 보류 알림만 있으면 continue하지 않는다.
+    turn(5)
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: `${sid}-other` })
+    write(root, 'app.js', 'console.log("held work");\n')
+    git(root, ['add', 'app.js'])
+    git(root, ['commit', '-q', '-m', 'held change without an id'])
+    assert.equal(stopOnce().decision, 'allow')
   } finally {
     rmSync(root, { recursive: true, force: true })
     rmSync(`${root}-hook-data`, { recursive: true, force: true })
