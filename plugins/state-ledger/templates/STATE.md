@@ -1,5 +1,6 @@
 <!-- WIP cap: active≤6, next≤6, future≤5, unresolved≤8 -->
 <!-- 항목 = 1줄 인덱스 (≤200자). 상세 = docs/state/root/<id>.md — check-state-wip-cap.sh warn -->
+<!-- 공유 상태판: 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다(덧붙이지 않는다). 작업 기록은 커밋 메시지 [id=<id>]. -->
 
 # STATE — <프로젝트명>
 
