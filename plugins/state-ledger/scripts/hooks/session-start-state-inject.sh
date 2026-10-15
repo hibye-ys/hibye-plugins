@@ -1,6 +1,7 @@
 #!/bin/bash
 # SessionStart hook — STATE 인덱스 주입 + 정합·예산 warn.
 # 상세는 docs/state/<area>/<id>.md — 에이전트가 작업을 잡을 때 해당 파일만 읽는다 (lazy loading).
+# 인덱스 머리에 원칙 한 줄을 붙인다: STATE는 공유 상태판이고 작업 기록은 커밋 메시지가 맡는다.
 #
 # 툴 중립: Claude Code / Codex 모두 stdin→stdout JSON 프로토콜로 동일 동작.
 # opencode는 instructions 방식으로 STATE.md를 직접 주입하므로 이 스크립트를 호출하지 않음.
@@ -55,6 +56,8 @@ if [ "${concurrent_count:-0}" -gt 0 ]; then
 같은 worktree에서 최근 30분 내 다른 활성 세션 ${concurrent_count}개가 감지됐습니다. 변경 귀속이 불명확하므로 Stop의 code↔STATE 판정은 보류됩니다."
 fi
 
+STATE_PRINCIPLE='STATE = 공유 상태판. 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다. 작업 기록은 커밋 메시지 [id=<id>].'
+principle_added=0
 total_bytes=0
 while IFS= read -r f; do
   [ -n "$f" ] || continue
@@ -74,6 +77,12 @@ $f ${bytes}B — SessionStart 주입 cap 16384B를 초과해 생략했습니다.
 }=== STATE hook 경고 ===
 STATE 인덱스 합계가 SessionStart 주입 cap 65536B를 초과해 $f부터 생략했습니다."
     break
+  fi
+  if [ "$principle_added" -eq 0 ]; then
+    out="${out}${out:+
+
+}$STATE_PRINCIPLE"
+    principle_added=1
   fi
   out="${out}${out:+
 

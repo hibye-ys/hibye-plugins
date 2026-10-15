@@ -5,7 +5,10 @@
 # - 인덱스 [id] ↔ docs/state/<area>/<id>.md 존재 (양방향 — lazy loading 라우팅 무결성) + id 자수·문자집합
 # - §1·§2·§4 id 필수 (id 없는 줄은 §3 placeholder 만 허용)
 # - detail frontmatter: 존재·id/area 경로 일치·필수 필드(owner·branch·touched)·hash(훅 우회 편집 감지)
-#   ·expires 경과·§1 owner·'## 현재' 필수·파일 크기
+#   ·expires 경과·§1 owner·'## 현재' 필수
+# - detail 크기: 파일 ≤8KB·'## 현재' ≤4KB. STATE는 공유 상태판이므로 완료 경과는 커밋 메시지로 보낸다.
+#   크기 경고는 구조 실패가 아니다 — STATE_CHECK_STRICT=1 에서도 실패로 세지 않는다
+#   (Stop 엔진의 debt 해제 판정이 크기 때문에 막히지 않게).
 #
 # 프로젝트 설정: 루트 `.staterc` (선택) — STATE_INDEXES="STATE.md apps/api/STATE.md" 식.
 # area 규칙: 루트 STATE.md → root, 그 외 → 부모 디렉토리 이름 (apps/api/STATE.md → api).
@@ -52,10 +55,13 @@ CAPS_FUTURE=5
 CAPS_UNRESOLVED=8
 LINE_CHAR_CAP=200
 FILE_BYTE_CAP=4096
-DETAIL_BYTE_CAP=16384
+DETAIL_BYTE_CAP=8192
+CURRENT_BYTE_CAP=4096
 
 violations=0
+size_warnings=0
 warn() { echo "WARN: $1" >&2; violations=$((violations+1)); }
+size_warn() { echo "WARN: $1" >&2; size_warnings=$((size_warnings+1)); }
 
 count_section() {
   awk -v sec="$2" '
@@ -144,19 +150,35 @@ if ! command -v python3 >/dev/null 2>&1; then
   warn "python3가 PATH에 없어 detail 구조·hash 검사를 실행하지 못함"
 elif [ -d docs/state ]; then
   while IFS= read -r w; do
-    [ -n "$w" ] && warn "$w"
-  done < <(TODAY=$(date +%Y-%m-%d) DETAIL_BYTE_CAP=$DETAIL_BYTE_CAP TARGET_AREA=$TARGET_AREA python3 - <<'PYEOF'
+    [ -n "$w" ] || continue
+    case "$w" in
+      "SIZE "*) size_warn "${w#SIZE }" ;;
+      *) warn "$w" ;;
+    esac
+  done < <(TODAY=$(date +%Y-%m-%d) DETAIL_BYTE_CAP=$DETAIL_BYTE_CAP CURRENT_BYTE_CAP=$CURRENT_BYTE_CAP TARGET_AREA=$TARGET_AREA python3 - <<'PYEOF'
 import glob, hashlib, os, re
 
 today = os.environ["TODAY"]
 cap = int(os.environ["DETAIL_BYTE_CAP"])
+current_cap = int(os.environ["CURRENT_BYTE_CAP"])
 target_area = os.environ.get("TARGET_AREA", "")
+
+def current_bytes(body):
+    # '## 현재' 줄부터 다음 '## ' heading 직전까지 — state-turn-baseline.mjs와 같은 경계.
+    lines = body.split("\n")
+    if "## 현재" not in lines:
+        return 0
+    start = lines.index("## 현재")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return len("\n".join(lines[start:end]).encode("utf-8"))
+
 for p in sorted(glob.glob("docs/state/*/*.md")):
     if target_area and p.split("/")[-2] != target_area:
         continue
     size = os.path.getsize(p)
+    # "SIZE " 접두사 = 크기 경고. strict 구조 실패로 세지 않는다.
     if size > cap:
-        print(f"{p} {size}B (detail cap {cap}B 초과) — 완료 서사는 커밋으로, 원장은 WHY·실측만")
+        print(f"SIZE {p} {size}B (detail cap {cap}B 초과) — 완료 경과는 커밋 메시지로, 남은 일·결정·WHY만 남긴다")
     text = open(p, encoding="utf-8").read()
     m = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.S)
     if not m:
@@ -175,6 +197,9 @@ for p in sorted(glob.glob("docs/state/*/*.md")):
             print(f"{p} frontmatter {k} 없음 (필수)")
     if not re.search(r"^## 현재$", body, re.M):
         print(f"{p} '## 현재' 섹션 없음 (필수)")
+    current = current_bytes(body)
+    if current > current_cap:
+        print(f"SIZE {p} ## 현재 {current}B (cap {current_cap}B) — 완료 경과는 커밋 메시지로, 남은 일·결정·WHY만 남긴다")
     h = re.search(r"^hash: (\S+)$", fm, re.M)
     real = hashlib.sha256(body.encode("utf-8")).hexdigest()[:8]
     if not h or h.group(1) != real:
@@ -186,12 +211,13 @@ PYEOF
   )
 fi
 
-if [ "$violations" -gt 0 ]; then
-  if [ "${STATE_CHECK_STRICT:-0}" = "1" ]; then
-    echo "WARN: STATE 정합 $violations 건. strict 검사 실패." >&2
+total=$((violations + size_warnings))
+if [ "$total" -gt 0 ]; then
+  if [ "${STATE_CHECK_STRICT:-0}" = "1" ] && [ "$violations" -gt 0 ]; then
+    echo "WARN: STATE 정합 $total 건 (구조 $violations · 크기 $size_warnings). strict 검사 실패." >&2
     exit 1
   fi
-  echo "WARN: STATE 정합 $violations 건. commit 은 진행 (exit 0)." >&2
+  echo "WARN: STATE 정합 $total 건 (구조 $violations · 크기 $size_warnings). commit 은 진행 (exit 0)." >&2
 fi
 
 exit 0
