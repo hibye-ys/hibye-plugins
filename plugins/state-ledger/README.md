@@ -9,7 +9,7 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 - **작업 기록은 커밋 메시지, 완료 사실은 git log 가 정본** — 커밋 메시지에 `[id=<id>]`(STATE 항목과 무관한 작업은 `[id=-]`), archive 시 `archive [id=...]`. STATE 는 완료 로그·작업 경과를 누적하지 않는다.
 - **인덱스는 싸고, 상세는 lazy** — 세션 시작에 주입되는 것은 1줄/항목 인덱스뿐. 작업을 잡을 때만 `docs/state/<area>/<id>.md` 를 읽는다.
 - **게이트는 전부 warn-only** — 막지 않고 알린다. warn 은 0 으로 수렴시켜야 채널이 살아있다 (방치하면 배경소음).
-- **턴 귀속은 커밋 메시지로 판정** — UserPromptSubmit 때 repo 밖에 HEAD·dirty hash·detail 본문 크기를 저장하고, Stop에서 기준점 이후 만든 커밋 중 작업 파일을 바꾼 커밋의 메시지에 유효 `[id=<id>]`가 있는지 본다. 미커밋 작업은 커밋될 때(턴 사이 커밋 포함) 판정한다. STATE 갱신은 매 턴 요구하지 않으며 STATE 수정으로 알림이 풀리지도 않는다.
+- **턴 귀속은 커밋 메시지로 판정** — UserPromptSubmit 때 repo 밖에 HEAD·dirty STATE hash·detail 본문 크기를 저장하고, Stop에서 이번 턴에 만든 커밋 중 작업 파일을 바꾼 커밋의 메시지에 유효 `[id=<id>]`가 있는지 본다. 알림은 이번 턴 것만 한 번 내고 다음 턴으로 넘기지 않는다. STATE 갱신은 매 턴 요구하지 않는다.
 - **goal-run과 무관한 전역 lifecycle** — STATE는 live ownership만 담당한다. goal TRACK·item branch 같은 파이프라인 규칙은 해당 스킬이 소유한다.
 
 ## 스키마 (대상 프로젝트 AGENTS.md 에 붙여 넣는 작성규칙)
@@ -20,11 +20,10 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 - 항목 = 1줄 인덱스: `- [<id>] <제목> — <짧은 상태·조건>` (≤200자). 상세 정본 = docs/state/<area>/<id>.md.
   frontmatter: id·area·owner·branch·touched·hash (+depends/blocks/handoff/expires)
   본문: ## 현재 (필수, ≤4KB — 요약·남은 것·WHY) + ## 원장 (선택 — 결정 WHY만). detail 전체 ≤8KB.
-- `id`는 3–12자 stable identifier다. id 없는 줄은 §3 placeholder만 허용한다. meta는 detail frontmatter가 정본 — hook이 touched·hash만 스탬프하고 owner·branch는 수동 claim이다.
-- 작업 커밋 메시지에는 `[id=<인덱스 id>]`를 붙인다. `[id=-]`는 STATE 항목과 정말 무관한 잡무에만 쓴다(§1·§2 항목의 일에는 쓰지 않는다). 착수한 항목은 §1로 옮기고 owner를 claim한다.
-- id를 빠뜨렸으면 다음 커밋 메시지에 그 sha와 `[id=<id>]`를 함께 적는다(`git commit --allow-empty -m "<sha> [id=<id>]"` 가능). STATE 내용을 고치거나 덧붙여서는 Stop 알림이 풀리지 않는다(인덱스에 없던 id는 그 항목을 정식 등재하면 풀린다).
+- `id`는 3–12자 stable identifier다. id 없는 줄은 §3 placeholder만 허용한다. meta는 detail frontmatter가 정본 — hook이 touched·hash만 스탬프하고 owner·branch는 수동 claim이다. 착수한 항목은 §1로 옮기고 owner를 claim한다.
+- 작업 커밋 메시지에는 `[id=<인덱스 id>]`를 붙인다. `[id=-]`는 STATE 항목과 정말 무관한 잡무에만 쓴다. id를 빠뜨렸으면 직접 만든 미push 직전 커밋은 `git commit --amend`로 붙이고, 아니면 다음 커밋부터 붙인다. STATE에 경과를 적어 대신하지 않는다.
 - `expires`가 지난 항목은 갱신하거나 archive한다. archive = 인덱스 줄 + detail 파일 삭제, commit message에 `archive [id=...]`.
-- 멀티 에이전트 작업은 branch·worktree를 분리한다. 같은 worktree에 활성 세션이 둘이면 Stop의 새 커밋 판정이 보류된다.
+- 멀티 에이전트 작업은 branch·worktree를 분리한다.
 ```
 
 ## 구성
@@ -36,13 +35,13 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `scripts/hooks/session-start-state-inject.sh` | SessionStart — 원칙 한 줄 + 인덱스 전문 + 위 두 체커의 warn 주입 + 기준점이 없을 때만 생성 |
 | `scripts/hooks/commit-msg-state-check.sh` | commit-msg — 인덱스/detail에서 실제 바뀐 모든 id별 `[id=<id>]` / detail 삭제 파일별 `archive [id=<id>]` 검사 |
 | `scripts/hooks/state-config.mjs` | `.staterc` 공통 파서 — 인덱스 상대경로·정규화·repo 경계·symlink·개수와 설정 크기를 읽기 전에 검증 |
-| `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점 저장, 동시 세션 경고, 이월 debt를 additionalContext로 에이전트에게 알림 |
-| `scripts/hooks/state-turn-baseline.mjs` | 판정 엔진 — 기준점 이후 만든 커밋의 `[id=]` 태그·커밋별 debt와 해제, detail 본문 덧붙임, §1 밖 id, 동시 세션 보류. git plumbing(rev-list·diff-tree --stdin·cat-file)만 쓴다 |
+| `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점(HEAD·dirty STATE hash·detail 본문 크기) 저장, 동시 세션 경고 |
+| `scripts/hooks/state-turn-baseline.mjs` | 판정 엔진 — 이번 턴 커밋의 `[id=]` 태그, detail 본문 덧붙임, 동시 세션 보류. 턴을 넘는 상태는 저장하지 않는다. git plumbing(rev-list·diff-tree --stdin·cat-file)만 쓴다 |
 | `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
-| `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: id 없음·인덱스에 없는 id 커밋(커밋 단위)과 새 debt의 해제 방법, detail 본문 덧붙임, §1 밖 id claim 권고, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
+| `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: 이번 턴의 태그 없는 커밋·인덱스에 없는 id 커밋, detail 본문 덧붙임, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
 | `hooks/claude-hooks.json` + `global-state-hook.sh` | Claude Code user-scope plugin lifecycle. STATE 미사용 repo는 no-op, 이행 중 실제 로컬 command만 구조적으로 감지해 이벤트별 중복 억제 |
 | `hooks/hooks.json` | Codex plugin-bundled global lifecycle. `$PLUGIN_ROOT`의 설치 버전을 실행하며 사용자 `hooks.json` 복사본을 만들지 않음 |
-| `hooks/antigravity-hooks.json` + `antigravity-*.sh` | Antigravity(Google Antigravity / AGY) lifecycle. PreInvocation·PostToolUse·Stop JSON 계약 변환. Stop은 이번 턴에 새로 생긴 항목(새 debt·덧붙임·크기 외 구조 경고)이 있을 때만 1회 `continue`, 이월 debt·크기 경고만 남으면 `allow` |
+| `hooks/antigravity-hooks.json` + `antigravity-*.sh` | Antigravity(Google Antigravity / AGY) lifecycle. PreInvocation·PostToolUse·Stop JSON 계약 변환. Stop은 이번 턴 알림(태그·덧붙임·크기 외 구조 경고)이 있을 때만 1회 `continue`, 없으면 `allow` |
 | `state-ledger-contract.json` | project adapter와 plugin runtime 사이의 독립 계약 버전. v6 미만 설치본은 runner가 실행하지 않음 |
 | `templates/wiring/state-ledger-runner.mjs` | Git/opencode용 얇은 프로젝트 adapter. 활성화된 Codex version cache 또는 Claude user install을 검증해 plugin-owned script를 실행 |
 
@@ -64,16 +63,13 @@ area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → �
 
 ## Stop 판정 규칙
 
-- 판정 대상 = 현재 HEAD에서 닿는 커밋 중 기준 시각 이후에 만든 커밋(committer 시각). 이번 턴 커밋(턴 시작 HEAD에서 닿지 않음)은 모든 작업 경로를, 턴 사이 커밋(마지막 Stop 이후)은 그 Stop 때 미커밋이던 경로만 debt 후보로 본다. 기준 시각 전에 만든 커밋(pull·merge·checkout으로 들어온 커밋)과 머지 커밋은 판정하지 않는다. 한 범위가 1000커밋을 넘으면 판정을 건너뛰고 알린다.
-- 유효 id = 작업 트리(미커밋 등재 포함)·턴 시작 HEAD·현재 HEAD·기본 브랜치(`STATE_DEFAULT_BRANCH`)·범위 안에서 인덱스를 바꾼 커밋·그 커밋 자신의 STATE 인덱스에 있는 id, 그리고 `[id=-]`. 커밋은 오래된 순서로 보며 한 경로의 마지막 커밋에 유효 id가 없으면 그 커밋이 debt다.
-- debt 해제: 원 커밋 sha(7자 이상)와 유효 태그를 함께 적은 이후 커밋(빈 커밋·`[id=-]` 포함), 같은 경로를 바꾼 이후의 실제 id 태그 커밋(`[id=-]` 커밋은 앞선 작업의 기록이 아니므로 풀지 않는다), 원 커밋이 HEAD·로컬 브랜치에서 사라짐(amend·rebase·reset·브랜치 삭제 — push된 커밋도 같다), 원 커밋의 id가 나중에 인덱스에 등재됨. 해제는 턴 안·턴 사이·동시 세션 보류 중 어디서 일어나도 반영된다.
-- Stop 없이 끝난 턴(사용자 중단)은 30분 안에 온 다음 프롬프트와 한 턴으로 판정한다.
-- detail 본문(frontmatter 제외)이 덧붙임 기준보다 1KB 넘게 늘면 알린다. 기준은 처음 본 크기에서 시작해 이 세션의 턴이 그 detail을 바꿀 때만 움직인다(줄면 내려가고, 알린 뒤에는 그 크기로 올라가 같은 증가를 한 번만 알린다). pull·checkout·턴 사이 편집은 기준을 그 크기로 다시 잡는다. 이번 턴에 처음 생긴 detail은 크기 cap만 본다.
-- §1 밖 id로 작업 커밋을 만들면 세션당 id별 한 번 claim을 권한다. 작업 트리나 기본 브랜치 어느 쪽에서든 §1이면 알리지 않는다.
-- Stop 구조 재검은 이번 턴에 바뀐 STATE 경로를 언급하는 경고만 보인다. Antigravity는 새 debt·덧붙임·크기 외 구조 경고가 있을 때만 continue한다.
-- debt는 세션별 기준점에만 있다. 새 세션(Claude Code `/clear` 포함)에서는 이전 세션의 debt가 알림 없이 사라지며 git log의 태그 없는 커밋은 그대로 남는다 — Stop 알림은 놓친 태그를 잡는 백스톱이다.
+- 이번 턴 커밋 = 턴 시작 HEAD에서 닿지 않고 현재 HEAD에서 닿는, 턴 시작 이후(committer 시각)에 만든 머지가 아닌 커밋. 이 중 작업 파일을 바꾼 커밋의 메시지에 유효 태그가 없으면 `<sha7> <제목>`으로 알린다(6개 + 외 N개). 1000개를 넘으면 판정을 건너뛰고 알린다.
+- 유효 태그 = `[id=X]`·`archive [id=X]`(X는 작업 트리·턴 시작 HEAD·현재 HEAD·`STATE_DEFAULT_BRANCH`의 STATE 인덱스 id) 또는 `[id=-]`. 태그는 있는데 X가 인덱스에 없으면 '알 수 없는 id'로 따로 알린다.
+- 이번 턴에 바뀐 detail의 본문(frontmatter 제외)이 턴 시작보다 1024B 넘게 늘면 덧붙임으로 알린다. 턴 시작에 없던 detail은 크기 cap만 본다.
+- 구조 재검은 이번 턴에 바뀐 STATE 경로를 언급하는 checker 경고만 보인다. 같은 worktree에 다른 활성 세션이 보이면 태그·덧붙임 판정을 보류하고 그 사실만 알린다.
+- 알림은 이번 턴 것만 한 번 내고 다음 턴으로 넘기지 않는다. 미커밋 작업과 턴 사이 커밋은 판정하지 않는다. Antigravity는 태그·덧붙임·크기 외 구조 경고가 있을 때만 1회 continue한다.
 
-알려진 한계: 커밋 태그 검사는 id가 STATE 인덱스에 있는지만 확인하고, 그 id가 커밋 내용과 관련 있는지까지 이해하지는 못한다(`[id=-]` 남용도 리뷰 대상이다). 턴 중 rebase·cherry-pick·amend로 새로 만든 커밋은 원본이 남의 커밋이어도 이번 턴 커밋으로 판정한다. archive된 id는 archive가 반영된 HEAD 이후의 새 커밋에서는 유효하지 않다 — 후속 작업은 살아 있는 id를 쓴다. Claude Code의 Stop systemMessage는 사용자에게만 보이므로 에이전트는 이월 debt를 다음 턴 UserPromptSubmit 주입으로 받는다. Antigravity PreInvocation은 그 주입을 싣지 않고 Stop `continue`(새 debt)로만 알린다. opencode는 SessionStart를 instructions 방식으로 대신하므로 정합 warn이 세션 시작에 표면화되지 않는다.
+알려진 한계: 태그 검사는 id가 STATE 인덱스에 있는지만 확인하고 커밋 내용과의 관련성은 보지 않는다(`[id=-]` 남용은 리뷰 대상). 턴 중 rebase·cherry-pick·amend로 새로 만든 커밋과 턴 시작 이후에 만든 남의 커밋은 이번 턴 커밋으로 본다. 사용자 중단처럼 Stop 없이 끝난 턴의 커밋은 판정하지 않는다. Claude Code의 Stop systemMessage는 사용자에게만 보인다. opencode는 SessionStart를 instructions 방식으로 대신하므로 정합 warn이 세션 시작에 표면화되지 않는다.
 
 ## 설치
 
@@ -93,18 +89,15 @@ Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `
 - hash 를 게이트가 재검산하는 이유: 훅을 우회한 편집(외부 편집기·heredoc)을 커밋 전에 감지.
 - 유령 브랜치를 frontmatter 로만 판정하는 이유: 본문 서사의 substring 매치는 경고를 조용히 삼킨다.
 - 작업 기록을 커밋 메시지로 옮긴 이유 (0.4.0): 0.3.x는 코드를 바꾼 턴마다 대응 영역 STATE의 의미 있는 차분으로만 debt를 풀었다. 에이전트는 매 턴 detail에 결과 문단을 덧붙여 debt를 해제했고 `## 현재`가 단계별 경과 기록으로 불어나 detail이 14–16KB까지 찼다(EUNHA 실측: tprune 16KB·perfmon 14KB). "완료 로그를 누적하지 않는다"는 철학과 장치가 모순됐다.
-- 미커밋 작업을 판정하지 않는 이유: 같은 변경은 커밋될 때 태그로 판정된다. dirty 작업에 dirty STATE 갱신을 요구하면 기록 덧붙이기만 강요한다. 대신 Stop 때 미커밋이던 작업 경로를 기준점에 넘겨, 턴 사이에 사람이 터미널·IDE에서 커밋해도 다음 Stop에서 판정한다. 0.3.x 스냅샷의 debt(sha 없는 working·legacy·committed)는 다른 규칙의 결과이므로 평가 때 버린다.
-- 기준 시각 전에 만든 커밋을 판정하지 않는 이유: pull·merge·checkout으로 들어온 팀원 커밋은 이 세션의 작업이 아니고, 이미 push된 커밋은 amend할 수 없어 빈 커밋만 공유 히스토리에 쌓인다. 커밋을 만든 시각(committer 시각)이 기준점보다 이르면 이 세션이 만든 커밋일 수 없다. 해제를 볼 때도 같은 범위를 쓰되 경로는 가리지 않는다 — 사람이 턴 사이에 남긴 빈 해제 커밋도 놓치지 않는다.
-- STATE 수정으로 debt를 풀지 않는 이유: 0.3.x 습관대로 코드는 id 없이 커밋하고 STATE에 경과를 덧붙여 커밋하면 알림이 조용히 사라져 같은 문제가 되풀이된다. debt는 커밋 기록의 결함이므로 커밋으로만(amend·sha 기록 커밋·같은 경로를 바꾸는 실제 id 태그 커밋) 해제한다. STATE 항목과 무관한 작업에는 `[id=-]`라는 명시 탈출구를 둬 STATE에 무언가 써서 알림을 끄는 길을 없앤다. 다만 `[id=-]`는 '무관하다'는 선언이라 같은 경로의 앞선 기능 커밋을 대신 기록하지 못한다.
-- 한 경로의 마지막 커밋이 판정하는 이유: 턴 안이든 턴을 넘든 같은 커밋 이력이면 같은 결과가 나와야 한다. id 없이 커밋한 뒤 같은 경로를 `[id=]`로 마무리하면 그 경로의 기록은 이어진다.
-- debt에 원 커밋 sha를 두는 이유: 삭제·rename된 경로나 이미 지난 커밋은 같은 경로를 다시 커밋할 수 없다. sha와 id를 적은 빈 커밋으로 git log에 기록을 보충하면 무의미한 코드 수정이나 STATE 수정 없이 풀린다. amend·rebase·reset으로 버려진 커밋의 debt는 대상이 사라졌으므로 버린다.
-- 유효 id를 넓게 잡는 이유: 새 항목을 등재하고 STATE를 아직 커밋하지 않았거나(작업 트리), worktree를 나눠 기본 브랜치에만 등재했거나(STATE_DEFAULT_BRANCH), 커밋 당시 유효했던 id가 머지 상대에서 archive된 경우(커밋 자신의 트리)를 'id 없음'으로 오판하지 않는다. 등재가 늦어도 이후 Stop에서 다시 검사해 풀린다.
-- 머지 커밋을 판정하지 않는 이유: 머지된 쪽 커밋은 범위에 함께 들어와 따로 판정되거나 이전 턴에 이미 판정됐고, 기본 머지 메시지에는 id가 없다.
+- 턴을 넘는 debt를 두지 않는 이유 (0.4.0): warn-only 장치가 debt를 턴 너머로 들고 다니면 해제 수단(sha 참조 커밋·같은 경로 후속 태그·도달 불가·늦은 등재)과 턴 사이 판정·중단 턴 이어 붙이기가 따라붙어 엔진이 그 상태를 관리하느라 커진다. 놓친 태그는 git log에 그대로 남고 다음 커밋부터 붙이면 되므로 알림은 이번 턴 것만 한 번 낸다.
+- 미커밋 작업을 판정하지 않는 이유: 같은 변경은 커밋될 때 태그로 판정된다. dirty 작업에 dirty STATE 갱신을 요구하면 기록 덧붙이기만 강요한다.
+- 턴 시작 전에 만든 커밋을 판정하지 않는 이유: pull·merge·checkout으로 들어온 팀원 커밋은 이 세션의 작업이 아니고, 이미 push된 커밋은 amend할 수 없다. committer 시각이 턴 시작보다 이르면 이 턴이 만든 커밋일 수 없다.
+- STATE 수정이 알림과 무관한 이유: 0.3.x 습관대로 코드는 id 없이 커밋하고 STATE에 경과를 덧붙이면 같은 문제가 되풀이된다. 태그 없는 커밋은 커밋 기록의 결함이므로 amend나 다음 커밋으로 고친다. STATE 항목과 무관한 작업에는 `[id=-]`라는 명시 탈출구를 둬 STATE에 무언가 써서 알림을 끄는 길을 없앤다.
+- 유효 id를 넓게 잡는 이유: 새 항목을 등재하고 STATE를 아직 커밋하지 않았거나(작업 트리), worktree를 나눠 기본 브랜치에만 등재했거나(STATE_DEFAULT_BRANCH), 이번 턴에 archive한 경우(턴 시작 HEAD)를 '알 수 없는 id'로 오판하지 않는다.
+- 머지 커밋을 판정하지 않는 이유: 머지된 쪽 커밋은 따로 판정되거나 턴 전에 만든 커밋이고, 기본 머지 메시지에는 id가 없다.
 - 크기 cap을 strict 구조 실패로 세지 않는 이유: 큰 detail은 구조 결함이 아니라 바꿔 쓰기 대상이다. 같은 이유로 크기 경고만으로는 Antigravity를 강제 continue하지 않는다 — 큰 detail에 owner만 바꾼 claim 턴이 축약 작업으로 끌려가면 STATE를 건드리지 않는 쪽이 조용해진다. 이번 턴의 증가는 덧붙임 알림이 맡는다.
-- 덧붙임을 본문 전체로 재고 세션 기준과 비교하는 이유: `## 현재`만 재면 경과가 `## 원장`으로 옮겨 간다. 턴마다 1KB 미만씩 덧붙이거나 아직 커밋하지 않은 새 detail에 여러 턴 덧붙여도 누적량이 보이되, 알린 증가·이 세션이 만들지 않은 크기 변화(pull·checkout·턴 사이 편집)로는 다시 알리지 않는다.
+- 덧붙임을 본문 전체로 재는 이유: `## 현재`만 재면 경과가 `## 원장`으로 옮겨 간다. 턴 시작 크기와만 비교해 같은 증가를 다음 턴에 다시 알리지 않는다.
 - Stop 구조 재검을 이번 턴에 바뀐 STATE 경로로 좁히는 이유: 다른 detail의 기존 크기·구조 경고가 STATE를 건드리는 턴마다 반복되면 배경소음이 되고 Antigravity는 강제 continue한다. 기존 경고는 SessionStart 주입이 맡는다.
-- §1 밖 id로 한 작업을 알리는 이유: 공유 상태판의 핵심은 '지금 누가 무엇을 하는가'다. STATE 갱신을 강제하지 않으므로, §2·§3·§4 항목 id로 작업을 커밋하면 세션당 id별 한 번 그 줄의 §1 이동과 owner claim(덧붙임이 아닌 바꿔 쓰기)을 권한다. 매 턴 반복하면 `[id=-]`로 바꿔 알림을 피하는 쪽이 조용해진다.
-- 이월 debt를 UserPromptSubmit에서 알리는 이유: Claude Code의 Stop systemMessage는 사용자에게만 보인다. 다음 턴 시작에 additionalContext로 커밋 목록과 해제 방법을 주입해야 에이전트가 처리할 수 있다. Stop은 새 debt가 생긴 때만 해제 방법을 보여 사용자 화면의 반복을 줄인다.
 - git plumbing만 쓰는 이유: `git log`는 `log.showSignature` 같은 사용자 설정이 출력에 섞여 sha 파싱이 깨진다. rev-list·diff-tree --stdin·cat-file --batch는 설정에 흔들리지 않고, 커밋 수와 무관하게 spawn 몇 번으로 끝나 Stop timeout(30초)을 넘지 않는다.
-- 동시 세션에서 판정을 보류하는 이유: 같은 worktree의 파일 mtime과 HEAD만으로 어느 세션이 변경했는지 확정할 수 없다. 해제는 귀속과 무관하므로 보류 중에도 반영한다 — 그러지 않으면 보류 동안 지나간 해제 커밋을 다시 볼 수 없다.
+- 동시 세션에서 판정을 보류하는 이유: 같은 worktree의 파일과 HEAD만으로 어느 세션이 커밋했는지 확정할 수 없다.
 - Codex CLI 는 Claude 호환 훅 스키마(`hookSpecificOutput`·`additionalContext`·`stop_hook_active`)를 내장한다 — 바이너리 실측 확인. 같은 스크립트가 두 도구에서 그대로 동작한다.
