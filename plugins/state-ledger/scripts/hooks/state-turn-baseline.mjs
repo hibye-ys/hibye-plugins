@@ -273,13 +273,13 @@ function changedWorkingTreePaths(before, after) {
   )
 }
 
-// 이번 턴 커밋 = 턴 시작 HEAD에서 닿지 않고 현재 HEAD에서 닿는, 턴 시작 이후(committer 시각)에 만든
-// 머지가 아닌 커밋(오래된 순서). 그보다 먼저 만든 커밋은 pull·merge·checkout으로 들어온 커밋이다.
-// 머지 커밋의 기본 메시지에는 id가 없고, 머지된 쪽 커밋은 따로 판정된다.
+// 이번 턴 커밋 = 턴 시작 HEAD에서 닿지 않고 현재 HEAD에서 닿는, 턴 시작 이후에 만들고(committer 시각)
+// 작성한(author 시각) 커밋(오래된 순서). committer 시각이 이르면 pull·merge·checkout으로 들어온 커밋이고,
+// author 시각만 이르면 이전 턴 커밋을 rebase·cherry-pick·amend로 다시 쓴 커밋이라 다시 알리지 않는다.
 // plumbing(rev-list·diff-tree·cat-file)만 써서 log.showSignature 같은 사용자 설정에 흔들리지 않는다.
 function turnCommits(root, before, current) {
   if (!before || !current.head || before.head === current.head) return { commits: [], skipped: false }
-  const args = ['rev-list', '--topo-order', '--no-merges', `--max-count=${MAX_TURN_COMMITS + 1}`]
+  const args = ['rev-list', '--topo-order', `--max-count=${MAX_TURN_COMMITS + 1}`]
   const since = Math.floor(Date.parse(before.capturedAt) / 1000)
   if (Number.isFinite(since)) args.push(`--max-age=${since}`)
   let shas
@@ -291,16 +291,18 @@ function turnCommits(root, before, current) {
     return { commits: [], skipped: false }
   }
   if (shas.length > MAX_TURN_COMMITS) return { commits: [], skipped: true }
-  return { commits: commitDetails(root, shas.reverse()), skipped: false }
+  const commits = commitDetails(root, shas.reverse()).filter((commit) => !(commit.authoredAt < since))
+  return { commits, skipped: false }
 }
 
-// 커밋별 변경 경로(diff-tree --stdin 한 번)와 제목·[id=] 태그(cat-file --batch 한 번).
+// 커밋별 변경 경로(diff-tree --stdin 한 번)와 제목·[id=] 태그·author 시각·머지 여부(cat-file --batch 한 번).
+// --cc는 머지 커밋에서 모든 부모와 다른 경로(충돌 해결)만 낸다 — 머지된 쪽 변경은 들어오지 않는다.
 function commitDetails(root, shas) {
   if (shas.length === 0) return []
   const pathsBySha = new Map(shas.map((commitSha) => [commitSha, []]))
   const output = git(
     root,
-    ['diff-tree', '--stdin', '--always', '--root', '-r', '-z', '--name-only', '--no-renames'],
+    ['diff-tree', '--stdin', '--always', '--root', '--cc', '-r', '-z', '--name-only', '--no-renames'],
     { input: `${shas.join('\n')}\n` },
   )
   let index = -1
@@ -314,6 +316,7 @@ function commitDetails(root, shas) {
     const object = objects.get(commitSha)
     const text = object?.type === 'commit' ? object.text : ''
     const separator = text.indexOf('\n\n')
+    const header = separator < 0 ? text : text.slice(0, separator)
     const message = separator < 0 ? '' : text.slice(separator + 2)
     const subject = message.split('\n')[0].trim()
     return {
@@ -321,6 +324,8 @@ function commitDetails(root, shas) {
       subject: subject.length > SUBJECT_MAX_CHARS ? `${subject.slice(0, SUBJECT_MAX_CHARS - 1)}…` : subject,
       paths: pathsBySha.get(commitSha),
       tags: [...new Set([...message.matchAll(COMMIT_TAG_RE)].map((match) => match[1]))],
+      authoredAt: Number(header.match(/^author .* (\d+) [+-]\d{4}$/m)?.[1] ?? NaN),
+      merge: (header.match(/^parent /gm) ?? []).length > 1,
     }
   })
 }
@@ -334,9 +339,10 @@ function defaultBranchRef(root) {
   }
 }
 
-// 커밋 태그가 가리킬 수 있는 id = 작업 트리(미커밋 등재 포함)·턴 시작 HEAD(이번 턴에 archive한 id 포함)·
-// 현재 HEAD·기본 브랜치(STATE_DEFAULT_BRANCH, worktree 분리 운영)의 STATE 인덱스 id.
-function stateIds(root, before, current, config) {
+// 커밋 태그가 가리킬 수 있는 id = 작업 트리(미커밋 등재 포함)와 revs — 턴 시작 HEAD(이번 턴에 archive한 id)·
+// 현재 HEAD·기본 브랜치(STATE_DEFAULT_BRANCH, worktree 분리 운영)·태그 커밋 자신(한 턴에 등재·archive한 id) —
+// 의 STATE 인덱스 id.
+function stateIds(root, revs, config) {
   const texts = []
   for (const index of config.indexes) {
     try {
@@ -345,8 +351,7 @@ function stateIds(root, before, current, config) {
       // 없는 인덱스는 checker가 알린다.
     }
   }
-  const revs = [before?.head, current.head, defaultBranchRef(root)].filter(Boolean)
-  const specs = revs.flatMap((rev) => config.indexes.map((index) => `${rev}:${index}`))
+  const specs = revs.filter(Boolean).flatMap((rev) => config.indexes.map((index) => `${rev}:${index}`))
   for (const object of readObjects(root, specs).values()) {
     if (object?.type === 'blob') texts.push(object.text)
   }
@@ -391,9 +396,14 @@ function evaluate(root, id, config) {
   ])].sort()
   const held = concurrentSessions.length > 0
 
-  const workCommits = held ? [] : commits.filter((commit) => commit.paths.some((path) => isWorkFile(path, config)))
-  const needsIds = workCommits.some((commit) => commit.tags.length > 0 && !commit.tags.includes(NO_STATE_TAG))
-  const validIds = needsIds ? stateIds(root, before, current, config) : new Set()
+  // 머지 커밋의 기본 메시지에는 id가 없고, 머지된 쪽 커밋은 따로 판정된다.
+  const workCommits = held
+    ? []
+    : commits.filter((commit) => !commit.merge && commit.paths.some((path) => isWorkFile(path, config)))
+  const tagged = workCommits.filter((commit) => commit.tags.some((tag) => tag !== NO_STATE_TAG))
+  const validIds = tagged.length > 0
+    ? stateIds(root, [before?.head, current.head, defaultBranchRef(root), ...tagged.map((commit) => commit.sha)], config)
+    : new Set()
   const untaggedCommits = []
   const unknownIdCommits = []
   for (const { sha: commitSha, subject, tags } of workCommits) {

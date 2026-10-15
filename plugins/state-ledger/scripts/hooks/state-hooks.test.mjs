@@ -1079,6 +1079,57 @@ test('commits brought in by pull or merge and merge commits are not judged', () 
     assert.equal(stop(root, sessionId), '')
   }))
 
+test('a previous-turn commit rewritten by rebase is not reported again', () =>
+  withRepo((root) => {
+    git(root, ['checkout', '-q', '-b', 'feat'])
+    write(root, 'apps/web/src/feat.ts', 'export const feat = true\n')
+    commitAt(root, ['apps/web/src/feat.ts'], 'untagged earlier-turn work', '2026-01-01T00:00:00Z')
+    git(root, ['checkout', '-q', 'main'])
+    write(root, 'apps/api/src/main.ts', 'export const main = true\n')
+    commitAt(root, ['apps/api/src/main.ts'], 'main moves on [id=-]', '2026-01-02T00:00:00Z')
+    git(root, ['checkout', '-q', 'feat'])
+
+    const sessionId = 'rebase-only'
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    // rebase는 committer 시각을 새로 쓰지만 author 시각은 이전 턴 그대로 둔다.
+    git(root, ['rebase', '-q', 'main'])
+    assert.ok(Number(git(root, ['log', '-1', '--format=%ct']).trim()) > Date.parse('2026-01-02T00:00:00Z') / 1000)
+    write(root, 'apps/web/src/new.ts', 'export const fresh = true\n')
+    commit(root, ['apps/web/src/new.ts'], 'untagged new work')
+
+    assert.deepEqual(untaggedShas(root, sessionId), [headSha(root)])
+  }))
+
+test('Stop rechecks STATE resolved by hand in a merge commit of this turn', () =>
+  withRepo((root) => {
+    seedStateItem(root, 'shared', 'root')
+    git(root, ['checkout', '-q', '-b', 'other'])
+    write(root, 'STATE.md', readFileSync(join(root, 'STATE.md'), 'utf8').replace('- [shared] fixture', '- [shared] other side'))
+    commitAt(root, ['STATE.md'], 'other side [id=shared]')
+    git(root, ['checkout', '-q', 'main'])
+    write(root, 'STATE.md', readFileSync(join(root, 'STATE.md'), 'utf8').replace('- [shared] fixture', '- [shared] main side'))
+    commit(root, ['STATE.md'], 'main side [id=shared]')
+
+    const sessionId = 'merge-resolution'
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    const merge = spawnSync('git', ['merge', '-q', 'other'], { cwd: root, encoding: 'utf8' })
+    assert.notEqual(merge.status, 0, 'expected a STATE.md conflict')
+    write(
+      root,
+      'STATE.md',
+      readFileSync(join(root, 'STATE.md'), 'utf8')
+        .replace(/<<<<<<<[\s\S]*?>>>>>>> other\n/, '- [shared] merged\n- no id line from bad resolution\n'),
+    )
+    git(root, ['add', 'STATE.md'])
+    git(root, ['commit', '-q', '--no-edit'])
+    assert.equal(git(root, ['status', '--porcelain']).trim(), '')
+
+    // 머지 커밋은 태그 판정에서 빠지지만, 머지에서 직접 고친 STATE 경로는 구조 재검한다.
+    const message = stopMessage(root, sessionId)
+    assert.match(message, /STATE\.md "- no id line from bad resolution…" id 없는 항목/)
+    assert.doesNotMatch(message, /태그가 없는 커밋/)
+  }))
+
 test('STATE edits never cover untagged commits, whatever their order or channel', () =>
   withRepo((root) => {
     const cases = [
@@ -1223,6 +1274,21 @@ test('an id registered only in the uncommitted working tree is valid', () =>
     const result = runEngine(root, { session_id: sessionId })
     assert.deepEqual(result.untaggedCommits, [])
     assert.deepEqual(result.unknownIdCommits, [])
+  }))
+
+test('an id registered and archived within one turn is valid through its own commit', () =>
+  withRepo((root) => {
+    const sessionId = 'register-and-archive'
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    writeDetail(root, 'docs/state/root/bar.md', detail('bar', 'short lived', false, 'root'))
+    write(root, 'apps/web/src/bar.ts', 'export const bar = true\n')
+    commit(root, ['STATE.md', 'docs/state/root/bar.md', 'apps/web/src/bar.ts'], 'add bar [id=bar]')
+    write(root, 'STATE.md', readFileSync(join(root, 'STATE.md'), 'utf8').replace('- [bar] fixture\n', ''))
+    rmSync(join(root, 'docs/state/root/bar.md'))
+    commit(root, ['STATE.md', 'docs/state/root/bar.md'], 'archive [id=bar]')
+
+    // 턴 시작·현재 HEAD·작업 트리·기본 브랜치 어디에도 bar가 없지만 태그 커밋 자신의 트리에는 있다.
+    assert.equal(stop(root, sessionId, { STATE_LEDGER_HOST: 'antigravity' }), '')
   }))
 
 test('an id registered on the default branch is valid from a feature branch', () =>
