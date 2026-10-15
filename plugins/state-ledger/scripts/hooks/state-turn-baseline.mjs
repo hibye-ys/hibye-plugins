@@ -258,11 +258,9 @@ function activeOtherSessions(root, ownSessionIdHash) {
 }
 
 // 턴 시작 기준점. 이전 턴의 판정 결과는 넘기지 않는다 — Stop은 이번 턴 것만 알린다.
-function saveSnapshot(root, id, config, onlyIfAbsent) {
+function saveSnapshot(root, id, config) {
   const concurrentSessions = activeOtherSessions(root, sha(id).slice(0, 16))
-  if (!onlyIfAbsent || !readSnapshot(root, id).value) {
-    writeSnapshot(root, id, { ...snapshot(root, id, config), concurrentSessionsSeen: concurrentSessions })
-  }
+  writeSnapshot(root, id, { ...snapshot(root, id, config), concurrentSessionsSeen: concurrentSessions })
   return { concurrentSessions }
 }
 
@@ -435,12 +433,15 @@ function main() {
   if (!id) throw new Error('hook payload session_id is required')
 
   let result
-  if (mode === 'snapshot' || mode === 'snapshot-if-absent') {
-    result = saveSnapshot(root, id, config, mode === 'snapshot-if-absent')
+  if (mode === 'snapshot') {
+    result = saveSnapshot(root, id, config)
+  } else if (mode === 'sessions') {
+    // SessionStart는 동시 세션을 읽기만 한다. 프롬프트 없이 열린 세션을 활성으로 잡지 않는다.
+    result = { concurrentSessions: activeOtherSessions(root, sha(id).slice(0, 16)) }
   } else if (mode === 'evaluate') {
     result = evaluate(root, id, config)
   } else {
-    process.stderr.write('usage: state-turn-baseline.mjs snapshot|snapshot-if-absent|evaluate\n')
+    process.stderr.write('usage: state-turn-baseline.mjs snapshot|sessions|evaluate\n')
     process.exitCode = 2
     return
   }

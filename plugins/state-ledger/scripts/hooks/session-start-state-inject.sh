@@ -11,7 +11,7 @@
 set -u
 
 if ! command -v jq >/dev/null 2>&1; then
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"=== STATE hook 경고 ===\\njq가 PATH에 없어 STATE 주입과 기준점 저장을 실행하지 못했습니다."}}'
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"=== STATE hook 경고 ===\\njq가 PATH에 없어 STATE 주입을 실행하지 못했습니다."}}'
   exit 0
 fi
 
@@ -33,22 +33,15 @@ if [ -n "$config_error" ]; then
 $config_error"
 fi
 
-# 첫 사용자 프롬프트 전에도 기준점이 존재하게 하되 compact/resume가 진행 중인
-# 턴의 기존 기준점을 덮어쓰지 않도록 없을 때만 생성한다.
-baseline_error=""
-baseline_result=""
-if [ -n "$config_error" ]; then
-  baseline_error=""
-elif ! command -v node >/dev/null 2>&1; then
-  baseline_error="node가 PATH에 없어 STATE 턴 기준점을 저장하지 못했습니다."
-elif ! baseline_result=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-turn-baseline.mjs" snapshot-if-absent 2>&1); then
-  baseline_error="STATE 턴 기준점 저장 실패: ${baseline_result:0:400}"
-fi
-if [ -n "$baseline_error" ]; then
+# 같은 worktree의 동시 세션은 읽기만 한다. 턴 기준점은 UserPromptSubmit이 매 턴 저장하므로
+# 여기서 만들지 않는다 — 프롬프트 없이 열린 세션이 다른 세션의 판정을 보류시키지 않게.
+sessions_result=""
+if [ -z "$config_error" ] && ! sessions_result=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-turn-baseline.mjs" sessions 2>&1); then
   out="=== STATE hook 경고 ===
-$baseline_error"
+STATE 동시 세션 확인 실패: ${sessions_result:0:400}"
+  sessions_result=""
 fi
-concurrent_count=$(printf '%s' "$baseline_result" | jq -r '.concurrentSessions | length // 0' 2>/dev/null || echo 0)
+concurrent_count=$(printf '%s' "$sessions_result" | jq -r '.concurrentSessions | length // 0' 2>/dev/null || echo 0)
 if [ "${concurrent_count:-0}" -gt 0 ]; then
   out="${out}${out:+
 

@@ -356,24 +356,21 @@ test('SessionStart skips an oversized STATE index instead of injecting it', () =
     assert.doesNotMatch(context, /OVERSIZED_SENTINEL/)
   }))
 
-test('SessionStart compact does not overwrite an active turn baseline', () =>
+test('SessionStart only reads concurrent sessions and writes no baseline', () =>
   withRepo((root) => {
-    const sessionId = 'compact-mid-turn'
-    runHook(SESSION_SCRIPT, root, {
-      session_id: sessionId,
-      hook_event_name: 'SessionStart',
-      source: 'startup',
-    })
-    const codePath = 'apps/web/src/before-compact.ts'
-    write(root, codePath, 'export const beforeCompact = true\n')
-    commit(root, [codePath], 'commit before compact')
+    // 프롬프트 없이 열기만 한 세션은 활성 세션이 아니다 — 다른 세션의 판정을 보류시키지 않는다.
+    runHook(SESSION_SCRIPT, root, { session_id: 'idle-b', hook_event_name: 'SessionStart', source: 'startup' })
+    const sessionId = 'busy-a'
+    assert.equal(runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId }), '')
+    write(root, 'apps/web/src/busy.ts', 'export const busy = true\n')
+    commit(root, ['apps/web/src/busy.ts'], 'untagged busy work')
+    assert.match(stopMessage(root, sessionId), /^STATE reminder: 이번 턴 커밋 중 STATE id 태그가 없는 커밋 — [0-9a-f]{7} untagged busy work\. /)
 
-    runHook(SESSION_SCRIPT, root, {
-      session_id: sessionId,
-      hook_event_name: 'SessionStart',
-      source: 'compact',
-    })
-
+    // compact/resume의 SessionStart는 진행 중인 턴의 기준점을 바꾸지 않는다.
+    runHook(SNAPSHOT_SCRIPT, root, { session_id: sessionId })
+    write(root, 'apps/web/src/before-compact.ts', 'export const beforeCompact = true\n')
+    commit(root, ['apps/web/src/before-compact.ts'], 'commit before compact')
+    runHook(SESSION_SCRIPT, root, { session_id: sessionId, hook_event_name: 'SessionStart', source: 'compact' })
     assert.match(stopMessage(root, sessionId), /[0-9a-f]{7} commit before compact\./)
   }))
 
@@ -1162,8 +1159,17 @@ test('a concurrent session in the same worktree holds tag and append judgement',
   withRepo((root) => {
     const statePath = seedStateItem(root, 'held', 'web', 'short summary')
     runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-a' })
-    const second = JSON.parse(runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-b' }))
-    assert.match(second.systemMessage, /다른 활성 세션 1개가 감지됐습니다\. 변경 귀속이 불명확하므로 Stop의 커밋 태그·덧붙임 판정은 보류됩니다\./)
+    // 세션 단위 경고는 SessionStart가 한 번 내고, 턴 시작은 오류만 출력한다.
+    const sessionStart = JSON.parse(runHook(SESSION_SCRIPT, root, {
+      session_id: 'concurrent-b',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    }))
+    assert.match(
+      sessionStart.hookSpecificOutput.additionalContext,
+      /다른 활성 세션 1개가 감지됐습니다\. 변경 귀속이 불명확하므로 Stop의 커밋 태그·덧붙임 판정은 보류됩니다\./,
+    )
+    assert.equal(runHook(SNAPSHOT_SCRIPT, root, { session_id: 'concurrent-b' }), '')
     write(root, 'apps/web/src/concurrent.ts', 'export const concurrent = true\n')
     commit(root, ['apps/web/src/concurrent.ts'], 'untagged concurrent work')
     write(root, statePath, detail('held', `short summary\n${'- 경과\n'.repeat(300)}`, false, 'web', 'agent'))
