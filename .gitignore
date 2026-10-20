@@ -11,3 +11,7 @@ archive
 
 # Python updater/test import cache
 __pycache__/
+
+# Updater lock, recovery journal and reserved staging files (machine-local)
+/.plugin-sync.lock
+.plugin-sync-*

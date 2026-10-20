@@ -44,7 +44,7 @@ Python 3와 세 CLI가 설치된 환경에서 사용한다. 공통 build 버전�
 ## 공통 하네스 설치·업데이트
 
 공통 하네스 `state-ledger`·`project-context`·`spec-plan`은 Codex와 Claude 모두 설치 스냅샷을
-실행한다. Python **3.11 이상**과 두 native CLI가 필요하며, Codex에는 로컬 `hibye-plugins`
+실행한다. macOS/Linux의 Python **3.11 이상**과 두 native CLI가 필요하며, Codex에는 로컬 `hibye-plugins`
 marketplace를 먼저 등록한다. 이 저장소에서 다음 명령 하나로 두 호스트를 함께 갱신한다.
 
 ```bash
@@ -80,6 +80,12 @@ source link, payload 누락·변조를 성공으로 처리하지 않는다. `--p
 catalog·버전을 쓰거나 설치하지 않는다. 두 호스트는 순서대로 갱신하므로 중간 실패 시 일부만
 갱신됐을 수 있다. 오류를 해결하고 같은 명령을 다시 실행하며 부분 반영을 완료로 보고하지 않는다.
 
+버전 파일 묶음과 개발 source 연결은 복구 기록을 남겨 갱신한다. 쓰기 도중 중단되면 다음 업데이트가
+미완료 기록부터 복구한다. 완성한 임시 파일만 교체하고, publication은 내용·Git 기록·읽기 전용 권한을
+검증한 뒤 공개한다. 이전 실행이 봉인 전에 남긴 publication도 내용과 Git 기록이 맞을 때만 봉인을
+완료한다. 동시 updater는 쓰기를 조정하며, 기록과 다른 외부 편집은 덮어쓰지 않고 중단한다.
+`--preview`·`--check`는 복구를 위해서도 파일을 수정하지 않는다.
+
 같은 version의 설치 캐시와 실제 payload 또는 배포 출처가 달라지면 `--harness`가 필요한 공통 build version을
 갱신해 두 호스트에 반영한다. 변경 없는 재실행에서 불필요하게 version을 올리지 않는다.
 선택 범위를 직접 지정하는 기존 명령도 유지한다.
@@ -97,6 +103,8 @@ Claude 원본 catalog version을 함께 갱신한다. `--harness`에는 별도 p
 ```bash
 python3 scripts/test-project-context-distribution.py
 python3 scripts/test-spec-plan-sync.py
+python3 scripts/test-plugin-sync-recovery.py
+python3 scripts/test-plugin-publication.py
 ```
 
 ## 프로젝트 opt-in

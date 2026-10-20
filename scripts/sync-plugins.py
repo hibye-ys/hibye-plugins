@@ -20,6 +20,9 @@ HARNESS = ('state-ledger', 'project-context', 'spec-plan')
 _spec = importlib.util.spec_from_file_location('hibye_plugin_publication', Path(__file__).with_name('plugin_publication.py'))
 publication = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(publication)
+_spec = importlib.util.spec_from_file_location('hibye_plugin_sync_transaction', Path(__file__).with_name('plugin_sync_transaction.py'))
+transaction = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(transaction)
 
 
 def read_json(path):
@@ -38,11 +41,17 @@ def tree_hashes(root):
     return {name: hashlib.sha256(data).hexdigest() for name, (data, _) in payload.items()}
 
 
-def manifests(name):
+def manifests(name, snapshots=None):
+    def load(path):
+        if snapshots is None:
+            return read_json(path)
+        if path not in snapshots:
+            snapshots[path] = path.read_bytes()
+        return json.loads(snapshots[path])
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', name):
         raise ValueError('Unsafe plugin name')
     source = ROOT / 'plugins' / name
-    data = {host: read_json(source / f'.{host}-plugin/plugin.json') for host in ('codex', 'claude')}
+    data = {host: load(source / f'.{host}-plugin/plugin.json') for host in ('codex', 'claude')}
     versions = {value.get('version') for value in data.values()}
     if len(versions) != 1 or any(value.get('name') != name for value in data.values()):
         raise RuntimeError(f'Plugin manifest name/version mismatch: {name}')
@@ -51,11 +60,11 @@ def manifests(name):
         raise RuntimeError('Unsafe plugin version')
     muse_manifest = source / '.muse-plugin/plugin.json'
     if muse_manifest.exists():
-        muse = read_json(muse_manifest)
+        muse = load(muse_manifest)
         if muse.get('name') != name or muse.get('version') != version:
             raise RuntimeError(f'Muse manifest name/version mismatch: {name}')
     for family in ('.agents/plugins', '.claude-plugin'):
-        marketplace = read_json(ROOT / family / 'marketplace.json')
+        marketplace = load(ROOT / family / 'marketplace.json')
         if marketplace.get('name') != MARKETPLACE:
             raise RuntimeError('Unexpected marketplace name')
         entries = [entry for entry in marketplace['plugins'] if entry.get('name') == name]
@@ -223,24 +232,39 @@ def check_plugin(name, hosts, expected=None, allow_inactive=False):
         raise RuntimeError('Source changed during verification; rerun with stable inputs')
 
 
+def manifest_journal():
+    return ROOT / '.plugin-sync-manifests.json'
+
+
+def alias_journal():
+    return catalog_root() / '.source-alias-transaction.json'
+
+
 def refresh_build_versions(names):
     marker = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
-    updates, versions = {}, {}
+    updates, versions, before = {}, {}, {}
+
+    def load(path):
+        if path not in before:
+            before[path] = path.read_bytes()
+        return json.loads(before[path])
+
     path = ROOT / '.claude-plugin/marketplace.json'
-    marketplace = read_json(path)
+    marketplace = load(path)
     for name in names:
-        source, version, data = manifests(name)
+        # Every CAS baseline is the exact byte sequence parsed into these dicts.
+        source, version, data = manifests(name, before)
         version = version.split('+', 1)[0] + '+build.' + marker
         versions[name] = version
         for host, manifest in data.items():
             updates[source / f'.{host}-plugin/plugin.json'] = {**manifest, 'version': version}
         muse = source / '.muse-plugin/plugin.json'
         if muse.exists():
-            updates[muse] = {**read_json(muse), 'version': version}
+            updates[muse] = {**load(muse), 'version': version}
         next(entry for entry in marketplace['plugins'] if entry['name'] == name)['version'] = version
     updates[path] = marketplace
     codex_path = ROOT / '.agents/plugins/marketplace.json'
-    codex_marketplace = read_json(codex_path)
+    codex_marketplace = load(codex_path)
     codex_changed = False
     for entry in codex_marketplace['plugins']:
         if entry.get('name') in versions and 'version' in entry:
@@ -248,21 +272,14 @@ def refresh_build_versions(names):
             codex_changed = True
     if codex_changed:
         updates[codex_path] = codex_marketplace
-    before = {path: path.read_bytes() for path in updates}
-    written = []
-    try:
-        for path, value in updates.items():
-            if path.read_bytes() != before[path]:
-                raise RuntimeError(f'Source changed concurrently: {path}')
-            path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
-            written.append(path)
-        for name in names:
-            manifests(name)
-    except BaseException:
-        for path in reversed(written):
-            if path.read_text() == json.dumps(updates[path], ensure_ascii=False, indent=2) + '\n':
-                path.write_bytes(before[path])
-        raise
+    # Include read-only dependencies as guards so a coupled edit cannot slip
+    # through merely because this marketplace omits explicit version fields.
+    entries = [transaction.file_entry(ROOT, path, original,
+               (json.dumps(updates[path], ensure_ascii=False, indent=2) + '\n').encode()
+               if path in updates else original) for path, original in before.items()]
+    transaction.commit(ROOT, manifest_journal(), entries)
+    for name in names:
+        manifests(name)
     return versions
 
 
@@ -321,36 +338,22 @@ def prepare_source_aliases(catalog):
         wanted[relative.as_posix()] = str(source)
     # Preflight every owned alias before changing any links. Never replace files
     # or user-modified aliases, and never delete an original source directory.
+    states = {}
     for relative, source in {**old, **wanted}.items():
         alias = root / relative
         publication.unlinked(alias.parent)
-        if alias.is_symlink():
+        states[relative] = transaction.link_state(alias)
+        if states[relative] is not None:
             expected = old.get(relative, wanted.get(relative))
-            if os.readlink(alias) != expected:
+            if states[relative] != expected:
                 raise RuntimeError('Generated source alias changed concurrently: ' + str(alias))
         elif alias.exists():
             raise RuntimeError('Refusing to replace a non-link catalog entry: ' + str(alias))
-    root.mkdir(parents=True, exist_ok=True)
-    for relative, source in old.items():
-        if relative not in wanted:
-            alias = root / relative
-            if alias.is_symlink() and os.readlink(alias) == source:
-                alias.unlink()
-    for relative, source in wanted.items():
-        alias = root / relative
-        if alias.is_symlink() and os.readlink(alias) == source:
-            continue
-        alias.parent.mkdir(parents=True, exist_ok=True)
-        candidate = alias.with_name(alias.name + '.new-' + str(os.getpid()))
-        if candidate.exists() or candidate.is_symlink():
-            raise RuntimeError('Catalog alias temporary path already exists')
-        candidate.symlink_to(source, target_is_directory=True)
-        os.replace(candidate, alias)
-    if (ledger.read_bytes() if ledger.exists() else None) != before:
-        raise RuntimeError('Generated source alias ledger changed concurrently')
-    text = json.dumps(wanted, indent=2) + '\n'
-    if before != text.encode():
-        ledger.write_text(text)
+    entries = [transaction.link_entry(root, root / relative,
+               states[relative], wanted.get(relative)) for relative in dict.fromkeys([*old, *wanted])]
+    text = (json.dumps(wanted, indent=2) + '\n').encode()
+    entries.append(transaction.file_entry(root, ledger, before, text))
+    transaction.commit(root, alias_journal(), entries)
 
 
 def prepare_claude_catalog(names):
@@ -489,6 +492,52 @@ def selection(args):
     return list(dict.fromkeys(args.plugin)), list(dict.fromkeys(args.host))
 
 
+def preflight_native(names, hosts):
+    # Read-only rejection precedes even updater lock-file creation. Repeat the
+    # check under the locks in run_sync before any new transaction is prepared.
+    for name in names:
+        if 'codex' in hosts:
+            record = codex_record(name)
+            if record is not None and not record['active']:
+                raise RuntimeError(f'codex/{name} is disabled; current native add has no supported disabled-preserving update. No files, catalogs or installations were changed')
+        if 'claude' in hosts:
+            validate_scope_locations(claude_records(name))
+
+
+def run_sync(args, names, hosts):
+    captured = {}
+    for name in names:
+        source, version, _ = manifests(name)
+        captured[name] = tree_hashes(source)
+        if 'codex' in hosts and not args.check:
+            record = codex_record(name)
+            if record is not None and not record['active']:
+                raise RuntimeError(f'codex/{name} is disabled; current native add has no supported disabled-preserving update. No files, catalogs or installations were changed')
+        if 'claude' in hosts:
+            validate_scope_locations(claude_records(name))
+        print(f'SOURCE {name}: {version}, {len(captured[name])} files; hosts={",".join(hosts)}')
+    if args.preview:
+        return 0
+    if args.check:
+        for name in names:
+            check_plugin(name, hosts, allow_inactive=args.harness)
+        print('All selected installed sources and scopes match.')
+        return 0
+    changed = names if args.build_marker else [name for name in names if args.harness and same_version_drift(name, hosts)]
+    # No source mutation occurred before all input and scope preflights passed.
+    for name in names:
+        if tree_hashes(ROOT / 'plugins' / name) != captured[name]:
+            raise RuntimeError('Source changed during preflight: ' + name)
+    if changed:
+        print(json.dumps({'build_versions': refresh_build_versions(changed)}))
+    if 'claude' in hosts:
+        prepare_claude_catalog(names)
+    for name in names:
+        sync_plugin(name, hosts, catalog_prepared='claude' in hosts, preserve_activation=args.harness)
+    print('All selected installations verified. Start a new session to load them.')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--harness', action='store_true', help='update state-ledger/project-context/spec-plan for Codex and Claude together')
@@ -506,37 +555,19 @@ def main():
         for executable in [*hosts, *(['git'] if 'claude' in hosts else [])]:
             if not shutil.which(executable):
                 raise RuntimeError('Missing native CLI: ' + executable)
-        captured = {}
-        for name in names:
-            source, version, _ = manifests(name)
-            captured[name] = tree_hashes(source)
-            if 'codex' in hosts and not args.check:
-                record = codex_record(name)
-                if record is not None and not record['active']:
-                    raise RuntimeError(f'codex/{name} is disabled; current native add has no supported disabled-preserving update. No files, catalogs or installations were changed')
-            if 'claude' in hosts:
-                validate_scope_locations(claude_records(name))
-            print(f'SOURCE {name}: {version}, {len(captured[name])} files; hosts={",".join(hosts)}')
-        if args.preview:
-            return 0
-        if args.check:
-            for name in names:
-                check_plugin(name, hosts, allow_inactive=args.harness)
-            print('All selected installed sources and scopes match.')
-            return 0
-        changed = names if args.build_marker else [name for name in names if args.harness and same_version_drift(name, hosts)]
-        # No source mutation occurred before all input and scope preflights passed.
-        for name in names:
-            if tree_hashes(ROOT / 'plugins' / name) != captured[name]:
-                raise RuntimeError('Source changed during preflight: ' + name)
-        if changed:
-            print(json.dumps({'build_versions': refresh_build_versions(changed)}))
+        if args.preview or args.check:
+            return run_sync(args, names, hosts)
+        preflight_native(names, hosts)
+        # A source checkout can be shared by different native homes, and distinct
+        # source clones can share a catalog. Always lock source, then base.
+        lock_paths = [ROOT / '.plugin-sync.lock']
         if 'claude' in hosts:
-            prepare_claude_catalog(names)
-        for name in names:
-            sync_plugin(name, hosts, catalog_prepared='claude' in hosts, preserve_activation=args.harness)
-        print('All selected installations verified. Start a new session to load them.')
-        return 0
+            lock_paths.append(publication.default_base() / '.sync-plugins.lock')
+        with transaction.locks(*lock_paths):
+            transaction.recover(ROOT, manifest_journal())
+            if 'claude' in hosts:
+                transaction.recover(catalog_root(), alias_journal())
+            return run_sync(args, names, hosts)
     except (OSError, ValueError, KeyError, StopIteration, RuntimeError) as error:
         print(f'NOT SYNCHRONIZED: {error}\nPartial update possible; no success is claimed. Existing scopes/publications were not deleted. Resolve the named host/scope error and rerun.', file=sys.stderr)
         return 1
