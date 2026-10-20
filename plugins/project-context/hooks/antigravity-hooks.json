@@ -1,0 +1,1 @@
+{"hooks":{"preInvocation":[{"command":"node hooks/antigravity-pre-invocation.cjs"}]},"acceptance":"source-adapter-only"}

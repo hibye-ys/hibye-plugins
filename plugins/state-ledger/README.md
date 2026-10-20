@@ -100,3 +100,7 @@ Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `
 - git plumbing만 쓰는 이유: `git log`는 `log.showSignature` 같은 사용자 설정이 출력에 섞여 sha 파싱이 깨진다. rev-list·diff-tree --stdin·cat-file --batch는 설정에 흔들리지 않고, 커밋 수와 무관하게 spawn 몇 번으로 끝나 Stop timeout(30초)을 넘지 않는다.
 - 동시 세션에서 판정을 보류하는 이유: 같은 worktree의 파일과 HEAD만으로 어느 세션이 커밋했는지 확정할 수 없다.
 - Codex CLI 는 Claude 호환 훅 스키마(`hookSpecificOutput`·`additionalContext`·`stop_hook_active`)를 내장한다 — 바이너리 실측 확인. 같은 스크립트가 두 도구에서 그대로 동작한다.
+
+### 0.4.1 호스트 경계
+
+Muse·Antigravity adapter는 STATE session inject, turn baseline, detail stamp, warn-only stop만 실행한다. 프로젝트 memory·intent 초기화는 독립 등록된 `project-context`가 소유하고, `post-edit-knip.sh` 같은 프로젝트 검사는 프로젝트의 native hook 등록이 소유한다. STATE adapter가 프로젝트 hook 파일을 찾아 대신 실행하지 않는다. 기존 Muse의 세션 ID·파일 경로 정규화와 16KB 출력 제한은 유지한다. 연결 API는 바뀌지 않아 `state-ledger-contract.json` v6를 유지한다.

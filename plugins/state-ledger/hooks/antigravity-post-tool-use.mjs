@@ -106,19 +106,6 @@ function main() {
     })
   } catch {}
 
-  // 2. Run knip hook if present
-  const knipHook = path.join(repoRoot, 'scripts/hooks/post-edit-knip.sh')
-  if (existsSync(knipHook)) {
-    try {
-      spawnSync('bash', [knipHook], {
-        cwd: repoRoot,
-        env: { ...process.env, HOOK_PROJECT_DIR: repoRoot },
-        input: JSON.stringify(normalized),
-        encoding: 'utf8',
-      })
-    } catch {}
-  }
-
   process.stdout.write('{}\n')
 }
 

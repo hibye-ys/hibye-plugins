@@ -125,30 +125,7 @@ function main() {
       }
     } catch {}
 
-    // Query project session-start-context if present
-    const projectHook = path.join(repoRoot, '.agents/hooks/session-start-context.mjs')
-    if (existsSync(projectHook)) {
-      try {
-        const projRes = spawnSync(process.execPath, [projectHook], {
-          cwd: repoRoot,
-          env: { ...process.env, CLAUDE_PROJECT_DIR: repoRoot, HOOK_PROJECT_DIR: repoRoot },
-          encoding: 'utf8',
-        })
-        const pOut = (projRes.stdout || '').trim()
-        if (pOut) {
-          let pText = ''
-          try {
-            const parsed = JSON.parse(pOut)
-            pText = parsed?.hookSpecificOutput?.additionalContext || parsed?.systemMessage || ''
-          } catch {
-            pText = pOut
-          }
-          if (pText) {
-            injectText = injectText ? `${injectText}\n\n---\n\n${pText}` : pText
-          }
-        }
-      } catch {}
-    }
+
   }
 
   if (injectText) {

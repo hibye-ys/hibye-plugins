@@ -15,7 +15,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGINS_DIR="$ROOT/plugins"
 CHECK=0
-[ "${1:-}" = "--check" ] && CHECK=1
+SELECTED=()
+NATIVE=0
+for arg in "$@"; do
+  case "$arg" in --plugin|--host|--preview|--build-marker) NATIVE=1;; esac
+done
+if [ "$NATIVE" = 1 ]; then
+  exec python3 "$ROOT/scripts/sync-plugins.py" "$@"
+fi
+if [ "${1:-}" = "--check" ]; then CHECK=1; shift; fi
+[ "$#" = 0 ] || { echo "Usage: $0 [--check] | --plugin NAME --host codex|claude|muse [--check|--preview] [--build-marker]" >&2; exit 2; }
 
 fail=0
 run_gen() {

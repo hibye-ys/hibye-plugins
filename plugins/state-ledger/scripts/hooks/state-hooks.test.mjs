@@ -1766,3 +1766,27 @@ test('Antigravity Stop continues once for this turn\'s reminders and allows othe
     rmSync(`${root}-hook-data`, { recursive: true, force: true })
   }
 })
+
+
+test('Muse and Antigravity STATE adapters never invoke project context or validation hooks', () => {
+  withRepo((root) => {
+    const marker = join(root, 'outside-state-called')
+    write(root, '.agents/hooks/session-start-context.mjs', `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'context')`)
+    write(root, 'scripts/hooks/post-edit-knip.sh', `#!/bin/sh\nprintf knip > '${marker}'\n`)
+    const sid = `state-boundary-${Date.now()}`
+    const sessionPayload = { sessionId: sid, conversationId: sid, invocationNum: 1, workspacePaths: [root] }
+    const museSession = fileURLToPath(new URL('../../hooks/muse-session-start.sh', import.meta.url))
+    const museStamp = fileURLToPath(new URL('../../hooks/muse-post-tool-use.sh', import.meta.url))
+    const museOut = JSON.parse(runHook(museSession, root, sessionPayload))
+    assert.match(museOut.hookSpecificOutput.additionalContext, /STATE/)
+    assert.ok(Buffer.byteLength(JSON.stringify(museOut)) < 16384)
+    const antiOut = JSON.parse(runHook(ANTIGRAVITY_PRE_INVOCATION, root, sessionPayload))
+    assert.match(antiOut.injectSteps[0].ephemeralMessage, /STATE/)
+    const target = join(root, 'docs/state/root/test.md')
+    write(root, 'docs/state/root/test.md', detail('test', 'Muse edit', true))
+    runHook(museStamp, root, { sessionId: sid, filePath: target })
+    assert.match(readFileSync(target, 'utf8'), /hash: [0-9a-f]{8}/)
+    runHook(ANTIGRAVITY_POST_TOOL_USE, root, { ...sessionPayload, toolCall: { name: 'replace_file_content', args: { TargetFile: target } } })
+    assert.equal(existsSync(marker), false)
+  })
+})

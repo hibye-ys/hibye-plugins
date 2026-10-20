@@ -1,0 +1,22 @@
+{
+  "name": "spec-plan",
+  "version": "1.1.2+codex.20261001183245118909",
+  "description": "Concise specs and implementation plans with cost-aware parallel work and resumable handoffs.",
+  "author": {
+    "name": "hibye-ys"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Spec Plan",
+    "shortDescription": "간결한 스펙·계획과 에이전트 배정·작업 인계",
+    "longDescription": "역할과 모델을 분리하고, 의존성에 따른 순차·병렬 실행과 중단 후 재개를 지원하는 계획 스킬입니다.",
+    "developerName": "hibye-ys",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "간결한 스펙과 순차·병렬 구현 계획, 에이전트 배정과 인계 기준을 정리해줘."
+  }
+}

@@ -19,6 +19,26 @@ set -euo pipefail
 MARKET="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGINS_DIR="$MARKET/plugins"
 
+# Native project-context owns its runtime hooks. Only opt-in/native project
+# settings are written here; no global hooks or cache payloads are copied.
+context_selected=0
+other_selected=0
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--plugin" ]; then
+    if [ "$arg" = "project-context" ]; then context_selected=1; else other_selected=1; fi
+  fi
+  previous="$arg"
+done
+if [ "$context_selected" = 1 ]; then
+  [ "$other_selected" = 0 ] || { echo "ERROR: run project-context setup separately from asset plugins" >&2; exit 2; }
+  context_args=()
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--plugin" ]; then shift 2; else context_args+=("$1"); shift; fi
+  done
+  exec python3 "$MARKET/scripts/setup-project-context.py" "${context_args[@]}"
+fi
+
 # ---- args ----
 PROJECT=""
 declare -a SEL_PLUGINS=()
@@ -106,16 +126,9 @@ prune_removed_links() { # source에서 제거된 파일을 가리키는 project 
   done
 }
 
-merge_json_hooks() { # snippet(abs) target(abs) — .hooks 딥머지 (jq), 없으면 복사
-  local snip="$1" tgt="$2"
-  if [ ! -f "$tgt" ]; then mkdir -p "$(dirname "$tgt")"; cp "$snip" "$tgt"; echo "    write: $tgt"; return; fi
-  if command -v jq >/dev/null; then
-    local tmp; tmp="$(mktemp)"
-    jq -s '.[0] * .[1]' "$tgt" "$snip" > "$tmp" && mv "$tmp" "$tgt"
-    echo "    merge(jq): $tgt  (동일 이벤트 hooks 는 교체됨)"
-  else
-    echo "    NOTE: jq 없음 — 아래 스니펫을 $tgt 에 수동 머지:"; sed 's/^/      /' "$snip"
-  fi
+merge_json_hooks() {
+  python3 "$MARKET/scripts/merge-project-hooks.py" "$1" "$2"
+  echo "    merge: $2 (unrelated hooks preserved)"
 }
 
 echo "프로젝트: $PROJECT"
@@ -124,7 +137,7 @@ echo ""
 
 for plugin in "${SEL_PLUGINS[@]}"; do
   PP="$PLUGINS_DIR/$plugin"
-  [ -d "$PP" ] || { echo "WARN: plugin 없음: $plugin — skip"; continue; }
+  [ -d "$PP" ] || { echo "ERROR: plugin 없음: $plugin" >&2; exit 1; }
   echo "══ $plugin ══"
 
   # ---- 1) skills ----

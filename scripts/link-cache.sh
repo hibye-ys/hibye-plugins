@@ -6,6 +6,8 @@
 set -euo pipefail
 
 MARKETPLACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 격리 검증에서는 실제 사용자 캐시 대신 별도 루트를 사용한다.
+CACHE_HOME="${HIBYE_PLUGIN_CACHE_HOME:-$HOME}"
 CODEX_DEV_LINKS=0
 if [ "${1:-}" = "--codex-dev-links" ]; then
     CODEX_DEV_LINKS=1
@@ -78,11 +80,17 @@ link_versioned_cache() {
 for plugin_dir in "$MARKETPLACE_ROOT/plugins/"*/; do
     plugin_name="$(basename "$plugin_dir")"
 
+    # Native snapshot 플러그인은 정식 CLI와 full-payload 검증으로만 갱신한다.
+    if [ "$plugin_name" = "spec-plan" ] || [ "$plugin_name" = "state-ledger" ] || [ "$plugin_name" = "project-context" ]; then
+        echo "SKIP: $plugin_name (native snapshots; use scripts/sync-plugins.py --plugin $plugin_name --host <host>)"
+        continue
+    fi
+
     link_versioned_cache \
         "$plugin_dir" \
         "$plugin_name" \
         "$plugin_dir/.claude-plugin/plugin.json" \
-        "$HOME/.claude/plugins/cache/hibye-plugins" \
+        "$CACHE_HOME/.claude/plugins/cache/hibye-plugins" \
         "claude" \
         "root-link"
 
@@ -91,22 +99,22 @@ for plugin_dir in "$MARKETPLACE_ROOT/plugins/"*/; do
             "$plugin_dir" \
             "$plugin_name" \
             "$plugin_dir/.codex-plugin/plugin.json" \
-            "$HOME/.codex/plugins/cache/hibye-plugins" \
+            "$CACHE_HOME/.codex/plugins/cache/hibye-plugins" \
             "codex-dev" \
             "source-backed-directory"
     fi
 
     # Claude flat skills/ symlink — Claude 프로젝트 링크가 같은 source tree를 보게 한다.
     if [ -d "$plugin_dir/skills" ]; then
-        target_dir="$HOME/.claude/plugins/cache/hibye-plugins/$plugin_name"
+        target_dir="$CACHE_HOME/.claude/plugins/cache/hibye-plugins/$plugin_name"
         mkdir -p "$target_dir"
         ln -sfn "$plugin_dir/skills" "$target_dir/skills"
         echo "LINK: $target_dir/skills -> $plugin_dir/skills (flat)"
     fi
 
     # Antigravity (Google Antigravity / Gemini) cache
-    if [ -d "$HOME/.gemini/antigravity" ] || [ -d "$HOME/.gemini/config" ]; then
-        antigravity_cache="$HOME/.gemini/antigravity/plugins/cache/hibye-plugins"
+    if [ -d "$CACHE_HOME/.gemini/antigravity" ] || [ -d "$CACHE_HOME/.gemini/config" ]; then
+        antigravity_cache="$CACHE_HOME/.gemini/antigravity/plugins/cache/hibye-plugins"
         mkdir -p "$antigravity_cache/$plugin_name"
         ln -sfn "$plugin_dir" "$antigravity_cache/$plugin_name/current"
         echo "LINK: antigravity $antigravity_cache/$plugin_name/current -> $plugin_dir"

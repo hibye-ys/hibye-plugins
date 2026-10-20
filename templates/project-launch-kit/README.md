@@ -116,3 +116,16 @@ rg -n '\{\{[A-Z0-9_]+\}\}|\bUNDECIDED\b' .
 - 기계 검증 계약: [`../../ops/contracts/`](../../ops/contracts/)
 - 운영·복구 절차: [`../../docs/operations/`](../../docs/operations/)
 - 재발 방지 교훈 인덱스: [`../../docs/memory/MEMORY.md`](../../docs/memory/MEMORY.md)
+
+## 공유 프로젝트 context (선택)
+
+메모리·운영 결정을 main/linked checkout과 여러 호스트에서 함께 읽을 때만
+`conditional/PROJECT_CONTEXT.template.json`을 `.project-context.json`으로 복사한다.
+기존 `docs/memory/MEMORY.md`와 `intent/`가 있어야 하며 필요 없는 채널은 `false`로 둔다.
+내용 없는 메모리나 결정을 setup이 자동 생성하지 않는다.
+
+전역 `project-context` native plugin 설치 후 저장소의
+`scripts/setup-project.sh <project> --plugin project-context --tools codex,claude --preview`로
+대상 변경을 확인하고 동일 명령에서 `--preview`를 빼 적용한다. `--check`로 멱등 상태를 확인한다.
+Claude memory는 primary checkout, intent와 프로젝트 운영 규칙은 현재 checkout이 소유한다.
+`state-ledger`는 별도 plugin이며 프로젝트 context를 대신 초기화하지 않는다.

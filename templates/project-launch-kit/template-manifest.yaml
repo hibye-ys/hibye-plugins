@@ -82,3 +82,10 @@ conditional:
     mode: per_item
     target_pattern: "docs/lessons/{{LESSON_ID}}.md"
     index_target: docs/lessons/README.md
+
+optional_integrations:
+  - trigger: shared_project_context
+    source: conditional/PROJECT_CONTEXT.template.json
+    mode: singleton
+    activation: existing_memory_or_intent_and_native_plugin
+    target: .project-context.json

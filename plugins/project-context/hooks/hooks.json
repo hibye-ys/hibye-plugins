@@ -1,0 +1,19 @@
+{
+  "description": "Opt-in project context on all four SessionStart events.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PLUGIN_ROOT/scripts/project-context.cjs\" session-start",
+            "statusMessage": "Project context",
+            "timeout": 30,
+            "additionalContextLimit": 2500
+          }
+        ]
+      }
+    ]
+  }
+}
