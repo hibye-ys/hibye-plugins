@@ -32,15 +32,14 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | --- | --- |
 | `scripts/check-state-wip-cap.sh` | WIP cap·섹션 존재·줄 200자·인덱스 4KB·인덱스↔detail 양방향·id 3–12자·문자집합·§1·§2·§4 id 필수·frontmatter(id/area/owner/branch/touched/hash/expires/§1 owner)·`## 현재` 필수. 크기 경고 `## 현재` 4KB·detail 8KB는 strict 모드에서도 구조 실패로 세지 않음 |
 | `scripts/check-state-branch-sync.sh` | §1·§2 branch 포인터 소멸/기머지 (빈 예약 브랜치 오탐 제외) + 유령 브랜치 (frontmatter `branch:` 만 등재로 인정, 제외 glob = `STATE_BRANCH_EXCLUDE`) |
-| `scripts/hooks/session-start-state-inject.sh` | SessionStart — 원칙 한 줄 + 인덱스 전문 + 위 두 체커의 warn 주입 + 같은 worktree 동시 세션 경고(읽기만, 기준점은 만들지 않음) |
+| `scripts/hooks/session-start-state-inject.sh` | SessionStart — 인덱스 전문 유지, 두 checker 경고의 유형·건수·대표·원본 조회 경로 요약, 같은 worktree 동시 세션 경고(읽기만, 기준점은 만들지 않음) |
 | `scripts/hooks/commit-msg-state-check.sh` | commit-msg — 인덱스/detail에서 실제 바뀐 모든 id별 `[id=<id>]` / detail 삭제 파일별 `archive [id=<id>]` 검사 |
 | `scripts/hooks/state-config.mjs` | `.staterc` 공통 파서 — 인덱스 상대경로·정규화·repo 경계·symlink·개수와 설정 크기를 읽기 전에 검증 |
 | `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점(HEAD·dirty STATE hash·detail 본문 크기) 저장. 오류만 출력 |
 | `scripts/hooks/state-turn-baseline.mjs` | 판정 엔진 — 이번 턴 커밋의 `[id=]` 태그, detail 본문 덧붙임, 동시 세션 보류. 턴을 넘는 상태는 저장하지 않는다. git plumbing(rev-list·diff-tree --stdin --cc·cat-file)만 쓴다 |
 | `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
 | `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: 이번 턴의 태그 없는 커밋·인덱스에 없는 id 커밋, detail 본문 덧붙임, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
-| `hooks/claude-hooks.json` + `global-state-hook.sh` | Claude Code user-scope plugin lifecycle. STATE 미사용 repo는 no-op, 이행 중 실제 로컬 command만 구조적으로 감지해 이벤트별 중복 억제 |
-| `hooks/hooks.json` | Codex plugin-bundled global lifecycle. `$PLUGIN_ROOT`의 설치 버전을 실행하며 사용자 `hooks.json` 복사본을 만들지 않음 |
+| `hooks/hooks.json` + `global-state-hook.sh` | Codex·Claude 공통 plugin lifecycle. 두 host의 `$CLAUDE_PLUGIN_ROOT`로 설치 버전을 실행하며 `$PLUGIN_ROOT` 유무로 host를 구분한다. STATE 미사용 repo는 no-op, 이행 중 실제 로컬 command만 구조적으로 감지해 이벤트별 중복 억제 |
 | `hooks/antigravity-hooks.json` + `antigravity-*.sh` | Antigravity(Google Antigravity / AGY) lifecycle. PreInvocation·PostToolUse·Stop JSON 계약 변환. Stop은 이번 턴 알림(태그·덧붙임·크기 외 구조 경고)이 있을 때만 1회 `continue`, 없으면 `allow` |
 | `state-ledger-contract.json` | project adapter와 plugin runtime 사이의 독립 계약 버전. v6 미만 설치본은 runner가 실행하지 않음 |
 | `templates/wiring/state-ledger-runner.mjs` | Git/opencode용 얇은 프로젝트 adapter. 활성화된 Codex version cache 또는 Claude user install을 검증해 plugin-owned script를 실행 |
@@ -73,7 +72,7 @@ area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → �
 
 ## 설치
 
-Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. 두 도구 모두 plugin-bundled hooks를 사용하며 프로젝트나 사용자 `hooks.json`에 lifecycle command를 복사하지 않는다. Codex는 `hooks/hooks.json`의 `$PLUGIN_ROOT`, Claude는 `hooks/claude-hooks.json`의 `$CLAUDE_PLUGIN_ROOT`로 설치 버전을 실행한다. Antigravity는 `~/.gemini/config/hooks.json` 또는 프로젝트 `.agents/hooks.json`에 `hooks/antigravity-hooks.json` 스니펫을 병합해 `antigravity-pre-invocation.sh`, `antigravity-post-tool-use.sh`, `antigravity-stop.sh`를 실행한다. Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 각 홈에서 플러그인을 별도로 활성화한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`와, Git/opencode를 쓰는 경우 얇은 `scripts/hooks/state-ledger-runner.mjs` adapter만 둔다. STATE lifecycle·checker·baseline 구현은 복사하지 않는다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
+Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. 두 도구 모두 기본 `hooks/hooks.json` 하나를 로딩하고 `$CLAUDE_PLUGIN_ROOT`로 같은 dispatcher를 실행한다. Codex도 이 호환 변수를 제공하며 `$PLUGIN_ROOT` 유무로 dispatcher가 host를 구분한다. Claude manifest에 별도 `hooks`를 선언하면 기본 파일에 추가 병합되므로 중복 binding을 두지 않는다. 프로젝트나 사용자 `hooks.json`에 lifecycle command를 복사하지 않는다. Antigravity는 `~/.gemini/config/hooks.json` 또는 프로젝트 `.agents/hooks.json`에 `hooks/antigravity-hooks.json` 스니펫을 병합해 `antigravity-pre-invocation.sh`, `antigravity-post-tool-use.sh`, `antigravity-stop.sh`를 실행한다. Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 각 홈에서 플러그인을 별도로 활성화한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`와, Git/opencode를 쓰는 경우 얇은 `scripts/hooks/state-ledger-runner.mjs` adapter만 둔다. STATE lifecycle·checker·baseline 구현은 복사하지 않는다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
 
 Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `codex plugin add state-ledger@hibye-plugins`로 재설치한다. Claude Code는 `.claude-plugin/plugin.json` version을 올리면 `claude plugin update state-ledger@hibye-plugins`(또는 재설치)로 `~/.claude/plugins/installed_plugins.json`의 version을 맞추고, 로컬 개발 링크를 쓰면 `scripts/link-cache.sh`로 새 version 링크를 만든다 — runner의 Claude fallback은 설치 기록 version과 manifest version이 같을 때만 실행한다. 운영 설치 캐시는 소스 링크로 바꾸지 않는다. `scripts/link-cache.sh`는 기본적으로 Claude 및 Antigravity 개발 캐시만 연결하며, Codex 소스 링크는 격리된 로컬 개발에서 `--codex-dev-links`를 명시한 경우에만 만든다.
 

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { summarizeStateWarnings } from './session-start-warning-summary.mjs'
 
 const STOP_SCRIPT = fileURLToPath(new URL('./stop-state-reminder.sh', import.meta.url))
 const ENGINE_SCRIPT = fileURLToPath(new URL('./state-turn-baseline.mjs', import.meta.url))
@@ -19,6 +20,7 @@ const GLOBAL_SCRIPT = fileURLToPath(new URL('./global-state-hook.sh', import.met
 const ANTIGRAVITY_PRE_INVOCATION = fileURLToPath(new URL('../../hooks/antigravity-pre-invocation.sh', import.meta.url))
 const ANTIGRAVITY_POST_TOOL_USE = fileURLToPath(new URL('../../hooks/antigravity-post-tool-use.sh', import.meta.url))
 const ANTIGRAVITY_STOP = fileURLToPath(new URL('../../hooks/antigravity-stop.sh', import.meta.url))
+const PLUGIN_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
 const EUNHA_WORK_INCLUDE_RE = String.raw`^(\.github/|\.(agents|claude|codex|design-sync|opencode|openai|system-sync)/|(scripts|patches|design|handoff|eslint-rules|supabase)/|docs/(decisions|operations)/|(apps|packages)/)|(^|/)Dockerfile$|^[^/]+\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml)$`
 const EUNHA_WORK_EXCLUDE_RE = String.raw`^(apps|packages)/.*(AGENTS|CLAUDE|README|INVENTORY)\.md$`
@@ -285,6 +287,61 @@ test('Stop lists an untagged commit of this turn with the shared message shape',
     assert.equal(parsed.stateLedgerContinue, undefined)
   }))
 
+test('plugin package registers one shared lifecycle definition for both native hosts', () => {
+  const claude = JSON.parse(readFileSync(join(PLUGIN_ROOT, '.claude-plugin/plugin.json'), 'utf8'))
+  const codex = JSON.parse(readFileSync(join(PLUGIN_ROOT, '.codex-plugin/plugin.json'), 'utf8'))
+  // Claude merges manifest hooks with its default file; a second declaration doubles execution.
+  assert.equal(claude.hooks, undefined)
+  assert.equal(codex.hooks, undefined)
+  assert.equal(existsSync(join(PLUGIN_ROOT, 'hooks/claude-hooks.json')), false)
+  const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8')).hooks
+  assert.deepEqual(Object.keys(hooks), ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop'])
+  for (const entries of Object.values(hooks)) {
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0].hooks.length, 1)
+    assert.equal(entries[0].hooks[0].type, 'command')
+  }
+  assert.equal(hooks.SessionStart[0].matcher, 'startup|resume|clear|compact')
+  assert.equal(hooks.SessionStart[0].hooks[0].additionalContextLimit, 5_000)
+  assert.equal(hooks.PostToolUse[0].matcher, 'apply_patch|Edit|Write|NotebookEdit')
+  assert.equal(hooks.Stop[0].hooks[0].timeout, 30)
+})
+
+test('shared plugin commands resolve each native host and detect only that host local hook', () =>
+  withRepo((root) => {
+    const command = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks/hooks.json'), 'utf8'))
+      .hooks.SessionStart[0].hooks[0].command
+    for (const host of ['claude', 'codex']) {
+      const env = { ...process.env, HOOK_PROJECT_DIR: root, STATE_HOOK_DATA_DIR: `${root}-hook-data` }
+      delete env.STATE_LEDGER_HOST
+      delete env.PLUGIN_ROOT
+      delete env.CLAUDE_PLUGIN_ROOT
+      env.CLAUDE_PLUGIN_ROOT = PLUGIN_ROOT
+      if (host === 'codex') env.PLUGIN_ROOT = PLUGIN_ROOT
+      const run = () => {
+        const result = spawnSync('bash', ['-c', command], {
+          cwd: root, encoding: 'utf8', env,
+          input: JSON.stringify({ session_id: `native-${host}`, source: 'startup', hook_event_name: 'SessionStart' }),
+        })
+        assert.equal(result.status, 0, result.stderr)
+        assert.equal(result.stderr, '')
+        return result.stdout.trim()
+      }
+      const localCodex = '[[hooks.SessionStart.hooks]]\ncommand = "bash scripts/hooks/session-start-state-inject.sh"\n'
+      const localClaude = JSON.stringify({ hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: 'bash scripts/hooks/session-start-state-inject.sh' }] }],
+      } })
+      // Opposite-host configuration must not suppress this host's global lifecycle.
+      write(root, host === 'claude' ? '.codex/config.toml' : '.claude/settings.json', host === 'claude' ? localCodex : localClaude)
+      const context = JSON.parse(run()).hookSpecificOutput.additionalContext
+      assert.equal((context.match(/STATE = 공유 상태판/g) ?? []).length, 1)
+      write(root, host === 'codex' ? '.codex/config.toml' : '.claude/settings.json', host === 'codex' ? localCodex : localClaude)
+      assert.equal(run(), '')
+      rmSync(join(root, '.codex/config.toml'))
+      rmSync(join(root, '.claude/settings.json'))
+    }
+  }))
+
 test('SessionStart injects the shared STATE context shape', () =>
   withRepo((root) => {
     const output = runHook(SESSION_SCRIPT, root, {
@@ -302,6 +359,58 @@ test('SessionStart injects the shared STATE context shape', () =>
       /^STATE = 공유 상태판\. 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다\. 작업 기록은 커밋 메시지 \[id=<id>\] \(STATE 항목과 무관하면 \[id=-\]\)\.\n\n=== STATE\.md ===/m,
     )
   }))
+
+test('SessionStart summarizes a growing warning inventory without dropping STATE indexes', () =>
+  withRepo((root) => {
+    for (let index = 0; index < 60; index += 1) {
+      write(root, `docs/state/root/old-${index}.md`, '# missing frontmatter\n')
+    }
+    const context = JSON.parse(runHook(SESSION_SCRIPT, root, {
+      session_id: 'warning-inventory',
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+    })).hookSpecificOutput.additionalContext
+
+    assert.match(context, /고유 경고 120건/)
+    assert.match(context, /라우팅: 60건/)
+    assert.match(context, /frontmatter: 60건/)
+    assert.match(context, /check-state-branch-sync\.sh/)
+    assert.match(context, /check-state-wip-cap\.sh/)
+    for (const index of ['STATE.md', 'apps/api/STATE.md', 'apps/web/STATE.md']) {
+      assert.ok(context.includes(`=== ${index} ===\n${readFileSync(join(root, index), 'utf8').trimEnd()}`))
+    }
+    assert.ok(Buffer.byteLength(context) < 5_000, `warning summary grew to ${Buffer.byteLength(context)}B`)
+    // 대표 항목만 주입하고 전체 경고는 원본 checker에서 다시 조회한다.
+    assert.equal((context.match(/frontmatter 없음/g) ?? []).length, 1)
+    const commands = context.split('\n').filter((line) => line.startsWith('HOOK_PROJECT_DIR='))
+    assert.equal(commands.length, 2)
+    const raw = commands.map((command) => spawnSync('bash', ['-c', command], {
+      cwd: root, encoding: 'utf8',
+    })).map((result) => `${result.stdout}${result.stderr}`).join('\n')
+    assert.match(raw, /old-59\.md frontmatter 없음/)
+    assert.equal((raw.match(/frontmatter 없음/g) ?? []).length, 60)
+  }))
+
+test('SessionStart warning summary deduplicates diagnostics and keeps initialization types ahead of indexes', () => {
+  const diagnostics = [
+    'WARN: python3가 PATH에 없어 detail 구조·hash 검사를 실행하지 못함',
+    'WARN: node가 PATH에 없어 STATE_INDEXES를 안전하게 검증하지 못함',
+    'WARN: docs/state/root/example.md hash 불일치 (기록 x ≠ 실제 y)',
+    'WARN: docs/state/root/example.md hash 불일치 (기록 x ≠ 실제 y)',
+    'WARN: STATE 정합 1 건 (구조 1 · 크기 0). commit 은 진행 (exit 0).',
+    ...Array.from({ length: 300 }, (_, index) => `WARN: unknown-${index} ${'긴'.repeat(2_000)}`),
+  ]
+  const options = { projectRoot: "/tmp/project's checkout", pluginRoot: dirname(dirname(dirname(SESSION_SCRIPT))) }
+  const summary = summarizeStateWarnings(diagnostics.join('\n'), options)
+  assert.match(summary.initialization, /node 초기화: 1건/)
+  assert.match(summary.initialization, /python3 초기화: 1건/)
+  assert.match(summary.summary, /고유 경고 303건 · 동일 경고 중복 1건 제거/)
+  assert.match(summary.summary, /hash: 1건/)
+  assert.match(summary.summary, /기타: 300건/)
+  assert.ok(Buffer.byteLength(JSON.stringify(summary)) < 4_000)
+  assert.deepEqual(summary, summarizeStateWarnings(diagnostics.reverse().join('\n'), options))
+  assert.ok(summary.summary.includes("HOOK_PROJECT_DIR='/tmp/project'\\''s checkout'"))
+})
 
 test('SessionStart rejects STATE_INDEXES traversal before reading outside the repository', () =>
   withRepo((root) => {

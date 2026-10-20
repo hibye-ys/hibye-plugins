@@ -49,6 +49,29 @@ if [ "${concurrent_count:-0}" -gt 0 ]; then
 같은 worktree에서 최근 30분 내 다른 활성 세션 ${concurrent_count}개가 감지됐습니다. 변경 귀속이 불명확하므로 Stop의 커밋 태그·덧붙임 판정은 보류됩니다."
 fi
 
+# 정합 검사 원본은 그대로 둔다. 시작 맥락에는 종류·건수·대표와 원본 조회 경로만 넣는다.
+# 초기화 오류와 전체 조회 경로는 인덱스보다 먼저 전달한다.
+if [ -z "$config_error" ]; then
+  sync=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-branch-sync.sh" 2>&1 || true)
+  budget=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-wip-cap.sh" 2>&1 || true)
+  if summary=$(printf '%s\n%s' "$sync" "$budget" | node "$script_dir/session-start-warning-summary.mjs" "$root" "$script_dir/../.." 2>&1); then
+    initialization=$(printf '%s' "$summary" | jq -r '.initialization')
+    warning_summary=$(printf '%s' "$summary" | jq -r '.summary')
+    for section in "$initialization" "$warning_summary"; do
+      [ -n "$section" ] || continue
+      out="${out}${out:+
+
+}$section"
+    done
+  else
+    out="${out}${out:+
+
+}=== STATE hook 경고 ===
+STATE 경고 요약 실행 실패: ${summary:0:400}
+전체 경고는 $script_dir/../check-state-branch-sync.sh 와 $script_dir/../check-state-wip-cap.sh 를 HOOK_PROJECT_DIR=$root 로 다시 조회하세요."
+  fi
+fi
+
 STATE_PRINCIPLE='STATE = 공유 상태판. 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다. 작업 기록은 커밋 메시지 [id=<id>] (STATE 항목과 무관하면 [id=-]).'
 principle_added=0
 total_bytes=0
@@ -84,22 +107,6 @@ $(cat "$root/$f")"
 done <<EOF
 $indexes
 EOF
-
-# STATE↔git 브랜치 정합 + 크기·라우팅 예산 warn (warn-only)
-sync=""
-budget=""
-if [ -z "$config_error" ]; then
-  sync=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-branch-sync.sh" 2>/dev/null || true)
-  budget=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-wip-cap.sh" 2>&1 || true)
-fi
-warns="${sync}${sync:+${budget:+
-}}${budget}"
-if [ -n "$warns" ]; then
-  out="${out}${out:+
-
-}=== STATE 정합·예산 (warn-only) ===
-$warns"
-fi
 
 [ -z "$out" ] && exit 0
 
