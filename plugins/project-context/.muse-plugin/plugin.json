@@ -1,1 +1,28 @@
-{"schemaVersion":1,"name":"project-context","version":"0.1.0","displayName":"Project Context","description":"Opt-in memory/intent context source adapter; native product acceptance is separate.","compat":{"manifestDir":".muse-plugin","source":"native"},"capabilities":{"commands":[],"hooks":[{"command":["node","hooks/muse-session-start.cjs"],"event":"SessionStart","id":"session-start","timeoutMs":30000}],"mcpServers":[],"reminders":[],"skills":[]}}
+{
+  "schemaVersion": 1,
+  "name": "project-context",
+  "version": "0.1.0+build.20261020113212015909",
+  "displayName": "Project Context",
+  "description": "Opt-in memory/intent context source adapter; native product acceptance is separate.",
+  "compat": {
+    "manifestDir": ".muse-plugin",
+    "source": "native"
+  },
+  "capabilities": {
+    "commands": [],
+    "hooks": [
+      {
+        "command": [
+          "node",
+          "hooks/muse-session-start.cjs"
+        ],
+        "event": "SessionStart",
+        "id": "session-start",
+        "timeoutMs": 30000
+      }
+    ],
+    "mcpServers": [],
+    "reminders": [],
+    "skills": []
+  }
+}

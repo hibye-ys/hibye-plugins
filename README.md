@@ -41,33 +41,58 @@ Python 3와 세 CLI가 설치된 환경에서 사용한다. 공통 build 버전�
 실패를 알리고 중단한다. 원인을 해결한 뒤 같은 명령을 다시 실행한다.
 설치·갱신 뒤 새 세션에서 사용한다.
 
-## project-context · state-ledger native snapshot
+## 공통 하네스 설치·업데이트
 
-Python **3.11 이상**(`tomllib`)과 선택한 호스트의 CLI가 필요하다. Claude·Codex에는
-현재 로컬 `hibye-plugins` marketplace가 이미 등록되어 있어야 한다. 설치·업데이트는
-정식 native CLI만 호출하며 이 스크립트가 캐시를 직접 복사하거나 source link로 바꾸지 않는다.
+공통 하네스 `state-ledger`·`project-context`·`spec-plan`은 Codex와 Claude 모두 설치 스냅샷을
+실행한다. Python **3.11 이상**과 두 native CLI가 필요하며, Codex에는 로컬 `hibye-plugins`
+marketplace를 먼저 등록한다. 이 저장소에서 다음 명령 하나로 두 호스트를 함께 갱신한다.
 
 ```bash
-python3 scripts/sync-plugins.py --plugin state-ledger --plugin project-context --host codex --host claude --preview
-python3 scripts/sync-plugins.py --plugin state-ledger --plugin project-context --host codex --host claude
-python3 scripts/sync-plugins.py --plugin state-ledger --plugin project-context --host codex --host claude --check
+python3 scripts/sync-plugins.py --harness
 ```
 
-`--plugin`·`--host`는 필수이고 반복할 수 있다. `--preview`는 선택한 source의 manifest·marketplace·
-전체 파일을 검증하며 설치하지 않는다. `--check`는 현재 native 등록의 version·activation과
-전체 설치 파일 해시를 source에 대조한다. 파일·조상 경로의 symlink도 실패한다.
-정식 CLI가 일부 파일을 생략하거나 설치 후 설정을 바꾸어도 성공으로 처리하지 않는다.
-호스트는 순서대로 갱신하므로 중간 실패는 일부 설치만 바뀐 상태일 수 있으며, 실패를 해결하고 재실행한다.
+설치 전 확인과 설치 후 진단은 같은 명령에 읽기 전용 옵션을 붙인다.
 
-내용이 바뀌었는데 동일 version의 캐시를 native CLI가 재사용하면 선택한 플러그인에
-`--build-marker`를 명시해 새 공통 버전을 만든다. 이 옵션은 양 manifest·있다면 Muse manifest·
-Claude marketplace를 하나의 marker로 갱신하므로 source 변경도 검토해야 한다.
-기본 version은 각 source manifest가 정본이다. `sync-marketplace.sh`에도 같은 선택 인수를 전달할 수 있다.
-Muse는 `--host muse`로 명시할 수 있으나 project-context의 실제 제품 수용은 Claude·Codex 범위다.
+```bash
+python3 scripts/sync-plugins.py --harness --preview
+python3 scripts/sync-plugins.py --harness --check
+```
 
-`link-cache.sh`는 `state-ledger`·`project-context`·`spec-plan`을 **항상 제외**한다.
-`--codex-dev-links`도 이 세 native snapshot을 바꾸지 않는다. 다른 플러그인의 기존 개발 링크 흐름은 유지된다.
-현재 snapshot 경계 검증은 다음 fixture로 실행한다.
+이 명령은 프로젝트 setup을 다시 실행하지 않으며 제거한 backend-ts·Playwright·Tailwind를
+설치하지 않는다. 기존 프로젝트의 memory·intent·STATE 데이터도 복사하거나 덮어쓰지 않는다.
+코드를 갱신한 뒤에는 새 세션에서 사용한다. 이미 열린 세션까지 새 코드로 전환됐다고 보지 않는다.
+현재 Codex CLI는 비활성 설치를 그대로 갱신하는 옵션이 없어, 선택한 Codex 하네스가 꺼져 있으면
+updater는 쓰기 전에 중단하고 해당 이름을 알린다. 업데이트를 이유로 임의로 켜지 않는다.
+
+Claude는 local-path marketplace의 상대경로 plugin을 개발 원본에서 직접 로드한다.
+따라서 캐시 `installPath`의 파일이 같다는 검사만으로 설치본 실행을 보장할 수 없다.
+updater는 선택한 payload를 고정된 로컬 Git 배포본으로 만들고, 선택 entry만 그 배포본을
+가리키는 전용 배포 폴더의 `.claude-plugin/marketplace.json`을 생성한다. 이 폴더는 유저 데이터에
+두는 머신별 생성물이며 Git에 넣지 않는다. 정식 marketplace CLI로 같은 `hibye-plugins` ID를 이 catalog에
+연결하고 목록을 새로 읽은 뒤, native 설치·업데이트 CLI로 설치 캐시를 갱신한다.
+개발 원본을 편집해도 다음 명시적 업데이트 전까지 그 배포본은 바뀌지 않는다.
+선택하지 않은 catalog entry는 원래 필드를 보존하고, 기존 상대경로는 개발 원본으로 연결해
+그 plugin의 기존 개발 흐름을 유지한다. 공통 하네스 세 plugin에는 이 연결을 만들지 않는다.
+
+`--check`는 실제 marketplace 배포 source, 선택 entry의 고정 Git 경로·revision, 유효한 기존
+설치 scope, 전체 설치 파일과 원본의 동일성을 함께 확인한다. 개발 원본을 실행하는 등록이나
+source link, payload 누락·변조를 성공으로 처리하지 않는다. `--preview`·`--check`는 배포본·
+catalog·버전을 쓰거나 설치하지 않는다. 두 호스트는 순서대로 갱신하므로 중간 실패 시 일부만
+갱신됐을 수 있다. 오류를 해결하고 같은 명령을 다시 실행하며 부분 반영을 완료로 보고하지 않는다.
+
+같은 version의 설치 캐시와 실제 payload 또는 배포 출처가 달라지면 `--harness`가 필요한 공통 build version을
+갱신해 두 호스트에 반영한다. 변경 없는 재실행에서 불필요하게 version을 올리지 않는다.
+선택 범위를 직접 지정하는 기존 명령도 유지한다.
+
+```bash
+python3 scripts/sync-plugins.py --plugin project-context --host codex --host claude --check
+```
+
+명시 선택 모드에서는 필요할 때 `--build-marker`로 선택 plugin의 양 manifest·Muse manifest·
+Claude 원본 catalog version을 함께 갱신한다. `--harness`에는 별도 plugin/host 선택을 섞지 않는다.
+
+`link-cache.sh`와 `--codex-dev-links`는 위 세 하네스를 개발 원본 링크로 바꾸지 않는다.
+다른 plugin의 기존 개발 링크 흐름은 별도이며, 배포 경계 회귀는 다음으로 확인한다.
 
 ```bash
 python3 scripts/test-project-context-distribution.py

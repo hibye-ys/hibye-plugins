@@ -1,1 +1,14 @@
-{"name":"project-context","version":"0.1.0","description":"Project opt-in shared memory pointers and lazy intent context across sessions.","author":{"name":"hibye-ys"},"license":"MIT","skills":"./skills/","interface":{"displayName":"Project Context","shortDescription":"Shared project memory and lazy operating decisions."}}
+{
+  "name": "project-context",
+  "version": "0.1.0+build.20261020113212015909",
+  "description": "Project opt-in shared memory pointers and lazy intent context across sessions.",
+  "author": {
+    "name": "hibye-ys"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Project Context",
+    "shortDescription": "Shared project memory and lazy operating decisions."
+  }
+}

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Isolated setup/native distribution regression; no native installations."""
 import importlib.util
+import io
+from contextlib import redirect_stdout, redirect_stderr
 import json
 import os
 from pathlib import Path
@@ -441,6 +443,341 @@ class SnapshotTests(unittest.TestCase):
                         self.assertEqual((cache / '1.0.0/sentinel').read_text(), 'keep snapshot')
                         self.assertFalse((cache / 'current').exists())
                 self.assertTrue((home / '.claude/plugins/cache/hibye-plugins/other/1.0.0').is_symlink())
+
+
+
+class FakeNativeHosts:
+    """In-memory CLI behavior plus isolated registry/cache files; no native CLI runs."""
+    def __init__(self, root):
+        self.root = root
+        self.home = root / 'claude-config'
+        self.codex_home = root / 'codex-config'
+        self.project = root / 'project'
+        self.project.mkdir()
+        self.project2 = root / 'project-two'
+        self.project2.mkdir()
+        self.calls = []
+        self.fail = None
+        self.skip_scope = None
+        self.tamper_activation = False
+        self.registry = {'version': 2, 'plugins': {}}
+        self.codex = {}
+        self.active = {}
+        portable = {'name': 'hibye-plugins', 'owner': {'name': 'fixture'}, 'plugins': []}
+        codex_catalog = {'name': 'hibye-plugins', 'plugins': []}
+        for name in (*sync.HARNESS, 'backend-ts'):
+            source = root / 'plugins' / name
+            for host in ('codex', 'claude'):
+                folder = source / f'.{host}-plugin'
+                folder.mkdir(parents=True)
+                (folder / 'plugin.json').write_text(json.dumps({'name': name, 'version': '1.0.0'}))
+            (source / 'runtime.cjs').write_text('fixed original ' + name)
+            portable['plugins'].append({'name': name, 'source': './plugins/' + name,
+                'version': '1.0.0', 'custom': {'preserve': [name, 3]}})
+            codex_catalog['plugins'].append({'name': name,
+                'source': {'source': 'local', 'path': './plugins/' + name}})
+            if name == 'backend-ts':
+                continue
+            cache = self.codex_home / 'plugins/cache/hibye-plugins' / name / '1.0.0'
+            shutil.copytree(source, cache)
+            self.codex[name] = {'pluginId': name + '@hibye-plugins', 'version': '1.0.0', 'enabled': True}
+            targets = [('user', None)]
+            if name == 'project-context':
+                targets += [('project', str(self.project)), ('project', str(self.project2)), ('local', str(self.project))]
+            records = []
+            for scope, project in targets:
+                cache = self.home / 'plugins/cache/hibye-plugins' / name / '1.0.0'
+                if not cache.exists():
+                    shutil.copytree(source, cache)
+                record = {'scope': scope, 'version': '1.0.0', 'installPath': str(cache), 'gitCommitSha': 'old-development-head'}
+                if project:
+                    record['projectPath'] = project
+                records.append(record)
+                key = (name, scope, project)
+                self.active[key] = not (scope == 'local' or name == 'state-ledger')
+                normalized = {'scope': scope, 'projectPath': project}
+                settings = self.settings_path(normalized)
+                settings.parent.mkdir(parents=True, exist_ok=True)
+                value = json.loads(settings.read_text()) if settings.exists() else {'unrelated': {'keep': True}}
+                value.setdefault('enabledPlugins', {})[name + '@hibye-plugins'] = self.active[key]
+                settings.write_text(json.dumps(value))
+            self.registry['plugins'][name + '@hibye-plugins'] = records
+        for folder, content in (('.claude-plugin', portable), ('.agents/plugins', codex_catalog)):
+            path = root / folder / 'marketplace.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(content))
+        self.write_registry()
+        self.write_known(root)
+        self.listing = portable
+
+    def settings_path(self, record):
+        if record['scope'] == 'user':
+            return self.home / 'settings.json'
+        return Path(record['projectPath']) / '.claude' / ('settings.local.json' if record['scope'] == 'local' else 'settings.json')
+
+    def write_registry(self):
+        path = self.home / 'plugins/installed_plugins.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.registry))
+
+    def write_known(self, location):
+        self.catalog_root = Path(location)
+        path = self.home / 'plugins/known_marketplaces.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({'hibye-plugins': {'source': {'source': 'directory', 'path': str(location)}, 'installLocation': str(location)}}))
+
+    def command(self, *args, cwd=None):
+        self.calls.append((args, str(cwd) if cwd else None))
+        if self.fail and self.fail(args, cwd):
+            raise RuntimeError('fixture native partial failure')
+        if args[:3] == ('codex', 'plugin', 'list'):
+            return json.dumps({'installed': list(self.codex.values())})
+        if args[:3] == ('codex', 'plugin', 'add'):
+            name = args[3].split('@')[0]
+            source = self.root / 'plugins' / name
+            version = json.loads((source / '.codex-plugin/plugin.json').read_text())['version']
+            cache = self.codex_home / 'plugins/cache/hibye-plugins' / name / version
+            if not cache.exists():
+                shutil.copytree(source, cache)
+            self.codex[name] = {'pluginId': name + '@hibye-plugins', 'version': version, 'enabled': True}
+            return '{}'
+        if args[:3] == ('claude', 'plugin', 'list'):
+            result = []
+            for plugin_id, records in self.registry['plugins'].items():
+                name = plugin_id.split('@')[0]
+                for record in records:
+                    item = {'id': plugin_id, **record, 'enabled': self.active[(name, record['scope'], record.get('projectPath'))]}
+                    source = next(entry for entry in self.listing['plugins'] if entry['name'] == name)['source']
+                    if isinstance(source, str):
+                        item['readFromFolder'] = str(self.root / source[2:])
+                    result.append(item)
+            return json.dumps(result)
+        if args[:4] == ('claude', 'plugin', 'marketplace', 'add'):
+            self.write_known(Path(args[4]))
+            # Deliberately keep the old native listing until explicit refresh.
+            return '{}'
+        if args[:4] == ('claude', 'plugin', 'marketplace', 'update'):
+            self.listing = json.loads((self.catalog_root / '.claude-plugin/marketplace.json').read_text())
+            return '{}'
+        if args[:3] in (('claude', 'plugin', 'update'), ('claude', 'plugin', 'install')):
+            name = args[3].split('@')[0]
+            scope = args[args.index('--scope') + 1]
+            project = str(cwd) if scope != 'user' else None
+            if (scope, project) == self.skip_scope:
+                return '{}'
+            entry = next(item for item in self.listing['plugins'] if item['name'] == name)
+            if not isinstance(entry['source'], dict) or entry['source'].get('source') != 'url':
+                raise RuntimeError('fixture refuses in-place selected source')
+            from urllib.parse import urlparse, unquote
+            publication_root = Path(unquote(urlparse(entry['source']['url']).path))
+            version = entry['version']
+            cache = self.home / 'plugins/cache/hibye-plugins' / name / version
+            # Like a native cache, an existing same-version snapshot is reused.
+            if not cache.exists():
+                cache.mkdir(parents=True)
+                for source in publication_root.iterdir():
+                    if source.name == '.git':
+                        continue
+                    target = cache / source.name
+                    shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
+            records = self.registry['plugins'].setdefault(name + '@hibye-plugins', [])
+            item = next((record for record in records if record['scope'] == scope and record.get('projectPath') == project), None)
+            if item is None:
+                item = {'scope': scope}
+                if project:
+                    item['projectPath'] = project
+                records.append(item)
+                self.active[(name, scope, project)] = True
+            item.update(version=version, installPath=str(cache), gitCommitSha=sync.publication.git(publication_root, 'rev-parse', 'HEAD'))
+            if self.tamper_activation:
+                path = self.settings_path({'scope': scope, 'projectPath': project})
+                data = json.loads(path.read_text())
+                data['enabledPlugins'][name + '@hibye-plugins'] = True
+                path.write_text(json.dumps(data))
+            self.write_registry()
+            return '{}'
+        raise AssertionError('Unexpected fake CLI operation: ' + repr(args))
+
+
+class HarnessUpdateTests(unittest.TestCase):
+    def configured(self, root):
+        fake = FakeNativeHosts(root)
+        return fake, patch.multiple(sync, ROOT=root, command=fake.command), patch.dict(os.environ, {
+            'CLAUDE_CONFIG_DIR': str(fake.home), 'CODEX_HOME': str(fake.codex_home)})
+
+    def run_cli(self, *args):
+        with patch.object(sys, 'argv', ['sync-plugins.py', *args]), patch.object(sync.shutil, 'which', return_value='/fixture/cli'), redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors:
+            status = sync.main()
+        return status, output.getvalue(), errors.getvalue()
+
+    def file_state(self, root):
+        return {str(path.relative_to(root)): ('link', os.readlink(path)) if path.is_symlink() else ('file', path.read_bytes(), path.stat().st_mode & 0o777) for path in root.rglob('*') if path.is_file() or path.is_symlink()}
+
+    def test_red_old_local_relative_read_from_folder_is_not_snapshot_acceptance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                # Bytes and native installPath already match source; this was the
+                # old false positive. readFromFolder is the effective execution.
+                with self.assertRaisesRegex(RuntimeError, 'in-place readFromFolder'):
+                    sync.inspect_host('claude', 'project-context')
+                status, _, error = self.run_cli('--harness', '--check')
+                self.assertEqual(status, 1)
+                self.assertIn('canonical publication catalog root', error)
+
+    def test_harness_publishes_both_hosts_all_scopes_preserves_activation_and_other_entries(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                activations = {path: path.read_bytes() for path in (fake.home / 'settings.json', fake.project / '.claude/settings.json', fake.project / '.claude/settings.local.json', fake.project2 / '.claude/settings.json')}
+                portable = (root / '.claude-plugin/marketplace.json').read_bytes()
+                status, output, error = self.run_cli('--harness')
+                self.assertEqual(status, 0, error)
+                self.assertIn('All selected installations verified', output)
+                self.assertEqual(activations, {path: path.read_bytes() for path in activations})
+                catalog = json.loads(sync.catalog_path().read_text())
+                other = next(item for item in catalog['plugins'] if item['name'] == 'backend-ts')
+                self.assertEqual(other, json.loads(portable)['plugins'][-1])
+                alias = sync.catalog_root() / 'plugins/backend-ts'
+                self.assertTrue(alias.is_symlink())
+                self.assertEqual(alias.resolve(), root / 'plugins/backend-ts')
+                self.assertFalse(any('backend-ts@' in ' '.join(args) for args, _ in fake.calls))
+                updates = [(args, cwd) for args, cwd in fake.calls if args[:3] == ('claude', 'plugin', 'update') and args[3] == 'project-context@hibye-plugins']
+                self.assertEqual({(args[args.index('--scope')+1], cwd) for args, cwd in updates}, {('user', None), ('project', str(fake.project)), ('project', str(fake.project2)), ('local', str(fake.project))})
+                self.assertTrue(any(args[:4] == ('claude', 'plugin', 'marketplace', 'update') for args, _ in fake.calls))
+                self.assertEqual(self.run_cli('--harness', '--check')[0], 0)
+
+    def test_preview_and_check_do_not_publish_bump_write_catalog_or_mutate_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                before = self.file_state(root)
+                self.assertEqual(self.run_cli('--harness', '--preview')[0], 0)
+                self.assertEqual(before, self.file_state(root))
+                self.assertEqual(self.run_cli('--harness', '--check')[0], 1)
+                self.assertEqual(before, self.file_state(root))
+                self.assertFalse(any(args[:3] in (('codex', 'plugin', 'add'), ('claude', 'plugin', 'update'), ('claude', 'plugin', 'install')) or args[:3] == ('claude', 'plugin', 'marketplace') for args, _ in fake.calls))
+
+    def test_changed_payload_only_bumps_that_plugin_and_second_run_is_stable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                self.assertEqual(self.run_cli('--harness')[0], 0)
+                old = {name: sync.manifests(name)[1] for name in sync.HARNESS}
+                old_catalog = sync.catalog_path().read_bytes()
+                old_publications = sorted(str(path) for path in sync.publication.default_base().glob('*/*') if path.is_dir())
+                self.assertEqual(self.run_cli('--harness')[0], 0)
+                self.assertEqual(old, {name: sync.manifests(name)[1] for name in sync.HARNESS})
+                self.assertEqual(old_catalog, sync.catalog_path().read_bytes())
+                self.assertEqual(old_publications, sorted(str(path) for path in sync.publication.default_base().glob('*/*') if path.is_dir()))
+                target, payload = sync.publication_for('project-context')
+                published_before = self.file_state(target)
+                (root / 'plugins/project-context/runtime.cjs').write_text('edited development payload')
+                self.assertEqual(published_before, self.file_state(target))
+                result = self.run_cli('--harness')
+                self.assertEqual(result[0], 0, result[2])
+                new = {name: sync.manifests(name)[1] for name in sync.HARNESS}
+                self.assertNotEqual(old['project-context'], new['project-context'])
+                self.assertEqual(old['state-ledger'], new['state-ledger'])
+                self.assertEqual(old['spec-plan'], new['spec-plan'])
+                self.assertEqual(published_before, self.file_state(target))
+
+    def test_bundle_conflicts_fail_before_native_calls(self):
+        with patch.object(sync, 'command') as command:
+            for args in (('--harness', '--plugin', 'backend-ts'), ('--harness', '--host', 'muse'), ('--harness', '--build-marker')):
+                self.assertEqual(self.run_cli(*args)[0], 1)
+            command.assert_not_called()
+
+    def test_native_partial_failure_is_nonzero_names_scope_and_preserves_existing_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                fake.fail = lambda args, cwd: args[:3] == ('claude', 'plugin', 'update') and cwd == fake.project
+                status, output, error = self.run_cli('--harness')
+                self.assertEqual(status, 1)
+                self.assertIn('scope=project', error)
+                self.assertIn('Partial update possible', error)
+                self.assertNotIn('All selected installations verified', output)
+                self.assertEqual(len(fake.registry['plugins']['project-context@hibye-plugins']), 4)
+                self.assertFalse(any(args[:3] == ('claude', 'plugin', 'uninstall') for args, _ in fake.calls))
+
+    def test_stale_or_silently_skipped_scope_and_activation_changes_are_failures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                fake.skip_scope = ('project', str(fake.project))
+                status, _, error = self.run_cli('--harness')
+                self.assertEqual(status, 1)
+                self.assertIn('scope=project', error)
+                fake.skip_scope = None
+                fake.tamper_activation = True
+                status, _, error = self.run_cli('--harness')
+                self.assertEqual(status, 1)
+                self.assertIn('activation setting', error)
+
+    def test_missing_scope_directory_fails_before_any_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            shutil.rmtree(fake.project2)
+            with patched, environment:
+                before = self.file_state(root)
+                self.assertEqual(self.run_cli('--harness')[0], 1)
+                self.assertEqual(before, self.file_state(root))
+
+    def test_codex_disabled_anywhere_in_bundle_fails_before_first_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            fake.codex['spec-plan']['enabled'] = False
+            with patched, environment:
+                before = self.file_state(root)
+                status, _, error = self.run_cli('--harness')
+                self.assertEqual(status, 1)
+                self.assertIn('codex/spec-plan is disabled', error)
+                self.assertEqual(before, self.file_state(root))
+                self.assertFalse(any(args[:3] == ('codex', 'plugin', 'add') or args[:3] == ('claude', 'plugin', 'marketplace') for args, _ in fake.calls))
+
+    def test_current_unselected_metadata_and_moved_source_root_are_preserved(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                self.assertEqual(self.run_cli('--harness')[0], 0)
+                portable_path = root / '.claude-plugin/marketplace.json'
+                portable = json.loads(portable_path.read_text())
+                other = next(item for item in portable['plugins'] if item['name'] == 'backend-ts')
+                other.update(source='./plugins/backend-ts-moved', version='2.0.0', custom={'new': ['metadata']})
+                (root / 'plugins/backend-ts').rename(root / 'plugins/backend-ts-moved')
+                portable_path.write_text(json.dumps(portable))
+                result = self.run_cli('--harness')
+                self.assertEqual(result[0], 0, result[2])
+                generated = json.loads(sync.catalog_path().read_text())
+                self.assertEqual(next(item for item in generated['plugins'] if item['name'] == 'backend-ts'), other)
+                self.assertFalse((sync.catalog_root() / 'plugins/backend-ts').exists())
+                self.assertFalse((sync.catalog_root() / 'plugins/backend-ts').is_symlink())
+                self.assertEqual((sync.catalog_root() / 'plugins/backend-ts-moved').resolve(), root / 'plugins/backend-ts-moved')
+
+    def test_published_payload_and_git_metadata_are_read_only_and_mutation_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            with patched, environment:
+                self.assertEqual(self.run_cli('--harness')[0], 0)
+                target, payload = sync.publication_for('project-context')
+                self.assertEqual(sync.publication.publish('project-context', payload), target)
+                file = target / 'runtime.cjs'
+                self.assertFalse(file.stat().st_mode & 0o222)
+                file.chmod(0o644)
+                with self.assertRaisesRegex(RuntimeError, 'writable'):
+                    sync.publication.verify_publication(target, payload)
+
 
 
 if __name__ == '__main__':

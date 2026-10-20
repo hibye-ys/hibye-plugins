@@ -18,14 +18,14 @@
       "description": "STATE 원장 시스템 — 공유 상태판 1줄 인덱스와 커밋 [id=] 태그로 턴 작업을 판정하는 warn-only lifecycle (Claude/Codex/opencode 공용).",
       "category": "development",
       "source": "./plugins/state-ledger",
-      "version": "0.4.1"
+      "version": "0.4.1+build.20261020113212015909"
     },
     {
       "name": "spec-plan",
       "description": "간결한 스펙·구현 계획, 비용을 고려한 에이전트 배정, 순차·병렬 실행과 중단 복구.",
       "category": "development",
       "source": "./plugins/spec-plan",
-      "version": "1.1.2+codex.20261001183245118909"
+      "version": "1.1.2+build.20261020113212015909"
     },
     {
       "name": "muse-delegate",
@@ -39,7 +39,7 @@
       "description": "프로젝트 opt-in 기반 primary checkout 공유 메모리와 현재 checkout intent의 host별 lazy context.",
       "category": "development",
       "source": "./plugins/project-context",
-      "version": "0.1.0"
+      "version": "0.1.0+build.20261020113212015909"
     }
   ]
 }

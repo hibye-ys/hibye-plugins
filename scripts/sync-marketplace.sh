@@ -9,6 +9,7 @@
 #
 # Usage:
 #   sync-marketplace.sh            # 재생성 (in-place) + 캐시 링크
+#   sync-marketplace.sh --harness  # 공통 하네스 Codex·Claude 설치 스냅샷 갱신
 #   sync-marketplace.sh --check    # drift 검증만 (무수정, drift 시 exit 1) — CI/커밋훅용
 set -euo pipefail
 
@@ -18,13 +19,13 @@ CHECK=0
 SELECTED=()
 NATIVE=0
 for arg in "$@"; do
-  case "$arg" in --plugin|--host|--preview|--build-marker) NATIVE=1;; esac
+  case "$arg" in --harness|--plugin|--host|--preview|--build-marker) NATIVE=1;; esac
 done
 if [ "$NATIVE" = 1 ]; then
   exec python3 "$ROOT/scripts/sync-plugins.py" "$@"
 fi
 if [ "${1:-}" = "--check" ]; then CHECK=1; shift; fi
-[ "$#" = 0 ] || { echo "Usage: $0 [--check] | --plugin NAME --host codex|claude|muse [--check|--preview] [--build-marker]" >&2; exit 2; }
+[ "$#" = 0 ] || { echo "Usage: $0 [--check] | --harness [--check|--preview] | --plugin NAME --host codex|claude|muse [--check|--preview] [--build-marker]" >&2; exit 2; }
 
 fail=0
 run_gen() {

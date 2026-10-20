@@ -8,3 +8,6 @@ node_modules/
 # link-cache.sh 가 plugin 안에 self-referencing 0.0.1 symlink 생성. 무시.
 plugins/*/0.0.1
 archive
+
+# Python updater/test import cache
+__pycache__/

@@ -1,6 +1,6 @@
 {
   "name": "spec-plan",
-  "version": "1.1.2+codex.20261001183245118909",
+  "version": "1.1.2+build.20261020113212015909",
   "description": "Concise specs and implementation plans with cost-aware parallel work and resumable handoffs.",
   "author": {
     "name": "hibye-ys"

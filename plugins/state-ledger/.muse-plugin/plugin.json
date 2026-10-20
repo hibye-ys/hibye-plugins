@@ -1,1 +1,58 @@
-{"capabilities": {"commands": [], "hooks": [{"command": ["sh", "hooks/muse-session-start.sh"], "event": "SessionStart", "id": "session-start", "statusMessage": "STATE 주입 중", "timeoutMs": 30000}, {"command": ["sh", "hooks/muse-turn-start.sh"], "event": "UserPromptSubmit", "id": "turn-start", "statusMessage": "STATE 턴 기준점 저장 중", "timeoutMs": 10000}, {"command": ["sh", "hooks/muse-post-tool-use.sh"], "event": "PostToolUse", "id": "post-tool-use", "statusMessage": "STATE 스탬프 기록 중", "timeoutMs": 30000}, {"command": ["sh", "hooks/muse-stop.sh"], "event": "Stop", "id": "stop", "timeoutMs": 30000}], "mcpServers": [], "reminders": [], "skills": []}, "compat": {"manifestDir": ".muse-plugin", "source": "native"}, "description": "Global warn-only STATE ledger lifecycle for Muse. Same runtime as the Codex/Claude hosts (STATE_LEDGER_HOST=muse).", "displayName": "State Ledger", "name": "state-ledger", "schemaVersion": 1, "version": "0.4.1"}
+{
+  "capabilities": {
+    "commands": [],
+    "hooks": [
+      {
+        "command": [
+          "sh",
+          "hooks/muse-session-start.sh"
+        ],
+        "event": "SessionStart",
+        "id": "session-start",
+        "statusMessage": "STATE 주입 중",
+        "timeoutMs": 30000
+      },
+      {
+        "command": [
+          "sh",
+          "hooks/muse-turn-start.sh"
+        ],
+        "event": "UserPromptSubmit",
+        "id": "turn-start",
+        "statusMessage": "STATE 턴 기준점 저장 중",
+        "timeoutMs": 10000
+      },
+      {
+        "command": [
+          "sh",
+          "hooks/muse-post-tool-use.sh"
+        ],
+        "event": "PostToolUse",
+        "id": "post-tool-use",
+        "statusMessage": "STATE 스탬프 기록 중",
+        "timeoutMs": 30000
+      },
+      {
+        "command": [
+          "sh",
+          "hooks/muse-stop.sh"
+        ],
+        "event": "Stop",
+        "id": "stop",
+        "timeoutMs": 30000
+      }
+    ],
+    "mcpServers": [],
+    "reminders": [],
+    "skills": []
+  },
+  "compat": {
+    "manifestDir": ".muse-plugin",
+    "source": "native"
+  },
+  "description": "Global warn-only STATE ledger lifecycle for Muse. Same runtime as the Codex/Claude hosts (STATE_LEDGER_HOST=muse).",
+  "displayName": "State Ledger",
+  "name": "state-ledger",
+  "schemaVersion": 1,
+  "version": "0.4.1+build.20261020113212015909"
+}
