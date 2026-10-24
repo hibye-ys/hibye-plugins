@@ -1,6 +1,6 @@
 {
   "name": "state-ledger",
-  "version": "0.4.1+build.20261020113212015909",
+  "version": "0.5.0",
   "description": "STATE 원장 시스템 — 공유 상태판 1줄 인덱스와 커밋 [id=] 태그로 턴 작업을 판정하는 warn-only lifecycle (Claude/Codex/opencode 공용).",
   "author": {
     "name": "hibye-ys"

@@ -12,3 +12,6 @@ STATE_WORK_EXCLUDE_RE="(^|/)(node_modules|dist|build|coverage|vendor)/"
 
 # branch-sync 유령 검사에서 제외할 브랜치 glob 목록 (공백 구분).
 STATE_BRANCH_EXCLUDE="task-loop/*"
+
+# 사용자 확인 뒤 명시한 정리 요청만 검증하려면 새 runner와 함께 1로 설정.
+STATE_CLEANUP_ENFORCE="0"

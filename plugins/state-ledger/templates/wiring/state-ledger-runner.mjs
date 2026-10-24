@@ -17,10 +17,30 @@ const ACTIONS = new Map([
   ['turn-start', { script: 'scripts/hooks/global-state-hook.sh', args: ['turn-start'], stdin: true }],
   ['stamp', { script: 'scripts/hooks/global-state-hook.sh', args: ['stamp'], stdin: true }],
   ['stop', { script: 'scripts/hooks/global-state-hook.sh', args: ['stop'], stdin: true }],
-  ['commit-msg', { script: 'scripts/hooks/commit-msg-state-check.sh', args: [] }],
+  ['commit-msg', { script: 'scripts/hooks/commit-msg-state-check.sh', args: [], strict: true }],
+  ['cleanup', { script: 'scripts/hooks/state-cleanup.mjs', args: [], node: true, strict: true }],
   ['check-wip', { script: 'scripts/check-state-wip-cap.sh', args: [] }],
   ['check-branch', { script: 'scripts/check-state-branch-sync.sh', args: [] }],
 ])
+
+function cleanupRequired() {
+  const root = process.env.HOOK_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd()
+  try {
+    if (/^STATE_CLEANUP_ENFORCE="1"\s*$/m.test(readFileSync(join(root, '.staterc'), 'utf8'))) return true
+  } catch { /* HEAD still protects an uncommitted opt-out */ }
+  const head = spawnSync('git', ['-C', root, 'show', 'HEAD:.staterc'], { encoding: 'utf8', timeout: 3000 })
+  return head.status === 0 && /^STATE_CLEANUP_ENFORCE="1"\s*$/m.test(head.stdout)
+}
+
+function required(action) {
+  return action.node || (action.strict && cleanupRequired())
+}
+
+function unavailable(strict) {
+  warn('활성화된 user-scope state-ledger 설치본을 찾지 못해 검사를 건너뜁니다.')
+  if (strict) process.stdout.write('STATE_CLEANUP_BLOCK: cleanup validator is unavailable\n')
+  process.exit(strict ? 1 : 0)
+}
 
 function readJson(path) {
   try {
@@ -35,6 +55,7 @@ function pluginRoot(candidate, expectedVersion = '') {
   const root = resolve(candidate)
   const contract = readJson(join(root, 'state-ledger-contract.json'))
   if (contract?.version !== REQUIRED_CONTRACT_VERSION) return null
+  if (cleanupRequired() && contract.cleanup_version !== 1) return null
   const manifests = [
     join(root, '.codex-plugin', 'plugin.json'),
     join(root, '.claude-plugin', 'plugin.json'),
@@ -144,10 +165,11 @@ function run(root, action, extraArgs = [], input) {
     if (!statSync(target).isFile()) throw new Error('not a regular file')
   } catch {
     warn(`state-ledger 설치본에 ${action.script}가 없어 검사를 건너뜁니다.`)
+    if (required(action)) { process.stdout.write('STATE_CLEANUP_BLOCK: cleanup validator is unavailable\n'); process.exitCode = 1 }
     return
   }
 
-  const result = spawnSync('bash', [target, ...action.args, ...extraArgs], {
+  const result = spawnSync(action.node ? process.execPath : 'bash', [target, ...action.args, ...extraArgs], {
     env: process.env,
     encoding: 'utf8',
     input,
@@ -160,7 +182,11 @@ function run(root, action, extraArgs = [], input) {
     if (!output.endsWith('\n')) process.stdout.write('\n')
   }
   if (result.error || result.status !== 0) {
-    warn(`state-ledger ${action.script} 실행 실패; warn-only로 계속합니다.`)
+    if (required(action)) {
+      process.stdout.write('STATE_CLEANUP_BLOCK: required validator execution failed\n')
+      process.exitCode = result.status || 1
+    }
+    else warn(`state-ledger ${action.script} 실행 실패; warn-only로 계속합니다.`)
   }
 }
 
@@ -168,24 +194,23 @@ const [actionName, ...extraArgs] = process.argv.slice(2)
 if (actionName === 'validate') {
   const root = resolvePluginRoot()
   if (!root) {
-    warn('활성화된 user-scope state-ledger 설치본을 찾지 못해 검사를 건너뜁니다.')
-    process.exit(0)
+    unavailable(cleanupRequired())
   }
   run(root, ACTIONS.get('check-branch'))
   run(root, ACTIONS.get('check-wip'))
-  process.exit(0)
+  if (cleanupRequired()) run(root, ACTIONS.get('cleanup'), ['validate-staged'])
+  process.exit(process.exitCode || 0)
 }
 
 const action = ACTIONS.get(actionName)
 if (!action) {
-  process.stderr.write('usage: state-ledger-runner.mjs <session-start|turn-start|stamp|stop|commit-msg|check-wip|check-branch|validate> [args...]\n')
+  process.stderr.write('usage: state-ledger-runner.mjs <session-start|turn-start|stamp|stop|commit-msg|check-wip|check-branch|cleanup|validate> [args...]\n')
   process.exit(2)
 }
 
 const root = resolvePluginRoot()
 if (!root) {
-  warn('활성화된 user-scope state-ledger 설치본을 찾지 못해 검사를 건너뜁니다.')
-  process.exit(0)
+  unavailable(required(action))
 }
 const input = action.stdin ? readFileSync(0) : undefined
 run(root, action, extraArgs, input)

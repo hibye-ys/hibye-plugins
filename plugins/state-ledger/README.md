@@ -8,7 +8,7 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 - **STATE = 공유 상태판, 작업 기록 장치가 아니다** — 지금 누가 무엇을 하고, 무엇이 남았고, 무엇을 결정해야 하는지만 여러 에이전트가 공유한다. 상태가 바뀌면 그 줄과 `## 현재`를 바꿔 쓰고 덧붙이지 않는다.
 - **작업 기록은 커밋 메시지, 완료 사실은 git log 가 정본** — 커밋 메시지에 `[id=<id>]`(STATE 항목과 무관한 작업은 `[id=-]`), archive 시 `archive [id=...]`. STATE 는 완료 로그·작업 경과를 누적하지 않는다.
 - **인덱스는 싸고, 상세는 lazy** — 세션 시작에 주입되는 것은 1줄/항목 인덱스뿐. 작업을 잡을 때만 `docs/state/<area>/<id>.md` 를 읽는다.
-- **게이트는 전부 warn-only** — 막지 않고 알린다. warn 은 0 으로 수렴시켜야 채널이 살아있다 (방치하면 배경소음).
+- **기본 게이트는 warn-only** — 명시적 opt-in 정리 요청은 아래 별도 검증을 적용한다. warn 은 0 으로 수렴시켜야 채널이 살아있다 (방치하면 배경소음).
 - **턴 귀속은 커밋 메시지로 판정** — UserPromptSubmit 때 repo 밖에 HEAD·dirty STATE hash·detail 본문 크기를 저장하고, Stop에서 이번 턴에 만든 커밋 중 작업 파일을 바꾼 커밋의 메시지에 유효 `[id=<id>]`가 있는지 본다. 알림은 이번 턴 것만 한 번 내고 다음 턴으로 넘기지 않는다. STATE 갱신은 매 턴 요구하지 않는다.
 - **goal-run과 무관한 전역 lifecycle** — STATE는 live ownership만 담당한다. goal TRACK·item branch 같은 파이프라인 규칙은 해당 스킬이 소유한다.
 
@@ -16,13 +16,13 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 
 ```
 - `STATE.md`는 공유 상태판이다. 누가 무엇을 하는지(owner)·남은 일·미해결 결정과 WHY만 담는다. 남은 일·소유·결정이 바뀌면 그 줄과 detail을 바꿔 쓰고 덧붙이지 않는다. 작업 기록(완료 사실·경과)은 커밋 메시지가 맡으며 git log가 정본이다.
-- 카테고리 4개와 WIP cap: §1 활성 ≤6 (owner 필수) · §2 다음 ≤6 · §3 미래 placeholder ≤5 · §4 미해결 결정 ≤8. cap 초과는 분류 실패 신호 — 가장 오래 움직이지 않은 항목을 archive한다.
+- 카테고리 4개와 WIP cap: §1 활성 ≤6 (owner 필수) · §2 다음 ≤6 · §3 미래 placeholder ≤5 · §4 미해결 결정 ≤8. cap 초과는 분류 실패 신호 — 사용자와 남길 작업을 정한다. 나이·cap만으로 자동 archive하지 않는다.
 - 항목 = 1줄 인덱스: `- [<id>] <제목> — <짧은 상태·조건>` (≤200자). 상세 정본 = docs/state/<area>/<id>.md.
   frontmatter: id·area·owner·branch·touched·hash (+depends/blocks/handoff/expires)
   본문: ## 현재 (필수, ≤4KB — 요약·남은 것·WHY) + ## 원장 (선택 — 결정 WHY만). detail 전체 ≤8KB.
 - `id`는 3–12자 stable identifier다. id 없는 줄은 §3 placeholder만 허용한다. meta는 detail frontmatter가 정본 — hook이 touched·hash만 스탬프하고 owner·branch는 수동 claim이다. 착수한 항목은 §1로 옮기고 owner를 claim한다.
 - 작업 커밋 메시지에는 `[id=<인덱스 id>]`를 붙인다. `[id=-]`는 STATE 항목과 정말 무관한 잡무에만 쓴다. id를 빠뜨렸으면 직접 만든 미push 직전 커밋은 `git commit --amend`로 붙이고, 아니면 다음 커밋부터 붙인다. STATE에 경과를 적어 대신하지 않는다.
-- `expires`가 지난 항목은 갱신하거나 archive한다. archive = 인덱스 줄 + detail 파일 삭제, commit message에 `archive [id=...]`.
+- `expires`가 지난 항목은 사용자 확인 뒤 갱신하거나 archive한다. archive = 인덱스 줄 + detail 파일 삭제, commit message에 `archive [id=...]`.
 - 멀티 에이전트 작업은 branch·worktree를 분리한다.
 ```
 
@@ -76,7 +76,7 @@ Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번
 
 Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `codex plugin add state-ledger@hibye-plugins`로 재설치한다. Claude Code는 `.claude-plugin/plugin.json` version을 올리면 `claude plugin update state-ledger@hibye-plugins`(또는 재설치)로 `~/.claude/plugins/installed_plugins.json`의 version을 맞추고, 로컬 개발 링크를 쓰면 `scripts/link-cache.sh`로 새 version 링크를 만든다 — runner의 Claude fallback은 설치 기록 version과 manifest version이 같을 때만 실행한다. 운영 설치 캐시는 소스 링크로 바꾸지 않는다. `scripts/link-cache.sh`는 기본적으로 Claude 및 Antigravity 개발 캐시만 연결하며, Codex 소스 링크는 격리된 로컬 개발에서 `--codex-dev-links`를 명시한 경우에만 만든다.
 
-`/state-ledger:setup-state`는 프로젝트 데이터·작성 규칙·필요한 adapter만 온보딩한다. runner는 `STATE_LEDGER_PLUGIN_ROOT` 명시 override → Codex의 enabled plugin catalog와 정확한 version cache → Claude의 enabled user install 순으로 정본을 찾고 plugin name/version·`state-ledger-contract.json` v6·대상 파일을 검증한다. Codex CLI를 실행할 수 없거나 제한 시간 안에 응답하지 않으면 v6 계약을 가진 물리 cache directory로만 fallback하며, CLI가 정상 응답해 disabled 상태를 보고한 경우 cache를 임의 활성화하지 않는다. lifecycle stdin과 child stdout/stderr는 runner가 명시적으로 전달하며 설치본을 못 찾거나 실행에 실패해도 경고 후 0으로 끝난다.
+`/state-ledger:setup-state`는 프로젝트 데이터·작성 규칙·필요한 adapter만 온보딩한다. runner는 `STATE_LEDGER_PLUGIN_ROOT` 명시 override → Codex의 enabled plugin catalog와 정확한 version cache → Claude의 enabled user install 순으로 정본을 찾고 plugin name/version·`state-ledger-contract.json` v6·대상 파일을 검증한다. Codex CLI를 실행할 수 없거나 제한 시간 안에 응답하지 않으면 v6 계약을 가진 물리 cache directory로만 fallback하며, CLI가 정상 응답해 disabled 상태를 보고한 경우 cache를 임의 활성화하지 않는다. lifecycle stdin과 child stdout/stderr는 runner가 명시적으로 전달하며 일반 검사는 설치·실행 실패를 경고한다. 정리 opt-in 프로젝트의 필수 검사는 실패로 닫는다.
 
 `commit-msg`는 agent lifecycle이 아니라 Git hook이므로 기존 hook manager에서 `if [ ! -f scripts/hooks/state-ledger-runner.mjs ]; then :; elif command -v node >/dev/null 2>&1; then node scripts/hooks/state-ledger-runner.mjs commit-msg "$1"; else echo "WARN: node가 PATH에 없어 STATE commit-msg 검사를 건너뜁니다." >&2; fi`를 호출한다. shared Git hooks를 쓰는 이전 checkout에 runner가 없거나 Git GUI PATH에 node가 없어도 commit을 막지 않기 위한 guard다. lint-staged에서 구조 검사를 유지하려면 `node scripts/hooks/state-ledger-runner.mjs check-wip`을 사용한다. opencode는 runner와 `templates/wiring/opencode-harness.ts`를 함께 복사하고 `opencode.json` instructions에 인덱스를 지정한다. 기존 `.codex/hooks.json`·`.codex/config.toml`·`.claude/settings*.json`에 복사형 STATE lifecycle이 남아 있으면 제거한다. 이행 중인 브랜치에서는 전역 dispatcher가 JSON/TOML의 실제 로컬 command를 감지해 중복 실행을 피하며, 주석이나 단순 문자열은 로컬 훅으로 취급하지 않는다.
 
@@ -104,3 +104,16 @@ Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `
 ### 0.4.1 호스트 경계
 
 Muse·Antigravity adapter는 STATE session inject, turn baseline, detail stamp, warn-only stop만 실행한다. 프로젝트 memory·intent 초기화는 독립 등록된 `project-context`가 소유하고, `post-edit-knip.sh` 같은 프로젝트 검사는 프로젝트의 native hook 등록이 소유한다. STATE adapter가 프로젝트 hook 파일을 찾아 대신 실행하지 않는다. 기존 Muse의 세션 ID·파일 경로 정규화와 16KB 출력 제한은 유지한다. 연결 API는 바뀌지 않아 `state-ledger-contract.json` v6를 유지한다.
+
+
+### 0.5.0 사용자 확인 뒤 정리 (Codex·Claude Code)
+
+기존 v6 계약은 유지하고 `cleanup_version: 1` capability를 더한다. 기본값은 off다. 정리 원장 쓰기에는 BSD `lockf`(macOS 기본 제공)이 필요하며 없거나 잠금 중이면 요청을 보존하고 실패한다. OS 임시 경로의 0바이트 파일에 운영체제 잠금을 잡으며 프로세스가 죽으면 자동 해제된다. 요청은 기존 STATE에만 기록한다. 프로젝트가 `.staterc`에 `STATE_CLEANUP_ENFORCE="1"`을 넣고 새 runner를 설치하면 다음 절차를 쓴다. 일반 cap·브랜치·태그 경고는 그대로다.
+
+1. 구현·검증 후 `node scripts/hooks/state-ledger-runner.mjs cleanup await-user --target root/example --session SESSION`으로 detail을 `lifecycle: awaiting_user`로 두고 정상 커밋한다. 이 단계에서는 지우지 않는다.
+2. 실제 사용자 확인·정리 지시를 받으면 `cleanup request --session SESSION --instruction-ref USER_MESSAGE_REF --instruction '정리해줘'`를 호출한다. 기본 대상은 그 세션의 커밋된 확인 대기 작업이다. 명시적으로 지정한 타 세션 작업만 `--scope explicit --target area/id`를 쓴다. 도구가 사용자 지시의 진위를 판별할 수 없으므로 원문·출처를 에이전트가 정확히 기록한다.
+3. 첫 configured STATE 인덱스의 `STATE_CLEANUP_V1` JSON 주석에 요청·대상·원문·기준 커밋을 저장한다. 별도 요청 원장은 없다. 요청을 보존한 채 인덱스 줄·detail을 함께 제거하고 `archive [id=example]` 정상 커밋한다. 요청 뒤 바뀐 detail은 삭제를 거부한다.
+4. `cleanup check --request REQUEST_ID --session SESSION`은 worktree·index·HEAD, 실제 삭제 커밋과 현재 참조를 확인한다. 역사 참조는 존재를 검증한 전체 SHA의 `SHA:docs/state/...` 좌표로 고친다. 통과 후 `cleanup finish`(같은 옵션)로 요청을 제거하고 마무리 커밋한다. 그 커밋까지 끝난 뒤 완료라고 보고한다.
+5. 미완료 Stop은 원장에 횟수를 먼저 저장하고 요청별 자동 보완을 한 번만 이어간다. 또 실패하면 구체적 이유·요청을 남기고 미완료로 종료한다. `cleanup block --request ID --session SESSION --reason '실제 장애'`도 가능하다. 새 세션은 `cleanup resume --request ID --session NEW_SESSION --instruction-ref NEW_USER_MESSAGE_REF`로 명시적 인계를 기록한다. 기존 대상·원문·예산은 바뀌지 않는다.
+
+SessionStart는 미완료 요청을 다시 주입한다. 삭제/요청 제거의 Git 검사와 bounded Stop이 강제 범위이며, 훅이 이미 출력된 자연어 답변을 취소할 수는 없다. 새 설치의 lifecycle은 새 세션에서 로드한다. Codex·Claude 두 호스트의 native 훅 프로토콜은 실제 fixture로 검증한다.

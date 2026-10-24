@@ -108,6 +108,15 @@ done <<EOF
 $indexes
 EOF
 
+if command -v node >/dev/null 2>&1; then
+  cleanup_context=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-cleanup.mjs" context 2>&1)
+  cleanup_status=$?
+  if [ "$cleanup_status" -ne 0 ]; then cleanup_context="STATE 정리 요청 초기화 실패: $cleanup_context"; fi
+  if [ -n "$cleanup_context" ]; then out="$cleanup_context
+
+$out"; fi
+fi
+
 [ -z "$out" ] && exit 0
 
 jq -n --arg ctx "$out" '{

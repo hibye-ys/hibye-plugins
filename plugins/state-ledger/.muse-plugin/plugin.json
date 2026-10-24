@@ -50,9 +50,9 @@
     "manifestDir": ".muse-plugin",
     "source": "native"
   },
-  "description": "Global warn-only STATE ledger lifecycle for Muse. Same runtime as the Codex/Claude hosts (STATE_LEDGER_HOST=muse).",
+  "description": "Global STATE ledger lifecycle with opt-in verified cleanup for Muse. Same runtime as the Codex/Claude hosts (STATE_LEDGER_HOST=muse).",
   "displayName": "State Ledger",
   "name": "state-ledger",
   "schemaVersion": 1,
-  "version": "0.4.1+build.20261020113212015909"
+  "version": "0.5.0"
 }

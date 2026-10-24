@@ -18,10 +18,7 @@
 set -u
 
 if ! command -v git >/dev/null 2>&1; then exit 0; fi
-if ! command -v jq >/dev/null 2>&1; then
-  printf '%s\n' '{"systemMessage":"jq가 PATH에 없어 STATE Stop 검사를 실행하지 못했습니다."}'
-  exit 0
-fi
+
 
 # 이미 Stop 훅 때문에 재진입한 상태면 조용히 종료 — 알림은 1회만, 무한 재발동 차단.
 # stdin 은 파이프일 때만 읽는다 — 터미널 수동 실행(stdin=TTY, EOF 없음)에서 cat 이
@@ -30,13 +27,22 @@ input=""
 if [ ! -t 0 ]; then
   input=$(cat 2>/dev/null || true)
 fi
-if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then
-  exit 0
-fi
 
 root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
 cd "$root" 2>/dev/null || exit 0
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# Explicit cleanup requests have their own persisted budget and run before the
+# legacy warn-only re-entry guard. The request itself stays in STATE.
+if command -v node >/dev/null 2>&1; then
+  cleanup=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-cleanup.mjs" stop)
+  if [ -n "$cleanup" ]; then printf '%s\n' "$cleanup"; exit 0; fi
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  printf '%s\n' '{"systemMessage":"jq가 PATH에 없어 STATE Stop 검사를 실행하지 못했습니다."}'
+  exit 0
+fi
+if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then exit 0; fi
 
 # 판정·계산은 node 엔진이 하고 이 스크립트는 표시만 한다. 엔진은 Stop 시점을 새 기준점으로 저장한다.
 # 엔진 stdout(JSON)과 stderr(오류)는 섞지 않는다. 기준점 부재·저장 실패는 정상으로 숨기지 않고 경고한다.

@@ -12,8 +12,16 @@ command -v git >/dev/null 2>&1 || exit 0
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 if ! command -v node >/dev/null 2>&1; then
+  if grep -q '^STATE_CLEANUP_ENFORCE="1"' .staterc 2>/dev/null || git show HEAD:.staterc 2>/dev/null | grep -q '^STATE_CLEANUP_ENFORCE="1"'; then
+    echo "STATE_CLEANUP_BLOCK: node is unavailable; cleanup validation cannot run" >&2
+    exit 1
+  fi
   echo "WARN: node가 PATH에 없어 STATE_INDEXES를 안전하게 검증하지 못함 (commit 진행)" >&2
   exit 0
+fi
+# Check cleanup before legacy warn-only config handling.
+if ! HOOK_PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)" node "$script_dir/state-cleanup.mjs" validate-staged --message-file "$msgfile"; then
+  exit 1
 fi
 if ! state_indexes=$(HOOK_PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)" node "$script_dir/state-config.mjs" indexes 2>&1); then
   echo "WARN: STATE 설정 거부: ${state_indexes:0:400} (commit 진행)" >&2
