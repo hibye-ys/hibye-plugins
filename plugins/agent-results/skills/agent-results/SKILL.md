@@ -14,6 +14,7 @@ description: 실제 에이전트 실행 결과와 스킬·지침·훅·워크플
 - `init --project <프로젝트 경로>`: Git 공통 primary checkout의 `.agent-results/`를 만든다. 먼저 공통 Git 로컬 exclude로 추적 제외를 확인한 다음 수집을 활성화하며, 이미 추적 중이면 거부한다. linked worktree를 지워도 보존한다.
 - `init --user`: 프로젝트 없는 작업을 `~/.agent-results/`에 보존한다. 프로젝트 작업을 중앙 원문 저장으로 전환하지 않는다.
 - `list`, `show --run <키>`, `artifact --digest <해시>`: 원문은 필요할 때만 연다. 명령에 `--project <경로>`를 추가해 실행 범위를 지정할 수 있다.
+- `references`: 프로젝트에서 사용한 전역 스킬의 출처·버전·프로젝트 기록 참조를 조회한다. 결과 원문은 프로젝트에 있고 사용자 범위에는 참조만 남는다. 참조가 missing이면 원문을 복원했다고 하지 않는다.
 - `import-service --file <page.json>`: 원 사용자 권한으로 받은 `agent-result-evidence.v1` 페이지를 보존한다. `next_cursor`가 있으면 같은 run의 다음 페이지도 가져온다. import는 인증이나 replay 준비 완료를 증명하지 않는다.
 
 전역 설치만으로 모든 프로젝트의 기록을 켜지 않는다. 초기화된 프로젝트/프로젝트 없는 사용자 범위에서 hook이 제공한 사용자 메시지·도구 결과·최종 응답을 수집한다. shell로 읽은 스킬, 지원하지 않는 transcript, 큰 본문, 민감한 설정은 부분/누락으로 남는다. 필터는 알려진 secret 형태만 처리하므로 원문은 private 범위에 유지한다.

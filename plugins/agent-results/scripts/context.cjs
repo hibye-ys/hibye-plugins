@@ -43,6 +43,9 @@ function projectContext(cwd) {
 
 function secureDirectory(directory) {
   directory = path.resolve(directory);
+  for (let ancestor = path.dirname(directory); ancestor !== path.dirname(ancestor); ancestor = path.dirname(ancestor)) {
+    if (fs.existsSync(ancestor) && fs.lstatSync(ancestor).isSymbolicLink()) throw new Error('Unsafe results directory ancestor');
+  }
   const parent = path.dirname(directory);
   if (!fs.existsSync(parent)) secureDirectory(parent);
   // Refuse redirection of private data through an existing symbolic link.

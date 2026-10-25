@@ -33,12 +33,13 @@ function contextFor(opts) {
 function main(args) {
   const command = args.shift() || 'help';
   const opts = options(args);
-  if (command === 'help') return { commands: ['init --project <path> | --user', 'list', 'show --run <key>',
+  if (command === 'help') return { commands: ['init --project <path> | --user', 'list', 'references', 'show --run <key>',
     'record --file <event.json>', 'declare --run <key> --file <component> --usage declared|evidence_linked [--artifact <outcome>]',
     'import-service --file <page.json>', 'recommend --file <recommendation.json>', 'pending',
     'decide --id <id> --status <status> [--instruction-ref <user-message-ref>]', 'notify', 'artifact --digest <sha256>'],
     boundary: 'Local records only. Recommendations and requested status never execute improvements.' };
   if (command === 'init') return initialize({ cwd: opts.project || process.cwd(), user: !!opts.user });
+  if (command === 'references') return require('./references.cjs').listReferences();
   const context = contextFor(opts);
   if (command === 'list') return store.listRuns(context.root);
   if (command === 'show') return store.readRun(context.root, opts.run);
@@ -50,7 +51,9 @@ function main(args) {
       const blob = store.putArtifact(context.root, Buffer.from(redact(fileBytes(item.file).toString('utf8'))));
       return { kind: item.kind, digest: blob.digest, locator: path.resolve(item.file) };
     });
-    return store.storeEvent(context.root, event);
+    const result = store.storeEvent(context.root, event);
+    for (const item of event.components) require('./references.cjs').linkComponent(context, result.run_key, item);
+    return result;
   }
   if (command === 'declare') {
     const run = store.readRun(context.root, opts.run);
@@ -67,7 +70,9 @@ function main(args) {
       coverage: { status: 'partial', limitations: ['Application declaration is not proof of sole causal responsibility or quality.'] } };
     const existing = run.events.find(previous => previous.event_id === event.event_id);
     if (existing) event.occurred_at = existing.occurred_at;
-    return store.storeEvent(context.root, event);
+    const result = store.storeEvent(context.root, event);
+    require('./references.cjs').linkComponent(context, result.run_key, item);
+    return result;
   }
   if (command === 'import-service') return require('./service.cjs').importServicePage(context.root, fileBytes(opts.file));
   if (command === 'recommend') return store.recommend(context.root, JSON.parse(fileBytes(opts.file)));
