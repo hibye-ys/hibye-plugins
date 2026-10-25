@@ -1,0 +1,10 @@
+{
+  "name": "agent-results",
+  "version": "0.1.0",
+  "description": "Preserve real agent results and evidence for user-directed harness improvements.",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT",
+  "skills": "./skills/",
+  "hooks": "./hooks/codex.json",
+  "interface": { "displayName": "Agent Results", "shortDescription": "실행 결과 보존과 반수동 하네스 개선" }
+}

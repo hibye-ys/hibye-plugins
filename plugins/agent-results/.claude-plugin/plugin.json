@@ -1,0 +1,7 @@
+{
+  "name": "agent-results",
+  "version": "0.1.0",
+  "description": "Preserve real agent results and evidence for user-directed harness improvements.",
+  "author": { "name": "hibye-ys" },
+  "license": "MIT"
+}

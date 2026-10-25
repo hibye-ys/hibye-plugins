@@ -1,0 +1,26 @@
+{
+  "schema": "agent-result-evidence.v1",
+  "method": "zod.toJSONSchema from the source contract; domain refinements additionally enforced by service.cjs",
+  "sources": [
+    {
+      "file": "packages/contracts/src/agent-result-evidence.ts",
+      "digest": "7261537617b13516b4157c269e1ff717b83f48a156f03409c13a6dc4b5e409ca"
+    },
+    {
+      "file": "packages/contracts/src/ai-chat/execution.ts",
+      "digest": "e73e572661af396e4217a38abd8f64e37d95ee154bfba4b7408dd2ae7d6e5ac9"
+    },
+    {
+      "file": "packages/contracts/src/delegated-tasks.ts",
+      "digest": "a196f8dcd84543a7343ded2a12d636f7feb216a341e60d2e1d995657962e9597"
+    },
+    {
+      "file": "packages/contracts/src/ai-chat/run.ts",
+      "digest": "c24c222c10dcc2f43a3cd4f642ef316662f42356818787c792d40f795ecd1368"
+    },
+    {
+      "file": "packages/contracts/src/ai-chat/message.ts",
+      "digest": "24909594fdf28e8471fa0013241783f6b15a56b64db557aa0d0bde5405241672"
+    }
+  ]
+}

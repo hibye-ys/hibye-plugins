@@ -10,6 +10,7 @@ Claude Code·Codex·Muse Code용 개인 에이전트 플러그인 원본 저장�
 | `state-ledger` | 전역 STATE 원장 lifecycle; 프로젝트 context와 독립된 native snapshot |
 | `project-context` | 프로젝트 opt-in에 따라 primary 공유 메모리와 현재 checkout intent를 host별로 연결 |
 | `spec-plan` | 간결한 스펙·구현 계획, 모델 배정, 순차·병렬 실행과 작업 인계 (Claude·Codex·Muse 전역 설치) |
+| `agent-results` | 실제 실행 결과·하네스 버전 보존, 근거 있는 개선 권고와 사용자 지시 후 개선 (Codex·Claude 공통) |
 | `muse-delegate` | muse를 언급할 때만 Orca로 muse 워커에 구현을 위임하고 검증 (Claude·Codex 전역 설치) |
 
 ## spec-plan 전역 설치
@@ -43,7 +44,7 @@ Python 3와 세 CLI가 설치된 환경에서 사용한다. 공통 build 버전�
 
 ## 공통 하네스 설치·업데이트
 
-공통 하네스 `state-ledger`·`project-context`·`spec-plan`은 Codex와 Claude 모두 설치 스냅샷을
+공통 하네스 `state-ledger`·`project-context`·`spec-plan`·`agent-results`는 Codex와 Claude 모두 설치 스냅샷을
 실행한다. macOS/Linux의 Python **3.11 이상**과 두 native CLI가 필요하며, Codex에는 로컬 `hibye-plugins`
 marketplace를 먼저 등록한다. 이 저장소에서 다음 명령 하나로 두 호스트를 함께 갱신한다.
 

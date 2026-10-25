@@ -5,6 +5,12 @@
   },
   "plugins": [
     {
+      "name": "agent-results",
+      "source": { "source": "local", "path": "./plugins/agent-results" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    },
+    {
       "name": "backend-ts",
       "source": {
         "source": "local",

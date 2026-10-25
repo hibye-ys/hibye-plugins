@@ -425,7 +425,7 @@ class SnapshotTests(unittest.TestCase):
             (root / 'scripts').mkdir()
             shutil.copyfile(HERE / 'link-cache.sh', root / 'scripts/link-cache.sh')
             home = root / 'home'
-            for name in ('state-ledger', 'project-context', 'spec-plan', 'other'):
+            for name in ('state-ledger', 'project-context', 'spec-plan', 'agent-results', 'other'):
                 source = root / 'plugins' / name
                 (source / 'skills').mkdir(parents=True)
                 for host in ('claude', 'codex'):
@@ -436,7 +436,7 @@ class SnapshotTests(unittest.TestCase):
                     (cache / 'sentinel').write_text('keep snapshot')
             for args in ([], ['--codex-dev-links']):
                 subprocess.run(['bash', str(root / 'scripts/link-cache.sh'), *args], env={**os.environ, 'HIBYE_PLUGIN_CACHE_HOME': str(home)}, check=True, capture_output=True)
-                for name in ('state-ledger', 'project-context', 'spec-plan'):
+                for name in ('state-ledger', 'project-context', 'spec-plan', 'agent-results'):
                     for host in ('claude', 'codex'):
                         cache = home / f'.{host}/plugins/cache/hibye-plugins' / name
                         self.assertFalse((cache / '1.0.0').is_symlink())

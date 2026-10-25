@@ -16,7 +16,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MARKETPLACE = 'hibye-plugins'
-HARNESS = ('state-ledger', 'project-context', 'spec-plan')
+HARNESS = ('state-ledger', 'project-context', 'spec-plan', 'agent-results')
 _spec = importlib.util.spec_from_file_location('hibye_plugin_publication', Path(__file__).with_name('plugin_publication.py'))
 publication = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(publication)
@@ -540,7 +540,7 @@ def run_sync(args, names, hosts):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--harness', action='store_true', help='update state-ledger/project-context/spec-plan for Codex and Claude together')
+    parser.add_argument('--harness', action='store_true', help='update state-ledger/project-context/spec-plan/agent-results for Codex and Claude together')
     parser.add_argument('--plugin', action='append')
     parser.add_argument('--host', action='append', choices=('codex', 'claude', 'muse'))
     mode = parser.add_mutually_exclusive_group()

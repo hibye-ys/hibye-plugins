@@ -1,0 +1,9 @@
+{
+  "description": "Opt-in local Codex result collection; failures are delivered through PostToolUse.",
+  "hooks": {
+    "SessionStart": [{ "matcher": "startup|resume|clear|compact", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PLUGIN_ROOT/scripts/hook.cjs\" codex", "timeout": 15, "additionalContextLimit": 600 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PLUGIN_ROOT/scripts/hook.cjs\" codex", "timeout": 15 }] }],
+    "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PLUGIN_ROOT/scripts/hook.cjs\" codex", "timeout": 15 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PLUGIN_ROOT/scripts/hook.cjs\" codex", "timeout": 15 }] }]
+  }
+}

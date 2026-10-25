@@ -81,7 +81,7 @@ for plugin_dir in "$MARKETPLACE_ROOT/plugins/"*/; do
     plugin_name="$(basename "$plugin_dir")"
 
     # Native snapshot 플러그인은 정식 CLI와 full-payload 검증으로만 갱신한다.
-    if [ "$plugin_name" = "spec-plan" ] || [ "$plugin_name" = "state-ledger" ] || [ "$plugin_name" = "project-context" ]; then
+    if [ "$plugin_name" = "spec-plan" ] || [ "$plugin_name" = "state-ledger" ] || [ "$plugin_name" = "project-context" ] || [ "$plugin_name" = "agent-results" ]; then
         echo "SKIP: $plugin_name (native snapshots; use scripts/sync-plugins.py --plugin $plugin_name --host <host>)"
         continue
     fi
