@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => { input += chunk; if (input.length > 4194304) { process.stderr.write('AGENT_RESULTS_CAPTURE_FAILED: oversized hook payload\n'); process.exit(0); } });
-process.stdin.on('end', () => {
+require('./input.cjs').readInput(process.stdin).then(({ input, metadata, oversized, inputBytes }) => {
   try {
     let host = process.argv[2];
     if (!host) {
@@ -15,11 +12,15 @@ process.stdin.on('end', () => {
       else if (!process.env.PLUGIN_ROOT && matches(process.env.CLAUDE_PLUGIN_ROOT)) host = 'claude';
       else throw new Error('Native host proof unavailable; use an explicit codex|claude adapter');
     }
-    const output = require('./host.cjs').hook(host, JSON.parse(input));
+    const failure = oversized ? { reason: 'payload_oversized', input_bytes: inputBytes } : null;
+    const output = require('./host.cjs').hook(host, oversized ? metadata : JSON.parse(input), failure);
     process.stdout.write(JSON.stringify(output) + '\n');
   } catch (error) {
     // Visible collection failure; never block or continue the user's task.
     process.stderr.write(`AGENT_RESULTS_CAPTURE_FAILED: ${error.message}\n`);
     process.stdout.write(JSON.stringify({ systemMessage: '실행 결과 수집에 실패했습니다. agent-results 기록의 누락 여부를 확인해 주세요.' }) + '\n');
   }
+}).catch(() => {
+  process.stderr.write('AGENT_RESULTS_CAPTURE_FAILED: hook input unavailable\n');
+  process.stdout.write(JSON.stringify({ systemMessage: '실행 결과 수집에 실패했습니다. 기록의 누락 여부를 확인해 주세요.' }) + '\n');
 });

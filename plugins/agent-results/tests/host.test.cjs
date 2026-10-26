@@ -36,7 +36,7 @@ function fixture(t, git = true) {
   const hookResult = (host, event, cwd = project) => spawnSync(process.execPath,
     [path.join(plugin, 'scripts/hook.cjs'), ...(host ? [host] : [])],
     { cwd, env, encoding: 'utf8', input: JSON.stringify({ cwd, session_id: 'native-session',
-      turn_id: 'turn-1', ...event }) });
+      turn_id: 'turn-1', ...event }), timeout: 10000 });
   const hook = (host, event, cwd) => {
     const result = hookResult(host, event, cwd);
     assert.equal(result.status, 0, result.stderr);
@@ -100,7 +100,7 @@ test('new skill versions and custom hook kind connect to real outcomes; user ins
   assert.match(notice.systemMessage, new RegExp(recommendation.id));
   assert.equal(notice.decision, undefined);
   assert.deepEqual(f.hook('codex', { hook_event_name: 'Stop', last_assistant_message: '결과 저장 완료' }), {});
-  f.cli(['decide', '--id', recommendation.id, '--status', 'requested', '--instruction-ref', 'user:fixture-message-2']);
+  const attempt = f.cli(['decide', '--id', recommendation.id, '--status', 'requested', '--instruction-ref', 'user:fixture-message-2']);
   f.cli(['decide', '--id', recommendation.id, '--status', 'running']);
   fs.writeFileSync(skill, '# version two\n');
   const second = f.cli(['declare', '--run', runKey, '--file', skill, '--usage', 'declared']);
@@ -112,7 +112,7 @@ test('new skill versions and custom hook kind connect to real outcomes; user ins
   const resultFile = f.json('validation.json', { schema: 'agent-results.event.v1', source: first.events[0].source,
     event_id: 'validation-after-user-request', event_type: 'validation_result', occurred_at: 'unknown',
     components: second.event.components, artifacts: [{ kind: 'validation', file: outcome }],
-    data: { result: 'fixture actual validation passed' }, coverage: { status: 'partial', limitations: ['Operational effect not measured'] } });
+    data: { result: 'fixture actual validation passed', improvement_requests: [{ recommendation_id: recommendation.id, request_id: attempt.request_id }] }, coverage: { status: 'partial', limitations: ['Operational effect not measured'] } });
   const result = f.cli(['record', '--file', resultFile]);
   const refs = f.json('result-refs.json', [{ run_key: result.run_key, event_key: result.event_key }]);
   const resolved = f.cli(['decide', '--id', recommendation.id, '--status', 'resolved', '--file', refs]);
@@ -257,4 +257,85 @@ test('service pages retain exact evidence/partial coverage across pagination and
   ];
   const statuses = invalidCases.map((value, i) => f.cliResult(['import-service', '--file', f.json(`invalid-page-${i}.json`, value)]).status);
   assert.deepEqual(statuses, [1, 1, 1, 1], 'invalid execution, role, kind/result and coverage must be rejected');
+});
+
+test('oversized UTF-8 hook input preserves an explicit missing event even when identity follows the body', t => {
+  const f = fixture(t);
+  f.cli(['init', '--project', f.project]);
+  const body = JSON.stringify({ tool_response: '가'.repeat(1_500_000), cwd: f.project,
+    session_id: 'large-native', hook_event_name: 'PostToolUse', turn_id: 'large-turn',
+    tool_name: 'Read', tool_use_id: 'large-tool' });
+  const result = spawnSync(process.execPath, [path.join(plugin, 'scripts/hook.cjs'), 'claude'],
+    { cwd: f.project, env: f.env, encoding: 'utf8', input: body });
+  assert.equal(result.status, 0);
+  assert.match(JSON.parse(result.stdout).systemMessage, /수집.*누락|생략/);
+  const event = allEvents(f)[0];
+  assert.equal(event.source.session_id, 'large-native');
+  assert.equal(event.data.tool_use_id, 'large-tool');
+  assert.equal(event.data.collection_failure.reason, 'payload_oversized');
+  assert.equal(event.data.collection_failure.input_bytes, Buffer.byteLength(body));
+  assert.equal(event.artifacts.length, 0);
+  assert.ok(event.coverage.limitations.some(item => /payload_oversized/.test(item)));
+});
+
+test('binary written snapshots and explicit record artifacts preserve original bytes', t => {
+  const f = fixture(t);
+  const initialized = f.cli(['init', '--project', f.project]);
+  const file = path.join(f.project, 'image.png');
+  const original = Buffer.from([137,80,78,71,13,10,26,10,0,255,254,253]); fs.writeFileSync(file, original);
+  f.hook('claude', { hook_event_name: 'PostToolUse', tool_name: 'Write', tool_use_id: 'binary-write',
+    tool_input: { file_path: file }, tool_response: 'written' });
+  const event = allEvents(f)[0];
+  const snapshot = event.artifacts.find(item => item.kind === 'written_file_snapshot');
+  assert.deepEqual(store.readArtifact(initialized.root, snapshot.digest), original);
+  assert.ok(event.data.artifact_processing.some(item => item.kind === 'written_file_snapshot' && item.representation === 'original' && item.format === 'binary'));
+  const manifest = f.json('binary-manifest.json', { schema: 'agent-results.event.v1', source: event.source,
+    event_id: 'binary-explicit', event_type: 'artifact', occurred_at: 'unknown', components: [],
+    artifacts: [{ kind: 'image', file }], data: {}, coverage: { status: 'partial', limitations: [] } });
+  const saved = f.cli(['record', '--file', manifest]);
+  assert.deepEqual(store.readArtifact(initialized.root, saved.event.artifacts[0].digest), original);
+});
+
+test('sensitive source files are omitted for Read Bash Write and explicit artifacts', t => {
+  const f = fixture(t);
+  const initialized = f.cli(['init', '--project', f.project]);
+  const names = ['.dev.vars', '.dev.vars.e2e', '.envrc', '.netrc', '.npmrc', 'private.pem', 'id_ed25519', 'operator.env'];
+  for (const [i, name] of names.entries()) {
+    const file = path.join(f.project, name); fs.writeFileSync(file, 'fixture-private-material');
+    for (const tool of ['Read','Write','Bash']) {
+      const tool_input = tool === 'Bash' ? { command: `cat ${file}` } : { file_path: file };
+      f.hook('claude', { hook_event_name: 'PostToolUse', tool_name: tool, tool_use_id: `${i}-${tool}`,
+        tool_input, tool_response: 'fixture-private-material' });
+    }
+    const eventFile = f.json(`private-${i}.json`, { schema:'agent-results.event.v1', source:{kind:'coding_host',host:'codex',project:initialized.project,session_id:'manual',turn_id:null},
+      event_id:`private-${i}`,event_type:'artifact',occurred_at:'unknown',components:[],artifacts:[{kind:'input',file}],data:{},coverage:{status:'partial',limitations:[]} });
+    assert.equal(f.cliResult(['record','--file',eventFile]).status,1, name);
+  }
+  const events=allEvents(f);
+  assert.equal(events.length,names.length*3);
+  assert.ok(events.every(event=>event.artifacts.length===0 && event.coverage.limitations.some(item=>/Sensitive-source/.test(item))));
+});
+
+test('recognized secret output is redacted with transformation metadata; ordinary text remains readable', t => {
+  const f=fixture(t); const initialized=f.cli(['init','--project',f.project]);
+  const secret='eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.fixtureSignature123';
+  const text=`ordinary result\nJWT=${secret}\nCLOUDFLARE_API_TOKEN=fixtureTokenValue123456\nSUPABASE_SECRET_KEY=sb_secret_fixture12345678901234567890\n`;
+  f.hook('claude',{hook_event_name:'PostToolUse',tool_name:'Bash',tool_use_id:'secret-output',tool_input:{command:'status'},tool_response:text});
+  const event=allEvents(f)[0];const body=store.readArtifact(initialized.root,event.artifacts[0].digest).toString('utf8');
+  for(const value of [secret,'fixtureTokenValue123456','sb_secret_fixture12345678901234567890']) assert.ok(!body.includes(value));
+  assert.match(body,/ordinary result/);
+  assert.ok(event.data.artifact_processing.some(item=>item.representation==='redacted' && /^[a-f0-9]{64}$/.test(item.original_digest)));
+});
+
+test('service preview import accepts falsy JSON values permitted by the wire and rejects null/full claims', t => {
+  const f=fixture(t);f.cli(['init','--project',f.project]);
+  for(const [i,value] of ['',false,0].entries()) {
+    const page=servicePage();page.messages[0].tool_result_status='preview';page.messages[0].tool_result=value;
+    const saved=f.cli(['import-service','--file',f.json(`preview-${i}.json`,page)]);
+    assert.equal(saved.messages,1);
+  }
+  for(const [i,value] of [null,{full:false}].entries()) {
+    const page=servicePage();page.messages[0].tool_result_status='preview';page.messages[0].tool_result=value;
+    assert.equal(f.cliResult(['import-service','--file',f.json(`invalid-preview-${i}.json`,page)]).status,1);
+  }
 });

@@ -2,7 +2,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { digest, resolveContext, component, redact } = require('./context.cjs');
+const { digest, resolveContext, component, sensitiveSource } = require('./context.cjs');
+const { prepareArtifact } = require('./artifact.cjs');
 const store = require('./store.cjs');
 
 function observedComponent(payload) {
@@ -37,7 +38,7 @@ function lastAssistant(transcript) {
   } finally { fs.closeSync(fd); }
 }
 
-function capture(host, payload) {
+function capture(host, payload, collectionFailure = null) {
   if (!['codex', 'claude'].includes(host)) throw new Error('Unknown coding host');
   if (typeof payload.cwd !== 'string' || typeof payload.session_id !== 'string' || !payload.session_id) throw new Error('Missing native source identity');
   const context = resolveContext(payload.cwd);
@@ -51,21 +52,27 @@ function capture(host, payload) {
     session_id: agent ? `${payload.session_id}:agent:${agent}` : payload.session_id,
     turn_id: typeof payload.turn_id === 'string' ? payload.turn_id : typeof payload.prompt_id === 'string' ? payload.prompt_id : null };
   const limitations = ['Hook coverage is partial; shell reads do not prove skill use.', 'Secrets are filtered by known patterns only; data remains private to this project/user.'];
-  const components = observedComponent(payload);
+  const components = collectionFailure ? [] : observedComponent(payload);
   const artifacts = [];
+  const artifactProcessing = [];
   const save = (kind, value) => {
-    let bytes = Buffer.from(Buffer.isBuffer(value) ? redact(value.toString('utf8')) : typeof value === 'string' ? redact(value) : JSON.stringify(redact(value)));
+    const { bytes, processing } = prepareArtifact(value);
     if (bytes.length > context.config.max_artifact_bytes) {
       limitations.push(`${kind}:oversized:${bytes.length}`);
       return;
     }
     artifacts.push({ kind, ...store.putArtifact(context.root, bytes) });
+    artifactProcessing.push({ kind, ...processing });
   };
   const data = { checkout: context.checkout, commit: context.commit, branch: context.branch,
     parent_session_id: agent ? payload.session_id : null, agent_id: agent,
     tool_name: payload.tool_name || null, tool_use_id: payload.tool_use_id || null,
-    model: payload.model || null, permission_mode: payload.permission_mode || null };
-  if (eventType === 'SessionStart') {
+    model: payload.model || null, permission_mode: payload.permission_mode || null,
+    artifact_processing: artifactProcessing };
+  if (collectionFailure) {
+    data.collection_failure = collectionFailure;
+    limitations.push(`${collectionFailure.reason}: body omitted (${collectionFailure.input_bytes} bytes).`);
+  } else if (eventType === 'SessionStart') {
     for (const file of ['AGENTS.md', 'CLAUDE.md', '.claude/settings.json', '.codex/config.toml']) {
       const full = path.join(context.checkout, file);
       try { components.push(component(full, 'unknown', file.endsWith('.json') || file.endsWith('.toml') ? 'configuration' : 'instruction')); } catch { /* Explicitly partial: missing files are not invented. */ }
@@ -77,7 +84,7 @@ function capture(host, payload) {
     else limitations.push('User prompt not provided by host.');
   } else if (eventType === 'PostToolUse' || eventType === 'PostToolUseFailure') {
     const input = JSON.stringify(payload.tool_input || {});
-    if (/(?:operator\.env|(?:^|[\s"'/\\])\.env(?:[.\s"'/\\]|$)|credentials|auth\.json|keychain)/i.test(input)) {
+    if (sensitiveSource(input)) {
       limitations.push('Sensitive-source tool body omitted.');
     } else {
       save('tool_call_result', { tool_name: payload.tool_name, tool_use_id: payload.tool_use_id,
@@ -88,7 +95,7 @@ function capture(host, payload) {
       save('component_snapshot', fs.readFileSync(item.source, 'utf8'));
     }
     const file = payload.tool_input?.file_path;
-    if (typeof file === 'string' && /^(Write|Edit)$/i.test(payload.tool_name || '') && !/(?:\.env|credential|secret)/i.test(file)) {
+    if (typeof file === 'string' && /^(Write|Edit)$/i.test(payload.tool_name || '') && !sensitiveSource(file)) {
       try {
         const full = path.resolve(payload.cwd, file);
         if (!fs.lstatSync(full).isSymbolicLink() && fs.statSync(full).isFile() && fs.statSync(full).size <= context.config.max_artifact_bytes) {
@@ -111,7 +118,8 @@ function capture(host, payload) {
   // Native payload identity is stable across retries. Capture time is not an invented execution time.
   const identity = { eventType, session: source.session_id, turn: source.turn_id, tool: payload.tool_use_id ?? null,
     prompt: eventType === 'UserPromptSubmit' ? digest(String(payload.prompt ?? '')) : null,
-    final: eventType === 'Stop' ? artifacts.map(item => item.digest) : null, start: payload.source ?? null };
+    final: eventType === 'Stop' ? artifacts.map(item => item.digest) : null, start: payload.source ?? null,
+    collection_failure: collectionFailure?.reason ?? null };
   if (eventType === 'SessionStart') identity.configuration = { files: components.map(item => item.revision), commit: context.commit, branch: context.branch, plugin: data.plugin_version };
   if (!source.turn_id && !payload.tool_use_id) {
     identity.observation = randomUUID();
@@ -124,9 +132,10 @@ function capture(host, payload) {
   return { enabled: true, root: context.root, ...result };
 }
 
-function hook(host, payload) {
-  const result = capture(host, payload);
+function hook(host, payload, collectionFailure = null) {
+  const result = capture(host, payload, collectionFailure);
   if (!result.enabled) return {};
+  if (collectionFailure) return { systemMessage: '큰 입력 본문을 생략하고 실행 결과 수집 누락을 기록했습니다. agent-results에서 누락 범위를 확인해 주세요.' };
   if (payload.hook_event_name === 'SessionStart') return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext:
     `AGENT_RESULTS_ENABLED: ${result.root}\n실행 결과를 로컬에 보존합니다. 스킬·훅·workflow를 실제 적용했다면 agent-results 전역 스킬의 record/declare로 출처·버전과 결과 근거를 연결하세요. 파일 열람만으로 적용/결함을 단정하지 않습니다. 개선 필요가 실제 근거로 확인되면 권고를 기록하고 사용자에게 알리세요. 사용자의 개선 지시 전에는 후보 실행·수정을 시작하지 않습니다.` } };
   if (payload.hook_event_name !== 'Stop') return {};

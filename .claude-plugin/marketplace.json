@@ -11,7 +11,7 @@
       "description": "실행 결과·하네스 버전 보존과 사용자 지시에 따른 반수동 개선.",
       "category": "development",
       "source": "./plugins/agent-results",
-      "version": "0.1.1"
+      "version": "0.1.2"
     },
     {
       "name": "backend-ts",

@@ -35,6 +35,8 @@ signal은 `explicit_correction|required_check_failed|observed_omission`이다. e
 
 `decide --status resolved --file <result-refs.json>`의 파일은 실제 저장된 수정·검증 event 목록이다:
 
+`requested` 전이가 반환한 `request_id`를 사용해 새 결과 event에 `data.improvement_requests: [{"recommendation_id":"<권고 ID>","request_id":"<이번 시도 ID>"}]`와 결과 artifact를 연결한다. 여러 권고를 한 결과로 검증했다면 배열에 해당 시도들을 함께 넣는다. 저장 시점에 활성 시도인지 검사하므로 unknown/과거 실행 시각을 꾸며 이전 기록을 새 결과로 만들 수 없다. 이 시도 ID는 사람 인증이나 실행 권한이 아니다.
+
 ```json
 [{"run_key":"actual-run-key","event_key":"actual-result-event-key"}]
 ```

@@ -101,12 +101,18 @@ function resolveContext(cwd = process.cwd()) {
   return { ...context, config };
 }
 
+function sensitiveSource(value) {
+  return /(?:operator[.-]env|credentials|auth\.json|keychain|(?:^|[\s"'`=:/\\])(?:\.env(?:[.\s"'`/\\]|$)|\.dev\.vars(?:[.\s"'`/\\]|$)|\.(?:envrc|netrc|npmrc|pypirc)(?:[\s"'`/\\]|$)|id_(?:rsa|dsa|ecdsa|ed25519)(?:[.\s"'`/\\]|$)|[^\s"'`/\\]+\.(?:pem|key|p12|pfx)(?:[\s"'`/\\]|$)))/i.test(value);
+}
+
 function redact(value, field = '') {
-  if (/^(authorization|cookie|set-cookie|password|passwd|secret|access_token|refresh_token|api[_-]?key|client_secret)$/i.test(field)) return '[REDACTED]';
+  if (/^(authorization|cookie|set-cookie|password|passwd|secret|access_token|refresh_token|api[_-]?key|client_secret)$/i.test(field) ||
+      /_(?:key|token|secret|password|passwd)$/i.test(field)) return '[REDACTED]';
   if (typeof value === 'string') return value
+    .replace(/-----BEGIN (?:[A-Z ]* )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z ]* )?PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY]')
     .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,})\b/g, '[REDACTED]')
-    .replace(/((?:password|api[_-]?key|access_token|refresh_token|client_secret)\s*[=:]\s*)[^\s,;"']+/gi, '$1[REDACTED]');
+    .replace(/\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9_-]+|AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, '[REDACTED]')
+    .replace(/\b((?:(?:[a-z][a-z0-9_]*_)?(?:password|passwd|key|token|secret)|api[_-]?key|access_token|refresh_token|client_secret)\s*[=:]\s*["']?)[^\s,;"']+/gi, '$1[REDACTED]');
   if (Array.isArray(value)) return value.map(item => redact(item));
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item, key)]));
   return value;
@@ -114,6 +120,7 @@ function redact(value, field = '') {
 
 function component(file, usage = 'read', kind) {
   const absolute = fs.realpathSync(file);
+  if (sensitiveSource(file) || sensitiveSource(absolute)) throw new Error('Sensitive component source omitted');
   const stat = fs.statSync(absolute);
   if (!stat.isFile() || stat.size > 262144) throw new Error('Component file unavailable or oversized');
   const content = fs.readFileSync(absolute);
@@ -121,4 +128,4 @@ function component(file, usage = 'read', kind) {
     id: path.basename(absolute) === 'SKILL.md' ? path.basename(path.dirname(absolute)) : path.basename(absolute),
     source: absolute, revision: digest(content), usage };
 }
-module.exports = { digest, git, projectContext, secureDirectory, readConfig, initialize, resolveContext, redact, component, ensureIgnored };
+module.exports = { digest, git, projectContext, secureDirectory, readConfig, initialize, resolveContext, redact, component, ensureIgnored, sensitiveSource };

@@ -141,7 +141,26 @@ function storeEvent(root, input) {
   const run_key = runKey(event.source);
   const event_key = sha(event.event_id);
   const body = canonical({ digest: sha(canonical(event)), event });
-  const created = publish(path.join(directory(root, 'runs', run_key), `${event_key}.json`), Buffer.from(body));
+  const file = path.join(directory(root, 'runs', run_key), `${event_key}.json`);
+  // Exact retries retain their immutable identity even after the request settles.
+  // New outcome events, however, must belong to a currently active attempt.
+  if (!fs.existsSync(file) && object(event.data) && Object.hasOwn(event.data, 'improvement_requests')) {
+    const links = event.data.improvement_requests;
+    if (!Array.isArray(links) || links.length === 0) fail('invalid improvement request links');
+    const seen = new Set();
+    for (const link of links) {
+      if (!object(link) || !hex(link.recommendation_id) || !text(link.request_id) ||
+          Object.keys(link).some(key => !['recommendation_id', 'request_id'].includes(key)) || seen.has(link.recommendation_id)) {
+        fail('invalid improvement request links');
+      }
+      seen.add(link.recommendation_id);
+      const request = readRecommendation(root, link.recommendation_id).record;
+      if (!['requested', 'running'].includes(request.status) || request.request_id !== link.request_id) {
+        fail('outcome needs an active improvement request');
+      }
+    }
+  }
+  const created = publish(file, Buffer.from(body));
   return { run_key, event_key, duplicate: !created, event };
 }
 
@@ -216,6 +235,8 @@ function readRecommendation(root, id) {
       record.evidence = [...refs.values()];
     }
     if (entry.change.status) record.status = entry.change.status;
+    if (entry.change.status === 'requested') delete record.request_id;
+    if (entry.change.request_id !== undefined) record.request_id = entry.change.request_id;
     if (entry.change.notified !== undefined) record.notified = entry.change.notified;
     record.history.push(entry.change);
     digest = entry.digest;
@@ -281,18 +302,35 @@ function transitionRecommendation(root, id, input) {
       (change.note !== undefined && !text(change.note)) ||
       (change.instruction_ref !== undefined && !text(change.instruction_ref))) fail('invalid recommendation change');
   const current = readRecommendation(root, id);
-  if (!ALLOWED[current.record.status]?.includes(change.status)) fail('invalid recommendation transition');
+  const latestRequest = current.record.history.findLast(item => item.status === 'requested');
+  // Upgrade an already-authorized legacy attempt by appending a boundary, never
+  // by rewriting history or inventing another human instruction. The nonce is
+  // only exposed after publication, so old events cannot already reference it.
+  const enrollLegacy = change.status === 'running' && current.record.status === 'running' &&
+    current.record.request_id === undefined && latestRequest && change.instruction_ref === latestRequest.instruction_ref;
+  if (!ALLOWED[current.record.status]?.includes(change.status) && !enrollLegacy) fail('invalid recommendation transition');
   if (change.status === 'requested' && !text(change.instruction_ref)) fail('user instruction reference is required');
   if (change.status === 'requested' && current.record.history.some(item => item.status === 'requested' &&
       item.instruction_ref === change.instruction_ref)) fail('a new user instruction reference is required');
+  if (change.status === 'requested' || enrollLegacy) change.request_id = crypto.randomUUID();
+  if (enrollLegacy) change.note = 'Request boundary enrollment after upgrade; original user instruction preserved.';
   if (change.status === 'resolved' && (!Array.isArray(change.result_refs) || change.result_refs.length === 0)) {
     fail('resolution needs stored result evidence');
   }
   if (change.result_refs !== undefined) {
     if (!Array.isArray(change.result_refs)) fail('invalid result references');
     for (const ref of change.result_refs) {
-      if (!object(ref) || !hex(ref.run_key) || !hex(ref.event_key) ||
-          !readRun(root, ref.run_key).events.some(event => event.event_key === ref.event_key)) fail('result evidence missing');
+      if (!object(ref) || !hex(ref.run_key) || !hex(ref.event_key)) fail('result evidence missing');
+      const outcome = readRun(root, ref.run_key).events.find(event => event.event_key === ref.event_key);
+      if (!outcome) fail('result evidence missing');
+      if (change.status === 'resolved') {
+        if (!current.record.request_id || !object(outcome.data) || !Array.isArray(outcome.data.improvement_requests) ||
+            !outcome.data.improvement_requests.some(link => link.recommendation_id === id && link.request_id === current.record.request_id) ||
+            current.record.evidence.some(item => item.run_key === ref.run_key && item.event_key === ref.event_key)) {
+          fail('resolution needs new result evidence for the current improvement request');
+        }
+        if (outcome.artifacts.length === 0) fail('resolution needs an outcome artifact');
+      }
     }
   }
   // This records the human instruction's location; it does not authenticate the
@@ -309,4 +347,5 @@ function markNotified(root, ids) {
 }
 
 module.exports = { runKey, storeEvent, readRun, listRuns, putArtifact, readArtifact,
-  recommend, listRecommendations, transitionRecommendation, markNotified };
+  recommend, listRecommendations, transitionRecommendation, markNotified,
+  publishPrivate: (file, bytes) => { secureDirectory(path.dirname(file)); return publish(file, bytes); } };

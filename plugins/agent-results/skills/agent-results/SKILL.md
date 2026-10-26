@@ -19,6 +19,8 @@ description: 실제 에이전트 실행 결과와 스킬·지침·훅·워크플
 
 전역 설치만으로 모든 프로젝트의 기록을 켜지 않는다. 초기화된 프로젝트/프로젝트 없는 사용자 범위에서 hook이 제공한 사용자 메시지·도구 결과·최종 응답을 수집한다. shell로 읽은 스킬, 지원하지 않는 transcript, 큰 본문, 민감한 설정은 부분/누락으로 남는다. 필터는 알려진 secret 형태만 처리하므로 원문은 private 범위에 유지한다.
 
+`.dev.vars*`·`.env*`·인증/개인키 파일은 hook과 명시 파일 반입에서도 제외한다. 알려진 토큰 형태는 가리고 `artifact_processing`에 원본/가린 파생본을 구분한다. 바이너리 결과는 텍스트 변환 없이 보존한다. 4MiB 초과 hook 입력은 본문 대신 식별 정보와 누락 사유를 기록한다. 참조 조회의 `availability: invalid`는 손상/안전하지 않은 항목이며 정상 항목과 함께 보고한다.
+
 ## 스킬·다른 하네스 구성 연결
 
 `declare --run <키> --file <스킬/지침/훅 파일> --kind <skill|instruction|hook|workflow|다른 종류> --usage declared`로 실제 적용을 선언한다. 새 스킬은 별도 등록 없이 파일 출처·해시 버전으로 기록된다. 단순 열람은 `read`다.
@@ -34,6 +36,6 @@ description: 실제 에이전트 실행 결과와 스킬·지침·훅·워크플
 3. 작업 종료 hook 또는 `notify`/`pending`에서 권고 ID·대상·사유·근거를 사용자에게 짧게 알린다. 사용자에게 전달하기 전 `notify` 결과를 버리지 않는다. 새 근거가 없으면 같은 권고를 반복해서 알리지 않는다.
 4. 사용자가 “이 권고를 개선해”라고 지시하면 `decide --id <ID> --status requested --instruction-ref <실제 사용자 메시지 참조>`를 남긴 뒤 `running`으로 바꾼다. 사용자 지시 전에는 모델 비교·수정·비용 발생 작업을 시작하지 않는다. 명시적인 개선 요청을 이미 받았다면 범위 안의 수정·검증에 재승인을 요구하지 않는다.
 5. 근거를 조사하고 실제 실패 원인을 고친다. 필요한 경우에만 후보를 비교한다. 원 서비스의 변경 도구를 재실행하거나 live effect를 replay하지 않는다. 해당 프로젝트의 정상 검사·반영 절차를 따른다. 공통 Codex/Claude 하네스는 같은 소스와 설치 스냅샷을 함께 갱신한다.
-6. 수정과 검증 결과를 새 event로 저장한 후 `decide --id <ID> --status resolved --file <result-refs.json>`로 연결한다. 근거가 부족하면 `deferred`, 수정 실패는 `failed`와 이유를 기록한다. 로컬 검증·반영·이후 실사용 효과는 구분한다. 커밋이나 모델 자기평가만으로 품질 향상을 선언하지 않는다.
+6. requested 결과의 `request_id`를 확인하고 수정·검증 event의 `data.improvement_requests`에 `[{recommendation_id: <ID>, request_id: <이번 시도 ID>}]`를 넣어 저장한다. 결과 artifact가 있어야 하며 과거 권고 근거를 해결 결과로 재사용할 수 없다. 그 후 `decide --id <ID> --status resolved --file <result-refs.json>`로 연결한다. 0.1.1에서 이미 running인 기록은 원래 `--instruction-ref`와 함께 `decide --status running`을 한 번 호출해 시도 ID를 추가한 뒤 새 결과를 저장한다. 근거 부족은 `deferred`, 수정 실패는 `failed`와 이유를 기록한다. 로컬 검증·반영·이후 실사용 효과는 구분하며 커밋이나 모델 자기평가만으로 품질 향상을 선언하지 않는다.
 
 주기적 감시·추가 외부 제공자 전송·운영 배포는 이 스킬의 기록 기능이 실행하지 않는다. 수집 기능은 작업을 막거나 Stop continuation을 만들지 않는다.

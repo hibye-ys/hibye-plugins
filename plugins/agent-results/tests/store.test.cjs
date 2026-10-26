@@ -169,10 +169,12 @@ test('only new evidence reopens notification for noticed/reviewed; deferred/dism
     const caseRoot = path.join(root, status);
     const { saved, recommendation } = noticed(caseRoot);
     if (status === 'resolved') {
-      store.transitionRecommendation(caseRoot, recommendation.id, { status: 'requested', instruction_ref: 'user:resolve' });
+      const request = store.transitionRecommendation(caseRoot, recommendation.id, { status: 'requested', instruction_ref: 'user:resolve' });
       store.transitionRecommendation(caseRoot, recommendation.id, { status: 'running' });
+      const outcome = store.storeEvent(caseRoot, event(caseRoot, { event_id: 'resolution-outcome',
+        data: { improvement_requests: [{ recommendation_id: recommendation.id, request_id: request.request_id }] } }));
       store.transitionRecommendation(caseRoot, recommendation.id, { status: 'resolved',
-        result_refs: [{ run_key: saved.run_key, event_key: saved.event_key }] });
+        result_refs: [{ run_key: outcome.run_key, event_key: outcome.event_key }] });
     } else if (status !== 'noticed') {
       store.transitionRecommendation(caseRoot, recommendation.id, { status });
     }
@@ -215,15 +217,113 @@ test('deferred/dismissed recommendations cannot run, and new requests need a fre
 test('resolved requires existing result events; append-only status history preserves instruction provenance', t => {
   const { root } = fixture(t);
   const { saved, recommendation } = noticed(root);
-  store.transitionRecommendation(root, recommendation.id, { status: 'requested', instruction_ref: 'user:1' });
+  const request = store.transitionRecommendation(root, recommendation.id, { status: 'requested', instruction_ref: 'user:1' });
   store.transitionRecommendation(root, recommendation.id, { status: 'running' });
   assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'resolved' }), /stored result/);
   assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'resolved', result_refs: [{ run_key: saved.run_key, event_key: 'a'.repeat(64) }] }), /missing/);
-  const result = store.storeEvent(root, event(root, { event_id: 'result', event_type: 'validation_result', data: { passed: true } }));
+  const result = store.storeEvent(root, event(root, { event_id: 'result', event_type: 'validation_result',
+    data: { passed: true, improvement_requests: [{ recommendation_id: recommendation.id, request_id: request.request_id }] } }));
   const resolved = store.transitionRecommendation(root, recommendation.id, { status: 'resolved', result_refs: [{ run_key: result.run_key, event_key: result.event_key }] });
   assert.equal(resolved.status, 'resolved');
   assert.equal(resolved.history[0].instruction_ref, 'user:1');
   assert.equal(resolved.history.length, 3);
+});
+
+test('resolution needs a newly recorded outcome linked to the current request attempt, independent of caller time', t => {
+  const { root } = fixture(t);
+  const { saved, recommendation } = noticed(root);
+  const preexisting = store.storeEvent(root, event(root, { event_id: 'future-dated-before-request', occurred_at: '2099-01-01T00:00:00Z' }));
+  const requested = store.transitionRecommendation(root, recommendation.id, { status: 'requested', instruction_ref: 'user:new-request' });
+  assert.match(requested.request_id, /^[a-f0-9-]{36}$/);
+  assert.throws(() => store.transitionRecommendation(root, recommendation.id,
+    { status: 'running', request_id: requested.request_id }), /invalid recommendation change/);
+  store.transitionRecommendation(root, recommendation.id, { status: 'running' });
+  for (const prior of [saved, preexisting]) {
+    assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'resolved',
+      result_refs: [{ run_key: prior.run_key, event_key: prior.event_key }] }), /current improvement request/);
+  }
+  const unlinked = store.storeEvent(root, event(root, { event_id: 'after-request-but-unlinked' }));
+  assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'resolved',
+    result_refs: [{ run_key: unlinked.run_key, event_key: unlinked.event_key }] }), /current improvement request/);
+  const requestLink = [{ recommendation_id: recommendation.id, request_id: requested.request_id }];
+  const result = store.storeEvent(root, event(root, { event_id: 'backdated-outcome', occurred_at: '2000-01-01T00:00:00Z',
+    data: { improvement_requests: requestLink } }));
+  assert.equal(store.transitionRecommendation(root, recommendation.id, { status: 'resolved',
+    result_refs: [{ run_key: result.run_key, event_key: result.event_key }] }).status, 'resolved');
+  assert.equal(store.storeEvent(root, result.event).duplicate, true, 'exact outcome retry remains idempotent after resolution');
+  assert.throws(() => store.storeEvent(root, event(root, { event_id: 'late-new-outcome', data: { improvement_requests: requestLink } })), /active improvement request/);
+});
+
+test('request links cannot be invented before enrollment and stale attempts cannot resolve a later request', t => {
+  const { root } = fixture(t);
+  const { recommendation } = noticed(root);
+  const fakeLink = [{ recommendation_id: recommendation.id, request_id: '00000000-0000-0000-0000-000000000000' }];
+  assert.throws(() => store.storeEvent(root, event(root, { event_id: 'premature', data: { improvement_requests: fakeLink } })), /active improvement request/);
+  const first = store.transitionRecommendation(root, recommendation.id, { status: 'requested', instruction_ref: 'user:attempt1' });
+  store.transitionRecommendation(root, recommendation.id, { status: 'running' });
+  const old = store.storeEvent(root, event(root, { event_id: 'attempt1-outcome',
+    data: { improvement_requests: [{ recommendation_id: recommendation.id, request_id: first.request_id }] } }));
+  store.transitionRecommendation(root, recommendation.id, { status: 'failed' });
+  const second = store.transitionRecommendation(root, recommendation.id, { status: 'requested', instruction_ref: 'user:attempt2' });
+  assert.notEqual(second.request_id, first.request_id);
+  store.transitionRecommendation(root, recommendation.id, { status: 'running' });
+  assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'resolved',
+    result_refs: [{ run_key: old.run_key, event_key: old.event_key }] }), /current improvement request/);
+  assert.throws(() => store.storeEvent(root, event(root, { event_id: 'stale',
+    data: { improvement_requests: [{ recommendation_id: recommendation.id, request_id: first.request_id }] } })), /active improvement request/);
+  const noArtifact = store.storeEvent(root, event(root, { event_id: 'empty-outcome', artifacts: [],
+    data: { improvement_requests: [{ recommendation_id: recommendation.id, request_id: second.request_id }] } }));
+  assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'resolved',
+    result_refs: [{ run_key: noArtifact.run_key, event_key: noArtifact.event_key }] }), /outcome artifact/);
+});
+
+test('legacy running attempts enroll a new append-only boundary only with their original instruction reference', t => {
+  const { root } = fixture(t);
+  const { saved, recommendation } = noticed(root);
+  const sha = bytes => require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+  const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(',')}]` :
+    value && typeof value === 'object' ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}` : JSON.stringify(value);
+  // v0.1.1 history fixture: preserve bytes that predate request attempt tokens.
+  const dir = path.join(root, 'recommendations', recommendation.id);
+  let previous = JSON.parse(fs.readFileSync(path.join(dir, 'initial.json'))).digest;
+  for (const [index, change] of [{ status: 'requested', instruction_ref: 'user:original' }, { status: 'running' }].entries()) {
+    const entry = { previous_digest: previous, change };
+    entry.digest = sha(canonical(entry)); previous = entry.digest;
+    fs.writeFileSync(path.join(dir, `${String(index + 1).padStart(8, '0')}.json`), canonical(entry), { mode: 0o600 });
+  }
+  const oldBytes = fs.readFileSync(path.join(dir, '00000001.json'));
+  assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'resolved',
+    result_refs: [{ run_key: saved.run_key, event_key: saved.event_key }] }), /current improvement request/);
+  for (const instruction_ref of [undefined, 'user:invented']) {
+    const change = { status: 'running' }; if (instruction_ref) change.instruction_ref = instruction_ref;
+    assert.throws(() => store.transitionRecommendation(root, recommendation.id, change), /transition/);
+  }
+  const upgraded = store.transitionRecommendation(root, recommendation.id, { status: 'running', instruction_ref: 'user:original' });
+  assert.match(upgraded.request_id, /^[a-f0-9-]{36}$/);
+  assert.equal(upgraded.history.length, 3);
+  assert.equal(upgraded.history.at(-1).instruction_ref, 'user:original');
+  assert.match(upgraded.history.at(-1).note, /boundary enrollment/);
+  assert.deepEqual(fs.readFileSync(path.join(dir, '00000001.json')), oldBytes, 'upgrade never rewrites legacy history');
+  assert.throws(() => store.transitionRecommendation(root, recommendation.id, { status: 'running', instruction_ref: 'user:original' }), /transition/);
+  const result = store.storeEvent(root, event(root, { event_id: 'upgraded-attempt-outcome', occurred_at: 'unknown',
+    data: { improvement_requests: [{ recommendation_id: recommendation.id, request_id: upgraded.request_id }] } }));
+  assert.equal(store.transitionRecommendation(root, recommendation.id, { status: 'resolved',
+    result_refs: [{ run_key: result.run_key, event_key: result.event_key }] }).status, 'resolved');
+});
+
+test('one new verification event can resolve several independently active improvement requests', t => {
+  const { root } = fixture(t);
+  const { saved, recommendation } = noticed(root);
+  const second = store.recommend(root, { ...recommendation, run_key: saved.run_key, reason: 'another confirmed defect',
+    evidence: [{ event_key: saved.event_key, artifact_digest: saved.event.artifacts[0].digest }] });
+  const requests = [recommendation, second].map(item => {
+    const request = store.transitionRecommendation(root, item.id, { status: 'requested', instruction_ref: 'user:batch-fix' });
+    store.transitionRecommendation(root, item.id, { status: 'running' });
+    return { recommendation_id: item.id, request_id: request.request_id };
+  });
+  const outcome = store.storeEvent(root, event(root, { event_id: 'shared-validation', data: { improvement_requests: requests } }));
+  for (const item of requests) assert.equal(store.transitionRecommendation(root, item.recommendation_id, { status: 'resolved',
+    result_refs: [{ run_key: outcome.run_key, event_key: outcome.event_key }] }).status, 'resolved');
 });
 
 test('multiple real processes publish exact complete events without locks or duplicate copies', async t => {

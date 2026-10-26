@@ -2,7 +2,8 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { initialize, resolveContext, component, digest, redact } = require('./context.cjs');
+const { initialize, resolveContext, component, digest, sensitiveSource } = require('./context.cjs');
+const { prepareArtifact } = require('./artifact.cjs');
 const store = require('./store.cjs');
 
 function options(args) {
@@ -18,6 +19,7 @@ function options(args) {
 }
 function fileBytes(file) {
   if (typeof file !== 'string') throw new Error('--file is required');
+  if (sensitiveSource(file) || sensitiveSource(path.resolve(file))) throw new Error('Sensitive evidence source omitted');
   const fd = fs.openSync(path.resolve(file), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try {
     const stat = fs.fstatSync(fd);
@@ -46,11 +48,15 @@ function main(args) {
   if (command === 'artifact') return { digest: opts.digest, content: store.readArtifact(context.root, opts.digest).toString('utf8') };
   if (command === 'record') {
     const event = JSON.parse(fileBytes(opts.file));
+    const processing = [];
     event.artifacts = (event.artifacts || []).map(item => {
       if (!item.file) return item;
-      const blob = store.putArtifact(context.root, Buffer.from(redact(fileBytes(item.file).toString('utf8'))));
+      const prepared = prepareArtifact(fileBytes(item.file));
+      const blob = store.putArtifact(context.root, prepared.bytes);
+      processing.push({ kind: item.kind, ...prepared.processing });
       return { kind: item.kind, digest: blob.digest, locator: path.resolve(item.file) };
     });
+    if (processing.length) event.data = { ...(event.data && typeof event.data === 'object' && !Array.isArray(event.data) ? event.data : { original_data: event.data ?? null }), artifact_processing: processing };
     const result = store.storeEvent(context.root, event);
     for (const item of event.components) require('./references.cjs').linkComponent(context, result.run_key, item);
     return result;
@@ -61,12 +67,18 @@ function main(args) {
     if (!['declared', 'evidence_linked', 'read'].includes(opts.usage || 'declared')) throw new Error('Unknown usage');
     if (opts.usage === 'evidence_linked' && !opts.artifact) throw new Error('evidence_linked requires an actual outcome artifact');
     const item = component(opts.file, opts.usage || 'declared', opts.kind);
-    const definition = store.putArtifact(context.root, fileBytes(opts.file));
+    const prepared = prepareArtifact(fileBytes(opts.file));
+    const definition = store.putArtifact(context.root, prepared.bytes);
     const artifacts = [{ kind: 'component_snapshot', digest: definition.digest }];
-    if (opts.artifact) artifacts.push({ kind: 'outcome', ...store.putArtifact(context.root, fileBytes(opts.artifact)) });
+    const processing = [{ kind: 'component_snapshot', ...prepared.processing }];
+    if (opts.artifact) {
+      const outcome = prepareArtifact(fileBytes(opts.artifact));
+      artifacts.push({ kind: 'outcome', ...store.putArtifact(context.root, outcome.bytes) });
+      processing.push({ kind: 'outcome', ...outcome.processing });
+    }
     const event = { schema: 'agent-results.event.v1', source: run.events[0].source, event_id: digest(JSON.stringify({ item, artifacts, note: opts.note || '' })),
       event_type: 'component_application', occurred_at: new Date().toISOString(), components: [item], artifacts,
-      data: { relation: 'explicit', note: opts.note || 'Agent declaration; verify actual application against linked evidence.' },
+      data: { relation: 'explicit', note: opts.note || 'Agent declaration; verify actual application against linked evidence.', artifact_processing: processing },
       coverage: { status: 'partial', limitations: ['Application declaration is not proof of sole causal responsibility or quality.'] } };
     const existing = run.events.find(previous => previous.event_id === event.event_id);
     if (existing) event.occurred_at = existing.occurred_at;

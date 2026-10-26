@@ -30,7 +30,8 @@ function importServicePage(root, bytes) {
         (message.content_kind === 'tool_result' && message.tool_result_status === 'not_applicable') ||
         (['oversized', 'missing', 'not_applicable'].includes(message.tool_result_status) && message.tool_result !== null) ||
         (message.tool_result_status === 'full' && (!message.tool_result || !Object.hasOwn(message.tool_result, 'full'))) ||
-        (message.tool_result_status === 'preview' && (!message.tool_result || Object.hasOwn(message.tool_result, 'full')))) {
+        (message.tool_result_status === 'preview' && (message.tool_result === null ||
+          (typeof message.tool_result === 'object' && Object.hasOwn(message.tool_result, 'full'))))) {
       throw new Error('Invalid service message availability or identity');
     }
     ids.add(message.id); previous = BigInt(message.sequence);
