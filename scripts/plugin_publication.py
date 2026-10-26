@@ -18,7 +18,7 @@ def unlinked(path):
     return path
 
 
-def capture_payload(source):
+def capture_payload(source, claude_usage_markers=False):
     source = unlinked(source)
     if not source.is_dir():
         raise RuntimeError(f'Payload directory missing: {source}')
@@ -26,6 +26,21 @@ def capture_payload(source):
     for path in sorted(source.rglob('*')):
         unlinked(path)
         relative = path.relative_to(source).as_posix()
+        if claude_usage_markers and relative.split('/')[0] == '.in_use':
+            # Native Claude creates/removes PID markers during normal use. This
+            # exception is installed-cache-only; source/publication calls stay
+            # exact. Never hide links, nested paths or executable payload here.
+            parts = relative.split('/')
+            if len(parts) == 1 and path.is_dir():
+                continue
+            if len(parts) == 2 and parts[1].isdigit():
+                try:
+                    marker = path.lstat()
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(marker.st_mode) and not marker.st_mode & 0o111:
+                    continue
+            raise RuntimeError(f'Invalid native Claude usage marker: {path}')
         if relative.split('/')[0] == '.git':
             raise RuntimeError('Plugin payload must not contain .git')
         if path.is_file():

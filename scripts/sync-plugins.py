@@ -36,8 +36,8 @@ def command(*args, cwd=None):
     return result.stdout
 
 
-def tree_hashes(root):
-    payload = publication.capture_payload(root)
+def tree_hashes(root, native_host=None):
+    payload = publication.capture_payload(root, claude_usage_markers=native_host == 'claude')
     return {name: hashlib.sha256(data).hexdigest() for name, (data, _) in payload.items()}
 
 
@@ -165,8 +165,8 @@ def inspect_host(host, name):
     raise ValueError('Unsupported native host: ' + host)
 
 
-def verify_snapshot(cache, expected_manifest, expected_hashes):
-    actual = tree_hashes(cache)
+def verify_snapshot(cache, expected_manifest, expected_hashes, native_host=None):
+    actual = tree_hashes(cache, native_host=native_host)
     if actual != expected_hashes:
         missing = sorted(set(expected_hashes) - set(actual))
         extra = sorted(set(actual) - set(expected_hashes))
@@ -222,7 +222,7 @@ def check_plugin(name, hosts, expected=None, allow_inactive=False):
         for record in records:
             if record['version'] != version or (not record['active'] and not allow_inactive):
                 raise RuntimeError(f'{host}/{name} scope={record.get("scope")} project={record.get("projectPath")} version or activation mismatch')
-            verify_snapshot(record['cache'], data['codex'], expected)
+            verify_snapshot(record['cache'], data['codex'], expected, native_host=host)
             if host == 'claude':
                 target, _ = publication_for(name)
                 if record.get('git_commit') != publication.git(target, 'rev-parse', 'HEAD'):
@@ -467,7 +467,7 @@ def sync_plugin(name, hosts, catalog_prepared=False, preserve_activation=False):
                         if exists and current['active'] != record['active']:
                             raise RuntimeError('native update changed the existing Claude activation state')
                         require_native_cache('claude', name, current)
-                        verify_snapshot(current['cache'], read_json(source / '.codex-plugin/plugin.json'), expected)
+                        verify_snapshot(current['cache'], read_json(source / '.codex-plugin/plugin.json'), expected, native_host='claude')
                         if record_key(record) in activations and activation_value(name, record) != activations[record_key(record)]:
                             raise RuntimeError('native update changed the existing activation setting')
                     except (OSError, ValueError, RuntimeError) as error:

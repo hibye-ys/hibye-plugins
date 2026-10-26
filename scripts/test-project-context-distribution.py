@@ -349,6 +349,35 @@ class SetupTests(unittest.TestCase):
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_claude_runtime_markers_do_not_hide_payload_drift_or_unsafe_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary).resolve() / 'cache'
+            (cache / '.codex-plugin').mkdir(parents=True)
+            manifest = {'name': 'fixture', 'version': '1.0.0'}
+            (cache / '.codex-plugin/plugin.json').write_text(json.dumps(manifest))
+            expected = sync.tree_hashes(cache)
+            marker = cache / '.in_use' / '12345'
+            marker.parent.mkdir()
+            marker.write_text('')
+            sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            with self.assertRaisesRegex(RuntimeError, 'extra='):
+                sync.verify_snapshot(cache, manifest, expected, native_host='codex')
+            (cache / 'extra.cjs').write_text('unexpected')
+            with self.assertRaisesRegex(RuntimeError, 'extra='):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            (cache / 'extra.cjs').unlink()
+            marker.unlink()
+            marker.symlink_to(cache / '.codex-plugin/plugin.json')
+            with self.assertRaisesRegex(RuntimeError, 'source link'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            marker.unlink()
+            marker.write_text('')
+            marker.chmod(0o700)
+            with self.assertRaisesRegex(RuntimeError, 'Invalid native Claude'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            # Source/publication capture still includes markers as payload.
+            self.assertIn('.in_use/12345', sync.tree_hashes(cache))
+
     def test_entire_payload_drift_and_links_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
