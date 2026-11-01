@@ -2,11 +2,10 @@
 name: docs-boundary
 description: >-
   docs/ 는 사람이 읽는 기록이지 실행 입력이 아니라는 경계를 지킨다. docs/ 나 control plane(AGENTS.md·CLAUDE.md·.agents·.claude·.codex)을
-  편집할 때, 코드·테스트·게이트가 docs/ 아래 파일을 읽게 만들려 할 때, docs 파일을 지우거나 옮길 때, 새 문서를 어디에 둘지 정할 때,
-  프로젝트의 docs 경계 검사 결과(위반·stale·authority-debt)를 처리할 때 사용한다.
+  편집할 때, 코드·테스트·게이트가 docs/ 아래 파일을 읽게 만들려 할 때, docs 파일을 지우거나 옮길 때, 새 문서를 어디에 둘지 정할 때 사용한다.
 metadata:
   template: docs-boundary
-  template_version: "2"
+  template_version: "3"
 ---
 
 # docs 경계 — 문서는 기록이지 실행 입력이 아니다
@@ -36,7 +35,7 @@ state-ledger 훅이 `docs/state/` detail 의 touched·hash 를 스탬프하는 �
 | 내용 | 위치 |
 | --- | --- |
 | 사용자가 확인한 결정 | `intent/<영역>.md` (project-context 형식: `## C1 · 제목`, `- 규칙:`, `- 갱신:`) |
-| 인계·QA·리뷰·설계 변경 계획 | `docs/plans/<작업 폴더>/` |
+| 인계·QA·리뷰·설계 변경 계획, 그 작업의 실측·출처 요약 같은 산출 기록 | `docs/plans/<작업 폴더>/` (산출 기록은 그 아래 하위 폴더) |
 | 세션 간 공유 메모리 | `docs/memory/` (인덱스 + detail, `.project-context.json` 이 경로를 정한다) |
 | STATE detail | `docs/state/<area>/<id>.md` (state-ledger) |
 | 조사·비교 자료 | `docs/research/` |
@@ -52,31 +51,12 @@ state-ledger 훅이 `docs/state/` detail 의 touched·hash 를 스탬프하는 �
 
 - 과거 내용이 필요하면 **pinned Git object**(커밋 SHA 고정, `git show <sha>:<path>`)로 읽는다.
 - 같은 파일을 워킹트리와 pinned 두 채널로 섞어 읽지 않는다. 두 값이 언제 갈라졌는지 아무도 모른다.
-  예외는 두 채널이 같음을 강제하는 검사가 따로 등록된 경우뿐이다.
 
 ## 파일을 옮기거나 지울 때
 
 - 경로 문자열 중 **pinned Git 좌표**(커밋 SHA 와 짝인 경로 — 과거 blob 을 읽는 증거)는 고치지 않는다.
   그 SHA 시점에는 옛 경로가 맞다. 고치면 그 읽기가 영구히 깨진다.
-- 옛 경로가 남는 것은 검사기 정책의 dangling(또는 같은 역할) 목록에 옛 경로와 이유로 선언한다.
 - 워킹트리 링크(배경 링크)는 새 경로로 고친다.
-- docs 파일을 지우면 그 파일을 가리키던 검사기 정책 항목도 **같은 커밋에서** 정리한다.
-
-## 검사 결과 처리 (프로젝트에 검사기가 있을 때)
-
-| 결과 | 할 일 |
-| --- | --- |
-| 위반 (새 읽기·새 권위 문구) | 내용을 계약 폴더·`intent/`·로컬 스킬로 옮기거나 문구를 배경 링크로 바꾼다. 정책 예외 추가는 마지막 수단이고, 예외 추가와 그 위반을 같은 커밋에 담지 않는다 |
-| stale (정책 항목이 가리킨 결합이 사라짐) | 부채가 갚아진 것이다. 정책에서 그 항목을 지운다. 위반이 아니다 |
-| 권위 문구 분류 | `authority-denial`(문서를 권위로 부르지 않음)·`background-pointer`(배경 링크)·`authority-debt`(아직 산문에만 있는 운영 사실 — 언제 control plane 으로 옮길지 retire 조건 필수) 셋 중 하나. 미분류는 위반이다 |
-
-CLEAN 은 "결합 없음"이 아니다.
-
-- 읽기 검출은 보통 리터럴 경로 스캔이다. 설정·계약 필드를 거쳐 간접으로 읽는 경로는 못 본다 — 그런 경로는 정책에 수동으로 적는다.
-- 권위 검출은 신호어 휴리스틱이다. 다른 표현으로 문서를 권위로 세우면 안 잡힌다. 편집할 때 직접 문구를 본다.
-- 검사 범위(스캔 대상 폴더)를 먼저 확인한다. 범위 밖 결합은 검사 통과와 무관하다.
-
-검사기가 없으면 위 규칙을 편집 때 직접 확인한다. 검사기를 새로 만드는 건 사용자가 요청할 때만 한다.
 
 ## 프로젝트 로컬 자리
 
@@ -89,15 +69,14 @@ CLEAN 은 "결합 없음"이 아니다.
 | 생성물 폴더 | `ops/generated/` | 쓰면 |
 | 허용 docs 하위 폴더 | `plans`·`memory`·`state`·`research` | 예 |
 | 런북 스킬 이름 | `<프로젝트>-ops` | 쓰면 |
-| 검사 명령과 정책 파일 | `<패키지 매니저> run docs-boundary:check`, `<계약 폴더>/docs-boundary-policy.json` | 있으면 |
 | 설계된 결합 목록 | 메모리 인덱스 주입, STATE 스탬프 훅 | 있으면 |
 
 값이 비어 있으면:
 
 1. 저장소를 훑어 이미 쓰는 폴더(`ops/`·`contracts/`·`schemas/`·`config/` 등)와 docs 하위 폴더를 확인한다.
 2. 기본값을 제안한다 — 계약 `ops/contracts/`, 원장 `ops/registries/`, 생성물 `ops/generated/`,
-   docs 는 `plans`·`memory`·`state`·`research`, 검사기 없음.
-3. 사용자에게 묻는다: 폴더 이름, 블로그 등 추가 docs 폴더 여부, 검사기를 둘지.
+   docs 는 `plans`·`memory`·`state`·`research`.
+3. 사용자에게 묻는다: 폴더 이름, 블로그 등 추가 docs 폴더 여부.
 4. 확인받은 값만 아래 절에 쓴다. 폴더 배치가 결정이면 `intent/` 에도 올릴지 함께 묻는다.
 
 ## 이 프로젝트의 값
@@ -109,5 +88,4 @@ CLEAN 은 "결합 없음"이 아니다.
 | 생성물 폴더 | (미정) |
 | 허용 docs 하위 폴더 | (미정) |
 | 런북 스킬 이름 | (미정) |
-| 검사 명령과 정책 파일 | (미정) |
 | 설계된 결합 목록 | (미정) |

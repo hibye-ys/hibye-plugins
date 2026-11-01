@@ -46,7 +46,7 @@
       "description": "프로젝트 opt-in 기반 primary checkout 공유 메모리와 현재 checkout intent의 host별 lazy context.",
       "category": "development",
       "source": "./plugins/project-context",
-      "version": "0.3.2"
+      "version": "0.3.3"
     }
   ]
 }
