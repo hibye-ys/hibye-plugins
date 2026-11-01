@@ -557,6 +557,8 @@ class FakeNativeHosts:
 
     def command(self, *args, cwd=None):
         self.calls.append((args, str(cwd) if cwd else None))
+        # Like the native CLI, read the registry file each time; the sync may edit it.
+        self.registry = json.loads((self.home / 'plugins/installed_plugins.json').read_text())
         if self.fail and self.fail(args, cwd):
             raise RuntimeError('fixture native partial failure')
         if args[:3] == ('codex', 'plugin', 'list'):
@@ -750,15 +752,88 @@ class HarnessUpdateTests(unittest.TestCase):
                 self.assertEqual(status, 1)
                 self.assertIn('activation setting', error)
 
-    def test_missing_scope_directory_fails_before_any_write(self):
+    def test_missing_scope_directory_is_reported_read_only_then_pruned_with_backup(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             fake, patched, environment = self.configured(root)
             shutil.rmtree(fake.project2)
             with patched, environment:
                 before = self.file_state(root)
-                self.assertEqual(self.run_cli('--harness')[0], 1)
+                status, output, _ = self.run_cli('--harness', '--preview')
+                self.assertEqual(status, 0)
+                self.assertIn(f'STALE claude/project-context scope=project project={fake.project2} (folder is gone)', output)
                 self.assertEqual(before, self.file_state(root))
+                status, output, error = self.run_cli('--harness')
+                self.assertEqual(status, 0, error)
+                self.assertIn(f'PRUNED claude/project-context scope=project project={fake.project2} (folder is gone)', output)
+                keys = {(record['scope'], record.get('projectPath')) for record in json.loads((fake.home / 'plugins/installed_plugins.json').read_text())['plugins']['project-context@hibye-plugins']}
+                self.assertEqual(keys, {('user', None), ('project', str(fake.project)), ('local', str(fake.project))})
+                backups = list((fake.home / 'plugins').glob('installed_plugins.json.*.bak'))
+                self.assertEqual(len(backups), 1)
+                self.assertIn(str(fake.project2), backups[0].read_text())
+                self.assertFalse(any(cwd == str(fake.project2) for _, cwd in fake.calls))
+
+    def test_linked_worktree_of_registered_primary_is_pruned_not_updated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+            git = lambda *args: subprocess.run(['git', '-C', str(fake.project), *args], check=True, capture_output=True, env=env)
+            git('init', '-q')
+            git('-c', 'user.email=f@example.invalid', '-c', 'user.name=f', 'commit', '-q', '--allow-empty', '-m', 'init')
+            worktree = root / 'linked'
+            git('worktree', 'add', '-q', str(worktree))
+            cache = fake.home / 'plugins/cache/hibye-plugins/project-context/1.0.0'
+            fake.registry['plugins']['project-context@hibye-plugins'].append({'scope': 'project', 'projectPath': str(worktree), 'version': '1.0.0', 'installPath': str(cache), 'gitCommitSha': 'old-development-head'})
+            fake.active[('project-context', 'project', str(worktree))] = True
+            fake.write_registry()
+            with patched, environment:
+                before = self.file_state(root)
+                status, output, _ = self.run_cli('--harness', '--preview')
+                self.assertEqual(status, 0)
+                self.assertIn(f'STALE claude/project-context scope=project project={worktree} (linked worktree of registered {fake.project})', output)
+                self.assertEqual(before, self.file_state(root))
+                status, output, error = self.run_cli('--harness')
+                self.assertEqual(status, 0, error)
+                self.assertIn(f'PRUNED claude/project-context scope=project project={worktree} (linked worktree of registered {fake.project})', output)
+                self.assertFalse(any(cwd == str(worktree) for _, cwd in fake.calls))
+                self.assertNotIn(str(worktree), (fake.home / 'plugins/installed_plugins.json').read_text())
+                self.assertTrue(worktree.is_dir())
+
+    def test_linked_worktree_is_kept_when_primary_has_only_another_scope(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+            git = lambda *args: subprocess.run(['git', '-C', str(fake.project), *args], check=True, capture_output=True, env=env)
+            git('init', '-q')
+            git('-c', 'user.email=f@example.invalid', '-c', 'user.name=f', 'commit', '-q', '--allow-empty', '-m', 'init')
+            worktree = root / 'linked'
+            git('worktree', 'add', '-q', str(worktree))
+            records = fake.registry['plugins']['project-context@hibye-plugins']
+            records[:] = [record for record in records if (record['scope'], record.get('projectPath')) != ('project', str(fake.project))]
+            cache = fake.home / 'plugins/cache/hibye-plugins/project-context/1.0.0'
+            records.append({'scope': 'project', 'projectPath': str(worktree), 'version': '1.0.0', 'installPath': str(cache), 'gitCommitSha': 'old-development-head'})
+            fake.active[('project-context', 'project', str(worktree))] = True
+            fake.write_registry()
+            with patched, environment:
+                status, output, error = self.run_cli('--harness')
+                self.assertEqual(status, 0, error)
+                self.assertNotIn('PRUNED', output)
+                self.assertTrue(any(cwd == str(worktree) for _, cwd in fake.calls))
+                self.assertIn(str(worktree), (fake.home / 'plugins/installed_plugins.json').read_text())
+
+    def test_stale_registrations_survive_a_failed_preflight(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fake, patched, environment = self.configured(root)
+            shutil.rmtree(fake.project2)
+            fake.codex['spec-plan']['enabled'] = False
+            with patched, environment:
+                status, output, _ = self.run_cli('--harness')
+                self.assertEqual(status, 1)
+                self.assertNotIn('PRUNED', output)
+                self.assertIn(str(fake.project2), (fake.home / 'plugins/installed_plugins.json').read_text())
 
     def test_codex_disabled_anywhere_in_bundle_fails_before_first_mutation(self):
         with tempfile.TemporaryDirectory() as temporary:

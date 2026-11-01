@@ -87,6 +87,71 @@ def record_key(record):
 
 
 def claude_records(name):
+    records = all_claude_records(name)
+    stale = {record_key(record) for record, _ in stale_claude_records(records)}
+    return [record for record in records if record_key(record) not in stale]
+
+
+def linked_worktree_primary(path):
+    """Primary checkout path as Git reports it for a linked worktree, or None for anything else."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+    result = subprocess.run(['git', '-C', str(path), 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'],
+                            text=True, capture_output=True, env=env)
+    lines = result.stdout.splitlines()
+    if result.returncode or len(lines) != 2:
+        return None
+    git_dir, common = (os.path.realpath(line) for line in lines)
+    return None if git_dir == common else os.path.normpath(Path(lines[1]).parent)
+
+
+def stale_claude_records(records):
+    # Per-path registrations the native CLI can no longer update: the folder is
+    # gone, or it is a linked worktree whose primary checkout holds a registration
+    # of the same scope under the same stored path (the CLI resolves the worktree
+    # to that primary registration).
+    registered = {(record['scope'], record['projectPath']) for record in records if record['scope'] != 'user'}
+    stale = []
+    for record in records:
+        if record['scope'] == 'user':
+            continue
+        if not Path(record['projectPath']).is_dir():
+            stale.append((record, 'folder is gone'))
+            continue
+        primary = linked_worktree_primary(record['projectPath'])
+        if primary and (record['scope'], primary) in registered:
+            stale.append((record, f'linked worktree of registered {primary}'))
+    return stale
+
+
+def report_stale_claude_records(name, prune):
+    stale = stale_claude_records(all_claude_records(name))
+    for record, reason in stale:
+        print(f'{"PRUNED" if prune else "STALE"} claude/{name} scope={record["scope"]} project={record["projectPath"]} ({reason})')
+    if not prune or not stale:
+        return
+    path = claude_home() / 'plugins/installed_plugins.json'
+    if not path.exists():
+        print(f'Claude registry file {path} is missing; nothing pruned')
+        return
+    before = path.read_bytes()
+    data = json.loads(before)
+    plugin_id = f'{name}@{MARKETPLACE}'
+    drop = {record_key(record) for record, _ in stale}
+    data['plugins'][plugin_id] = [entry for entry in data['plugins'][plugin_id]
+                                  if (entry.get('scope'), entry.get('projectPath') if entry.get('scope') != 'user' else None) not in drop]
+    backup = path.with_name(f'{path.name}.{datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")}.bak')
+    backup.write_bytes(before)
+    temporary = path.with_name(path.name + '.tmp')
+    temporary.write_text(json.dumps(data, indent=2))
+    # Claude may write the registry concurrently; never replace a version we did not read.
+    if path.read_bytes() != before:
+        temporary.unlink()
+        raise RuntimeError('Claude registry changed while pruning stale registrations; rerun')
+    os.replace(temporary, path)
+    print(f'Backed up the previous Claude registry to {backup}')
+
+
+def all_claude_records(name):
     plugin_id = f'{name}@{MARKETPLACE}'
     listed = json.loads(command('claude', 'plugin', 'list', '--json'))
     listed = [item for item in listed if item.get('id') == plugin_id]
@@ -514,6 +579,7 @@ def run_sync(args, names, hosts):
             if record is not None and not record['active']:
                 raise RuntimeError(f'codex/{name} is disabled; current native add has no supported disabled-preserving update. No files, catalogs or installations were changed')
         if 'claude' in hosts:
+            report_stale_claude_records(name, prune=False)
             validate_scope_locations(claude_records(name))
         print(f'SOURCE {name}: {version}, {len(captured[name])} files; hosts={",".join(hosts)}')
     if args.preview:
@@ -531,6 +597,9 @@ def run_sync(args, names, hosts):
     if changed:
         print(json.dumps({'build_versions': refresh_build_versions(changed)}))
     if 'claude' in hosts:
+        # Registrations reported as STALE above are removed only now, after every preflight passed.
+        for name in names:
+            report_stale_claude_records(name, prune=True)
         prepare_claude_catalog(names)
     for name in names:
         sync_plugin(name, hosts, catalog_prepared='claude' in hosts, preserve_activation=args.harness)
@@ -569,7 +638,7 @@ def main():
                 transaction.recover(catalog_root(), alias_journal())
             return run_sync(args, names, hosts)
     except (OSError, ValueError, KeyError, StopIteration, RuntimeError) as error:
-        print(f'NOT SYNCHRONIZED: {error}\nPartial update possible; no success is claimed. Existing scopes/publications were not deleted. Resolve the named host/scope error and rerun.', file=sys.stderr)
+        print(f'NOT SYNCHRONIZED: {error}\nPartial update possible; no success is claimed. Existing scopes/publications were not deleted (except registrations printed as PRUNED, backed up next to the registry). Resolve the named host/scope error and rerun.', file=sys.stderr)
         return 1
 
 
