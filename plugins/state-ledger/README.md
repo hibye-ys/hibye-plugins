@@ -42,6 +42,7 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `hooks/hooks.json` + `global-state-hook.sh` | Codex·Claude 공통 plugin lifecycle. 두 host의 `$CLAUDE_PLUGIN_ROOT`로 설치 버전을 실행하며 `$PLUGIN_ROOT` 유무로 host를 구분한다. STATE 미사용 repo는 no-op, 이행 중 실제 로컬 command만 구조적으로 감지해 이벤트별 중복 억제 |
 | `hooks/antigravity-hooks.json` + `antigravity-*.sh` | Antigravity(Google Antigravity / AGY) lifecycle. PreInvocation·PostToolUse·Stop JSON 계약 변환. Stop은 이번 턴 알림(태그·덧붙임·크기 외 구조 경고)이 있을 때만 1회 `continue`, 없으면 `allow` |
 | `state-ledger-contract.json` | project adapter와 plugin runtime 사이의 독립 계약 버전. v6 미만 설치본은 runner가 실행하지 않음 |
+| `templates/skills/state-ledger-rules/` + `scripts/hooks/rules-skill.mjs` | 규칙 스킬 템플릿과 `status`·`install`·`diff`·`update`·`notice`. SessionStart는 프로젝트 사본 기준 버전이 템플릿보다 낮을 때만 한 줄 알린다 |
 | `templates/wiring/state-ledger-runner.mjs` | Git/opencode용 얇은 프로젝트 adapter. 활성화된 Codex version cache 또는 Claude user install을 검증해 plugin-owned script를 실행 |
 
 ## 설정 — `.staterc` (선택)
@@ -70,17 +71,22 @@ area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → �
 
 알려진 한계: 태그 검사는 id가 STATE 인덱스에 있는지만 확인하고 커밋 내용과의 관련성은 보지 않는다(`[id=-]` 남용은 리뷰 대상). rebase·cherry-pick·amend는 author 시각을 유지하므로 이전 턴 커밋을 다시 쓴 커밋은 다시 알리지 않고, 그때 이전 턴 커밋에 섞어 넣은 새 작업도 판정하지 않는다. 턴 시작 이후에 만든 남의 커밋은 이번 턴 커밋으로 본다. 사용자 중단처럼 Stop 없이 끝난 턴의 커밋은 판정하지 않는다. Claude Code의 Stop systemMessage는 사용자에게만 보인다. opencode는 SessionStart를 instructions 방식으로 대신하므로 정합 warn이 세션 시작에 표면화되지 않는다.
 
+## 스킬
+
+- `setup-state`: 프로젝트 설치·이관.
+- `state-ledger-rules`(템플릿): STATE 사용 규칙(항목 추가·갱신·claim·`awaiting_user`, 경고 대응, 사용자 확인 뒤 정리, 브랜치 보존·폐기). 전역 스킬이 아니다. `templates/skills/state-ledger-rules/`에 있고 `setup-state`가 프로젝트 `.agents/skills/state-ledger-rules/`로 복사한다. 프로젝트는 그 사본을 직접 고친다. 공통 개선은 템플릿의 `metadata.template_version`을 올려 배포하고, 각 프로젝트는 SessionStart 알림을 보고 `scripts/hooks/rules-skill.mjs update`로 3-way 병합한다(`.template-base.md` = 병합 기준, 충돌이 풀릴 때까지 새 템플릿은 `.template-pending.json`에 보류).
+
 ## 설치
 
-Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. 두 도구 모두 기본 `hooks/hooks.json` 하나를 로딩하고 `$CLAUDE_PLUGIN_ROOT`로 같은 dispatcher를 실행한다. Codex도 이 호환 변수를 제공하며 `$PLUGIN_ROOT` 유무로 dispatcher가 host를 구분한다. Claude manifest에 별도 `hooks`를 선언하면 기본 파일에 추가 병합되므로 중복 binding을 두지 않는다. 프로젝트나 사용자 `hooks.json`에 lifecycle command를 복사하지 않는다. Antigravity는 `~/.gemini/config/hooks.json` 또는 프로젝트 `.agents/hooks.json`에 `hooks/antigravity-hooks.json` 스니펫을 병합해 `antigravity-pre-invocation.sh`, `antigravity-post-tool-use.sh`, `antigravity-stop.sh`를 실행한다. Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 각 홈에서 플러그인을 별도로 활성화한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`와, Git/opencode를 쓰는 경우 얇은 `scripts/hooks/state-ledger-runner.mjs` adapter만 둔다. STATE lifecycle·checker·baseline 구현은 복사하지 않는다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
+Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. 두 도구 모두 기본 `hooks/hooks.json` 하나를 로딩하고 `$CLAUDE_PLUGIN_ROOT`로 같은 dispatcher를 실행한다. Codex도 이 호환 변수를 제공하며 `$PLUGIN_ROOT` 유무로 dispatcher가 host를 구분한다. Claude manifest에 별도 `hooks`를 선언하면 기본 파일에 추가 병합되므로 중복 binding을 두지 않는다. 프로젝트나 사용자 `hooks.json`에 lifecycle command를 복사하지 않는다. Antigravity는 `~/.gemini/config/hooks.json` 또는 프로젝트 `.agents/hooks.json`에 `hooks/antigravity-hooks.json` 스니펫을 병합해 `antigravity-pre-invocation.sh`, `antigravity-post-tool-use.sh`, `antigravity-stop.sh`를 실행한다. Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 각 홈에서 플러그인을 별도로 활성화한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`, 규칙 스킬 사본 `.agents/skills/state-ledger-rules/`(+ `.claude/skills/state-ledger-rules` 링크)와, Git/opencode를 쓰는 경우 얇은 `scripts/hooks/state-ledger-runner.mjs` adapter만 둔다. STATE lifecycle·checker·baseline 구현은 복사하지 않는다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
 
 Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `codex plugin add state-ledger@hibye-plugins`로 재설치한다. Claude Code는 `.claude-plugin/plugin.json` version을 올리면 `claude plugin update state-ledger@hibye-plugins`(또는 재설치)로 `~/.claude/plugins/installed_plugins.json`의 version을 맞추고, 로컬 개발 링크를 쓰면 `scripts/link-cache.sh`로 새 version 링크를 만든다 — runner의 Claude fallback은 설치 기록 version과 manifest version이 같을 때만 실행한다. 운영 설치 캐시는 소스 링크로 바꾸지 않는다. `scripts/link-cache.sh`는 기본적으로 Claude 및 Antigravity 개발 캐시만 연결하며, Codex 소스 링크는 격리된 로컬 개발에서 `--codex-dev-links`를 명시한 경우에만 만든다.
 
-`/state-ledger:setup-state`는 프로젝트 데이터·작성 규칙·필요한 adapter만 온보딩한다. runner는 `STATE_LEDGER_PLUGIN_ROOT` 명시 override → Codex의 enabled plugin catalog와 정확한 version cache → Claude의 enabled user install 순으로 정본을 찾고 plugin name/version·`state-ledger-contract.json` v6·대상 파일을 검증한다. Codex CLI를 실행할 수 없거나 제한 시간 안에 응답하지 않으면 v6 계약을 가진 물리 cache directory로만 fallback하며, CLI가 정상 응답해 disabled 상태를 보고한 경우 cache를 임의 활성화하지 않는다. lifecycle stdin과 child stdout/stderr는 runner가 명시적으로 전달하며 일반 검사는 설치·실행 실패를 경고한다. 정리 opt-in 프로젝트의 필수 검사는 실패로 닫는다.
+`/state-ledger:setup-state`는 프로젝트 데이터·작성 규칙·규칙 스킬 사본·필요한 adapter만 온보딩한다. runner는 `STATE_LEDGER_PLUGIN_ROOT` 명시 override → Codex의 enabled plugin catalog와 정확한 version cache → Claude의 enabled user install 순으로 정본을 찾고 plugin name/version·`state-ledger-contract.json` v6·대상 파일을 검증한다. Codex CLI를 실행할 수 없거나 제한 시간 안에 응답하지 않으면 v6 계약을 가진 물리 cache directory로만 fallback하며, CLI가 정상 응답해 disabled 상태를 보고한 경우 cache를 임의 활성화하지 않는다. lifecycle stdin과 child stdout/stderr는 runner가 명시적으로 전달하며 일반 검사는 설치·실행 실패를 경고한다. 정리 opt-in 프로젝트의 필수 검사는 실패로 닫는다.
 
 `commit-msg`는 agent lifecycle이 아니라 Git hook이므로 기존 hook manager에서 `if [ ! -f scripts/hooks/state-ledger-runner.mjs ]; then :; elif command -v node >/dev/null 2>&1; then node scripts/hooks/state-ledger-runner.mjs commit-msg "$1"; else echo "WARN: node가 PATH에 없어 STATE commit-msg 검사를 건너뜁니다." >&2; fi`를 호출한다. shared Git hooks를 쓰는 이전 checkout에 runner가 없거나 Git GUI PATH에 node가 없어도 commit을 막지 않기 위한 guard다. lint-staged에서 구조 검사를 유지하려면 `node scripts/hooks/state-ledger-runner.mjs check-wip`을 사용한다. opencode는 runner와 `templates/wiring/opencode-harness.ts`를 함께 복사하고 `opencode.json` instructions에 인덱스를 지정한다. 기존 `.codex/hooks.json`·`.codex/config.toml`·`.claude/settings*.json`에 복사형 STATE lifecycle이 남아 있으면 제거한다. 이행 중인 브랜치에서는 전역 dispatcher가 JSON/TOML의 실제 로컬 command를 감지해 중복 실행을 피하며, 주석이나 단순 문자열은 로컬 훅으로 취급하지 않는다.
 
-정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
+정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs scripts/hooks/state-cleanup.test.mjs scripts/hooks/rules-skill.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
 
 ## 검증된 설계 근거 (2026-07-28 교차 리뷰 라운드)
 

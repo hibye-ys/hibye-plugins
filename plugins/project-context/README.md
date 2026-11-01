@@ -2,6 +2,13 @@
 
 A Node standard-library plugin for opt-in memory pointers and lazy operating-decision discovery. STATE and project content remain project-owned. Claude/Codex share `hooks/hooks.json`; neither manifest registers a second copy. Muse/Antigravity provide source adapters only, without a native-product acceptance claim.
 
+## Skills
+
+- `setup-project-context`: opt-in setup and inspection.
+- `docs-boundary` (template, not a global skill): docs are human records, not execution input; control-plane authority wording, contracts/ledger/generated folder split, where documents go, pinned Git reads, checker result handling. The project names its folders in an AGENTS.md `## docs 경계` section.
+
+Rule skill templates live in `templates/skills/<skill>/`. `scripts/skill-template.cjs install <skill> --project <path>` copies one into the project's `.agents/skills/<skill>/` (plus `.template-base.md` as the merge base and a `.claude/skills/<skill>` link); the project edits its copy. Shared improvements raise `metadata.template_version`; SessionStart then emits `SKILL_TEMPLATE_UPDATE <skill>` for opted-in projects, and `diff`/`update <skill>` shows and three-way merges the change (on conflict the new template waits in `.template-pending.json` until the copy is resolved). See `setup-project-context`.
+
 ## Project opt-in
 
 ```json
@@ -22,7 +29,8 @@ node scripts/project-context.cjs doctor --project /path/to/checkout
 node scripts/project-context.cjs check-memory --project /path/to/checkout
 node scripts/project-context.cjs intent-check --project /path/to/checkout
 node scripts/project-context.cjs intent-session-start --project /path/to/checkout
-node --test tests/project-context.test.cjs tests/runner.test.mjs
+node scripts/skill-template.cjs <list|notice|status|install|diff|update> [skill] --project /path/to/checkout
+node --test tests/project-context.test.cjs tests/skill-template.test.cjs tests/runner.test.mjs
 ```
 
 `session-start` accepts hook JSON from stdin (`cwd`, `workspacePaths`, `source`) and emits a SessionStart envelope. Explicit CLI project/host/event overrides input. Explicit `--host` takes precedence. Native auto-detection requires stdin `hook_event_name: "SessionStart"` plus a nonempty `session_id`. Claude proof is an exact match to the host-refreshed `CLAUDE_CODE_SESSION_ID`; Codex plugin proof is `PLUGIN_ROOT` and compatible `CLAUDE_PLUGIN_ROOT` both resolving to this executing runtime snapshot. Inherited `CODEX_THREAD_ID`, `CLAUDECODE`, or other presence-only flags do not select a host. Simultaneous proofs fail visibly as `PROJECT_CONTEXT_HOST_AMBIGUOUS`; absent proofs fail as `PROJECT_CONTEXT_HOST_UNRESOLVED`. Raw CLI callers without native proof must pass `--host codex` or `--host claude`. Projects without opt-in remain no-op. These auto-detection requirements are the minimum supported native hook environment; older hosts missing the documented fields need an explicit host adapter. All four events startup/resume/clear/compact use the same lazy contract. Visible hook failures exit 0 because hosts may discard nonzero stdout; `doctor`, `check-memory`, and `intent-check` return nonzero on invalid configured input. Optional intent/diagnostic errors do not erase valid memory pointers. Primary-memory selection validates only the memory section, so current/primary intent errors cannot block its pointer. Direct `intent-session-start` applies the same 7 KB intent budget and requery marker. Native hook configuration keeps `additionalContextLimit: 2500`; byte budgets do not establish a token-count PASS. `tests/fixtures/large-korean-{codex,claude}-context.txt` are actual emitted output samples for independent token measurement, not measured token acceptance.

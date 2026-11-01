@@ -72,6 +72,17 @@ STATE 경고 요약 실행 실패: ${summary:0:400}
   fi
 fi
 
+# 프로젝트 규칙 스킬 사본이 플러그인 템플릿보다 낮은 버전이면 한 줄 알린다. 실패는 조용히 넘긴다.
+if [ -z "$config_error" ]; then
+  rules_notice=$(HOOK_PROJECT_DIR="$root" node "$script_dir/rules-skill.mjs" notice 2>/dev/null || true)
+  if [ -n "$rules_notice" ]; then
+    out="${out}${out:+
+
+}=== STATE 규칙 스킬 ===
+$rules_notice"
+  fi
+fi
+
 STATE_PRINCIPLE='STATE = 공유 상태판. 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다. 작업 기록은 커밋 메시지 [id=<id>] (STATE 항목과 무관하면 [id=-]).'
 principle_added=0
 total_bytes=0

@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
+const { templateNotices } = require('./skill-template.cjs')
 
 const PROJECT_CONTEXT_CONTRACT_VERSION = 1
 const PROJECT_CONTEXT_EVENTS = Object.freeze(['startup', 'resume', 'clear', 'compact'])
@@ -255,6 +256,7 @@ function buildSessionStartContext({ repoRoot = process.cwd(), host = 'codex', ev
   if (config.intent) {
     try { lines.push(boundedContext(intentContext({ repoRoot: config.repoRoot, config }), 7000)) } catch (error) { lines.push(`INTENT_CONTEXT_FAILED: ${error.message}; inspect ${config.intent.directory} in PROJECT_CHECKOUT`) }
   }
+  try { lines.push(...templateNotices(config.repoRoot, options.env)) } catch {}
   if (typeof diagnostics === 'function') {
     try { const detail = diagnostics({ repoRoot: config.repoRoot }); if (detail) lines.push(`PROJECT_CONTEXT_DIAGNOSTIC ${String(detail).slice(0, 500)}`) } catch (error) { lines.push(`PROJECT_CONTEXT_DIAGNOSTIC_FAILED: ${error.message}`) }
   }
