@@ -7,7 +7,7 @@ description: >-
   브랜치를 폐기하거나 archive 태그로 보존할 때 사용한다. 설치·이관은 setup-state 스킬이 맡는다.
 metadata:
   template: state-ledger-rules
-  template_version: "1"
+  template_version: "2"
 ---
 
 # STATE — 진행 중인 일의 공유 상태판
@@ -25,7 +25,8 @@ STATE 는 공유 상태판이다. 지금 누가 무엇을 하고, 무엇이 남�
 | 자리 | 담는 것 | 비어 있으면 |
 | --- | --- | --- |
 | `.staterc` | `STATE_INDEXES`(인덱스 경로), `STATE_DEFAULT_BRANCH`, `STATE_BRANCH_EXCLUDE`, `STATE_CLEANUP_ENFORCE` | 기본값(`STATE.md` 하나, `main`, 정리 강제 off) |
-| `AGENTS.md`/`CLAUDE.md` STATE 절 | README 스키마 블록(작성 규칙) 요약 | `setup-state`로 붙인다 |
+| 이 파일 | STATE 작성 규칙 전체와 이 프로젝트만의 차이 | 템플릿 그대로 쓴다 |
+| `AGENTS.md`/`CLAUDE.md` | 이 스킬 위치를 알려 주는 라우팅 한 줄(규칙 본문은 두지 않는다) | `setup-state`로 붙인다 |
 | `intent/` | 정리 승인 범위·보존 규칙 등 프로젝트 결정 | 사용자 확인 없이는 정리하지 않는다 |
 | 프로젝트 ops 스킬·문서 | worktree 밖 자원(로컬 DB·컨테이너·프로필) 정리 절차 | 그 자원은 건드리지 않고 사용자에게 묻는다 |
 
