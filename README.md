@@ -72,6 +72,10 @@ updater는 선택한 payload를 고정된 로컬 Git 배포본으로 만들고, 
 두는 머신별 생성물이며 Git에 넣지 않는다. 정식 marketplace CLI로 같은 `hibye-plugins` ID를 이 catalog에
 연결하고 목록을 새로 읽은 뒤, native 설치·업데이트 CLI로 설치 캐시를 갱신한다.
 개발 원본을 편집해도 다음 명시적 업데이트 전까지 그 배포본은 바뀌지 않는다.
+Claude native CLI가 만드는 shallow clone의 `.git`은 설치 메타데이터로 검증한다. 캐시의 HEAD·origin이
+고정 배포본과 같아야 하며 전체 payload의 바이트·실행 모드와 로컬 Git blob을 대조한다. 외부 object store,
+promisor·실행형 Git 설정·활성 Git hook·symlink는 거부한다. 소스와 배포 payload의 `.git` 금지는 유지한다.
+Claude의 목록 조회에는 `--json`을 사용하고 marketplace·plugin 설치/갱신에는 해당 CLI의 native 옵션만 쓴다.
 선택하지 않은 catalog entry는 원래 필드를 보존하고, 기존 상대경로는 개발 원본으로 연결해
 그 plugin의 기존 개발 흐름을 유지한다. 공통 하네스 세 plugin에는 이 연결을 만들지 않는다.
 
