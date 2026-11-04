@@ -1,6 +1,6 @@
 {
   "name": "state-ledger",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Global STATE ledger lifecycle with opt-in verified cleanup for Codex, Claude Code, and compatible agent tools.",
   "author": {
     "name": "hibye-ys"

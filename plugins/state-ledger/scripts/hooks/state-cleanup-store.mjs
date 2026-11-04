@@ -98,6 +98,14 @@ export function readRequests(root, revision = null) {
   return requests
 }
 
+export function cleanupLockCommand(lock, child, platform = process.platform) {
+  // Keep one persistent inode; never unlink a lock while another writer may hold it.
+  // Linux execs the writer in place so the writer itself owns the lock lifetime.
+  if (platform === 'linux') return { command: 'flock', args: ['-x', '-n', '-F', lock, ...child] }
+  if (platform === 'darwin') return { command: 'lockf', args: ['-k', '-t', '0', lock, ...child] }
+  throw new Error(`unsupported STATE cleanup lock platform: ${platform}`)
+}
+
 export function storeRequests(root, requests) {
   root = realpathSync(root)
   const expected = snapshots.has(root) ? snapshots.get(root) : fileText(root, config(root).indexes[0])
@@ -105,12 +113,13 @@ export function storeRequests(root, requests) {
   if (existsSync(lock) && (!lstatSync(lock).isFile() || lstatSync(lock).isSymbolicLink())) throw new Error('unsafe STATE cleanup lock path')
   // OS record locks release on process death. The zero-byte temporary lock
   // contains no request; expected text and requests travel only through stdin.
+  const launcher = cleanupLockCommand(lock, [process.execPath, fileURLToPath(import.meta.url), '--write-locked'])
   try {
-    execFileSync('lockf', ['-k', '-t', '0', lock, process.execPath, fileURLToPath(import.meta.url), '--write-locked'], {
+    execFileSync(launcher.command, launcher.args, {
       timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf8',
       input: JSON.stringify({ root, requests, expected }), maxBuffer: 4 * 1024 * 1024,
     })
-  } catch (error) { throw new Error(`STATE cleanup write lock or replacement failed; reread before retrying (requires BSD lockf): ${String(error.stderr || error.message).slice(0, 500)}`) }
+  } catch (error) { throw new Error(`STATE cleanup write lock or replacement failed; reread before retrying (requires ${launcher.command}): ${String(error.stderr || error.message).slice(0, 500)}`) }
   snapshots.set(root, fileText(root, config(root).indexes[0]))
 }
 
