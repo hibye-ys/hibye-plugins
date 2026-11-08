@@ -7,7 +7,7 @@ description: >-
   브랜치를 폐기하거나 archive 태그로 보존할 때 사용한다. 설치·이관은 setup-state 스킬이 맡는다.
 metadata:
   template: state-ledger-rules
-  template_version: "2"
+  template_version: "3"
 ---
 
 # STATE — 진행 중인 일의 공유 상태판
@@ -34,6 +34,10 @@ STATE 는 공유 상태판이다. 지금 누가 무엇을 하고, 무엇이 남�
 
 - 인덱스 경로는 `.staterc`의 `STATE_INDEXES`(공백 구분, 기본 `STATE.md`)가 정한다. 작업 범위에 맞는 인덱스를 고른다.
 - area 는 인덱스 경로에서 나온다: 루트 `STATE.md` → `root`, 그 외 → 부모 디렉터리 이름(`svc/api/STATE.md` → `api`).
+- `.staterc`에 `STATE_INDEX_SOURCE="frontmatter"`가 있으면 인덱스 줄을 손으로 쓰지 않는다. 항목은 detail frontmatter 의
+  `section`(`active|next|future|unresolved`)·`title`·`status` 세 줄이 정본이고, 인덱스 파일은 git 에 올리지 않는 생성물이다.
+  등록 = detail 생성, 상태 변경 = 그 detail 수정, archive = detail 삭제. 아래 "인덱스 줄"은 이 세 필드로 읽는다.
+  정리 요청은 `docs/state/.cleanup/<request-id>.json`에 남는다.
 - 인덱스 = 항목당 1줄(≤200자): `- [<id>] <제목> — <짧은 상태·조건>`. id 없는 줄은 §3 placeholder 만. 인덱스 파일 ≤4KB.
 - 상세 = `docs/state/<area>/<id>.md`. 전체 ≤8KB, `## 현재` ≤4KB.
   - frontmatter: `id·area·owner·branch·touched·hash` (+`session_id`·`lifecycle`·`depends`·`blocks`·`handoff`·`expires`)

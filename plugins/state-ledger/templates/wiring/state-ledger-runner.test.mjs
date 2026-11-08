@@ -15,7 +15,7 @@ function write(path, content, mode) {
 }
 
 function fakePlugin(root, version = 'test-version') {
-  write(join(root, 'state-ledger-contract.json'), JSON.stringify({ version: 6, cleanup_version: 1 }))
+  write(join(root, 'state-ledger-contract.json'), JSON.stringify({ version: 6, cleanup_version: 1, index_source_version: 1 }))
   write(
     join(root, '.codex-plugin/plugin.json'),
     JSON.stringify({ name: 'state-ledger', version }),
@@ -358,4 +358,24 @@ test('ordinary checker failures stay warn-only while the cleanup validator still
   assert.match(result.stdout, /fixture-wip-failed/)
   assert.match(result.stdout, /warn-only로 계속/)
   assert.match(result.stdout, /cleanup-ok/)
+})
+
+test('a frontmatter ledger refuses an installation without the index source capability', (t) => {
+  const fixture = cleanupFixture(t)
+  write(join(fixture.root, '.staterc'), 'STATE_CLEANUP_ENFORCE="1"\nSTATE_INDEX_SOURCE="frontmatter"\n')
+  write(join(fixture.plugin, 'state-ledger-contract.json'), JSON.stringify({ version: 6, cleanup_version: 1 }))
+  const refused = invoke(['validate'], { env: fixture.env })
+  assert.notEqual(refused.status, 0)
+  assert.match(refused.stdout, /STATE_CLEANUP_BLOCK: cleanup validator is unavailable/)
+
+  write(join(fixture.plugin, 'state-ledger-contract.json'), JSON.stringify({ version: 6, cleanup_version: 1, index_source_version: 1 }))
+  const accepted = invoke(['validate'], { env: fixture.env })
+  assert.doesNotMatch(accepted.stdout, /설치본을 찾지 못해/)
+})
+
+test('a manual ledger keeps running on an installation without the index source capability', (t) => {
+  const fixture = cleanupFixture(t)
+  write(join(fixture.plugin, 'state-ledger-contract.json'), JSON.stringify({ version: 6, cleanup_version: 1 }))
+  const result = invoke(['validate'], { env: fixture.env })
+  assert.doesNotMatch(result.stdout, /설치본을 찾지 못해/)
 })

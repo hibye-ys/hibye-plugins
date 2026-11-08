@@ -36,29 +36,45 @@ v=$(read_staterc STATE_BRANCH_EXCLUDE); BR_EXCLUDE="${v:-task-loop/*}"
 git rev-parse --verify --quiet "$BASE" >/dev/null || exit 0
 
 # ① §1/§2 id → detail frontmatter branch
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  [ -f "$f" ] || continue
-  case "$f" in
-    STATE.md) area=root ;;
-    *) area=$(basename "$(dirname "$f")") ;;
-  esac
-  ids=$(awk '/^## /{ in_sec = ($0 ~ /^## [12]\./); next } in_sec' "$f" | sed -nE 's/^- \[([a-z0-9-]+)\].*/\1/p')
-  for id in $ids; do
-    df="docs/state/$area/$id.md"
-    [ -f "$df" ] || continue  # 존재성은 check-state-wip-cap 담당
-    br=$(awk '/^---$/{n++; next} n==1' "$df" | sed -nE 's/^branch: (.+)$/\1/p' | head -1)
-    case "$br" in ""|"$BASE"|—|-) continue ;; esac
-    if ! git rev-parse --verify --quiet "refs/heads/$br" >/dev/null; then
-      echo "WARN: $df branch=$br — 브랜치 소멸 (포인터 갱신 또는 archive 검토)"
-    elif [ "$(git rev-parse "refs/heads/$br")" = "$(git rev-parse "$BASE")" ]; then
-      : # 기본 브랜치 tip 과 동일 = 빈 예약 브랜치, 머지 오탐 방지
-    elif git merge-base --is-ancestor "refs/heads/$br" "$BASE" 2>/dev/null; then
-      echo "WARN: $df branch=$br — 이미 $BASE 에 머지됨 (archive 후보)"
-    fi
-  done
-done <<EOF
+if ! index_source=$(HOOK_PROJECT_DIR="$root" node "$script_dir/hooks/state-index.mjs" source 2>&1); then
+  echo "WARN: STATE 설정 거부: ${index_source:0:400}"
+  exit 0
+fi
+if [ "$index_source" = "frontmatter" ]; then
+  if ! pairs=$(HOOK_PROJECT_DIR="$root" node "$script_dir/hooks/state-index.mjs" ids --sections active,next 2>&1); then
+    echo "WARN: STATE frontmatter 인덱스 조회 실패: ${pairs:0:400}"
+    pairs=""
+  fi
+else
+  pairs=$(
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      [ -f "$f" ] || continue
+      case "$f" in
+        STATE.md) area=root ;;
+        *) area=$(basename "$(dirname "$f")") ;;
+      esac
+      awk '/^## /{ in_sec = ($0 ~ /^## [12]\./); next } in_sec' "$f" | sed -nE "s/^- \[([a-z0-9-]+)\].*/$area \1/p"
+    done <<EOF
 $state_indexes
+EOF
+  )
+fi
+while read -r area id; do
+  [ -n "${id:-}" ] || continue
+  df="docs/state/$area/$id.md"
+  [ -f "$df" ] || continue  # 존재성은 check-state-wip-cap 담당
+  br=$(awk '/^---$/{n++; next} n==1' "$df" | sed -nE 's/^branch: (.+)$/\1/p' | head -1)
+  case "$br" in ""|"$BASE"|—|-) continue ;; esac
+  if ! git rev-parse --verify --quiet "refs/heads/$br" >/dev/null; then
+    echo "WARN: $df branch=$br — 브랜치 소멸 (포인터 갱신 또는 archive 검토)"
+  elif [ "$(git rev-parse "refs/heads/$br")" = "$(git rev-parse "$BASE")" ]; then
+    : # 기본 브랜치 tip 과 동일 = 빈 예약 브랜치, 머지 오탐 방지
+  elif git merge-base --is-ancestor "refs/heads/$br" "$BASE" 2>/dev/null; then
+    echo "WARN: $df branch=$br — 이미 $BASE 에 머지됨 (archive 후보)"
+  fi
+done <<EOF
+$pairs
 EOF
 
 # ② 유령 브랜치 — 기본 브랜치에 없는 커밋 보유 + 어떤 detail frontmatter `branch:` 에도 없음

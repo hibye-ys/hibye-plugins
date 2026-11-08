@@ -17,6 +17,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { projectRoot, readStaterc, stateConfig } from './state-config.mjs'
+import { detailEntries, indexSource } from './state-index.mjs'
 
 const SNAPSHOT_VERSION = 6
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -116,6 +117,7 @@ function cleanupOldBaselines(directory) {
 
 function isState(path, config) {
   if (config.areaByIndex.has(path)) return true
+  if (/^docs\/state\/\.cleanup\/[^/]+\.json$/.test(path)) return true
   const detail = path.match(/^docs\/state\/([^/]+)\/[^/]+\.md$/)
   return Boolean(detail && config.indexByArea[detail[1]])
 }
@@ -358,6 +360,15 @@ function stateIds(root, revs, config) {
     for (const line of text.split('\n')) {
       const id = line.match(INDEX_ID_RE)?.[1]
       if (id) ids.add(id)
+    }
+  }
+  // frontmatter 원천(리비전마다 그 시점 .staterc 로 판정): 등재 = section 이 유효한 detail.
+  for (const rev of [null, ...new Set(revs.filter(Boolean))]) {
+    try {
+      if (indexSource(root, rev) !== 'frontmatter') continue
+      for (const entry of detailEntries(root, rev, config)) if (entry.section) ids.add(entry.id)
+    } catch {
+      // 없는 리비전·잘못된 설정은 checker 가 알린다.
     }
   }
   return ids

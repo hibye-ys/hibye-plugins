@@ -21,6 +21,8 @@ const ACTIONS = new Map([
   ['cleanup', { script: 'scripts/hooks/state-cleanup.mjs', args: [], node: true, strict: true }],
   ['check-wip', { script: 'scripts/check-state-wip-cap.sh', args: [] }],
   ['check-branch', { script: 'scripts/check-state-branch-sync.sh', args: [] }],
+  // STATE_INDEX_SOURCE="frontmatter" 의 로컬 생성 인덱스 갱신 (git hook·수동). 실패는 warn-only.
+  ['render', { script: 'scripts/hooks/state-index.mjs', args: ['render', '--write'], runtime: 'node' }],
 ])
 
 function cleanupRequired() {
@@ -30,6 +32,18 @@ function cleanupRequired() {
   } catch { /* HEAD still protects an uncommitted opt-out */ }
   const head = spawnSync('git', ['-C', root, 'show', 'HEAD:.staterc'], { encoding: 'utf8', timeout: 3000 })
   return head.status === 0 && /^STATE_CLEANUP_ENFORCE="1"\s*$/m.test(head.stdout)
+}
+
+// STATE_INDEX_SOURCE="frontmatter" 프로젝트는 그 원천을 아는 설치본(index_source_version 1)만 실행한다.
+// 모르는 설치본은 STATE.md 가 없다고 보고 detail 을 고아로 판정하므로 unavailable 로 다룬다(정리 강제면 fail-closed).
+function frontmatterRequired() {
+  const root = process.env.HOOK_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd()
+  const pattern = /^STATE_INDEX_SOURCE="frontmatter"\s*$/m
+  try {
+    if (pattern.test(readFileSync(join(root, '.staterc'), 'utf8'))) return true
+  } catch { /* HEAD still declares a committed source */ }
+  const head = spawnSync('git', ['-C', root, 'show', 'HEAD:.staterc'], { encoding: 'utf8', timeout: 3000 })
+  return head.status === 0 && pattern.test(head.stdout)
 }
 
 function required(action) {
@@ -56,6 +70,7 @@ function pluginRoot(candidate, expectedVersion = '') {
   const contract = readJson(join(root, 'state-ledger-contract.json'))
   if (contract?.version !== REQUIRED_CONTRACT_VERSION) return null
   if (cleanupRequired() && contract.cleanup_version !== 1) return null
+  if (frontmatterRequired() && contract.index_source_version !== 1) return null
   const manifests = [
     join(root, '.codex-plugin', 'plugin.json'),
     join(root, '.claude-plugin', 'plugin.json'),
@@ -169,7 +184,7 @@ function run(root, action, extraArgs = [], input) {
     return
   }
 
-  const result = spawnSync(action.node ? process.execPath : 'bash', [target, ...action.args, ...extraArgs], {
+  const result = spawnSync(action.node || action.runtime === 'node' ? process.execPath : 'bash', [target, ...action.args, ...extraArgs], {
     env: process.env,
     encoding: 'utf8',
     input,
@@ -204,7 +219,7 @@ if (actionName === 'validate') {
 
 const action = ACTIONS.get(actionName)
 if (!action) {
-  process.stderr.write('usage: state-ledger-runner.mjs <session-start|turn-start|stamp|stop|commit-msg|check-wip|check-branch|cleanup|validate> [args...]\n')
+  process.stderr.write('usage: state-ledger-runner.mjs <session-start|turn-start|stamp|stop|commit-msg|check-wip|check-branch|render|cleanup|validate> [args...]\n')
   process.exit(2)
 }
 

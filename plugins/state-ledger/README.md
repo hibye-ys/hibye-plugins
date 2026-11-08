@@ -41,7 +41,8 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: 이번 턴의 태그 없는 커밋·인덱스에 없는 id 커밋, detail 본문 덧붙임, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
 | `hooks/hooks.json` + `global-state-hook.sh` | Codex·Claude 공통 plugin lifecycle. 두 host의 `$CLAUDE_PLUGIN_ROOT`로 설치 버전을 실행하며 `$PLUGIN_ROOT` 유무로 host를 구분한다. STATE 미사용 repo는 no-op, 이행 중 실제 로컬 command만 구조적으로 감지해 이벤트별 중복 억제 |
 | `hooks/antigravity-hooks.json` + `antigravity-*.sh` | Antigravity(Google Antigravity / AGY) lifecycle. PreInvocation·PostToolUse·Stop JSON 계약 변환. Stop은 이번 턴 알림(태그·덧붙임·크기 외 구조 경고)이 있을 때만 1회 `continue`, 없으면 `allow` |
-| `state-ledger-contract.json` | project adapter와 plugin runtime 사이의 독립 계약 버전. v6 미만 설치본은 runner가 실행하지 않음 |
+| `scripts/hooks/state-index.mjs` | 인덱스 원천 선택(`STATE_INDEX_SOURCE`). frontmatter 원천의 렌더·로컬 생성 인덱스 쓰기·구조 검사·리비전별 등재 판정 |
+| `state-ledger-contract.json` | project adapter와 plugin runtime 사이의 독립 계약 버전. v6 미만 설치본은 runner가 실행하지 않음. capability: `cleanup_version`(정리 강제), `index_source_version`(frontmatter 원천) |
 | `templates/skills/state-ledger-rules/` + `scripts/hooks/rules-skill.mjs` | 규칙 스킬 템플릿과 `status`·`install`·`diff`·`update`·`notice`. SessionStart는 프로젝트 사본 기준 버전이 템플릿보다 낮을 때만 한 줄 알린다 |
 | `templates/wiring/state-ledger-runner.mjs` | Git/opencode용 얇은 프로젝트 adapter. 활성화된 Codex version cache 또는 Claude user install을 검증해 plugin-owned script를 실행 |
 
@@ -55,6 +56,7 @@ STATE_DEFAULT_BRANCH="main"
 STATE_WORK_INCLUDE_RE="(^|/)\.staterc$|(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml|go|rs|java|kt|swift|c|cc|cpp|h|hpp|png|jpe?g|webp|gif|avif|woff2?|ttf|otf)$|(^|/)(prompts?|agents?|skills?|commands?)/.*\.md$"
 STATE_WORK_EXCLUDE_RE="(^|/)(node_modules|dist|build|coverage|vendor)/"
 STATE_BRANCH_EXCLUDE="task-loop/*"  # 유령 검사 제외 glob (공백 구분)
+STATE_INDEX_SOURCE="manual"         # manual(기본) | frontmatter — 아래 0.8.0
 ```
 
 area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → 부모 디렉토리 이름 (`apps/api/STATE.md` → `api`). detail 은 항상 `docs/state/<area>/<id>.md`.
@@ -123,3 +125,16 @@ Muse·Antigravity adapter는 STATE session inject, turn baseline, detail stamp, 
 5. 미완료 Stop은 원장에 횟수를 먼저 저장하고 요청별 자동 보완을 한 번만 이어간다. 또 실패하면 구체적 이유·요청을 남기고 미완료로 종료한다. `cleanup block --request ID --session SESSION --reason '실제 장애'`도 가능하다. 새 세션은 `cleanup resume --request ID --session NEW_SESSION --instruction-ref NEW_USER_MESSAGE_REF`로 명시적 인계를 기록한다. 기존 대상·원문·예산은 바뀌지 않는다.
 
 SessionStart는 미완료 요청을 다시 주입한다. 삭제/요청 제거의 Git 검사와 bounded Stop이 강제 범위이며, 훅이 이미 출력된 자연어 답변을 취소할 수는 없다. 새 설치의 lifecycle은 새 세션에서 로드한다. Codex·Claude 두 호스트의 native 훅 프로토콜은 실제 fixture로 검증한다.
+
+### 0.8.0 frontmatter 인덱스 원천 (병렬 PR 충돌 제거)
+
+손으로 쓰는 인덱스 줄은 PR 마다 같은 섹션 끝에 추가되고 인접 줄이 archive 로 지워져 git 3-way 병합에서 충돌한다. GitHub PR 병합·mergeability 판정은 저장소 `.gitattributes`의 `merge=union`을 적용하지 않으므로(2026년 사용자 보고 다수) 병합 드라이버로는 풀 수 없다. 그래서 공유 줄 자체를 없앤다.
+
+`.staterc`에 `STATE_INDEX_SOURCE="frontmatter"`를 두면:
+
+- 항목 정본 = `docs/state/<area>/<id>.md` frontmatter의 `section`(`active|next|future|unresolved`)·`title`·`status`. 등록·상태 변경·archive 모두 그 파일 하나만 만들고·고치고·지운다. 다른 항목끼리는 파일이 달라 충돌하지 않는다.
+- `STATE_INDEXES` 경로의 인덱스는 git 미추적 생성물이다(`.gitignore`). SessionStart·detail stamp·Stop·`state-ledger-runner.mjs render`가 작업 트리에 다시 쓰며, git 이 추적 중인 파일은 덮어쓰지 않는다. 렌더 줄은 `- [id] title — owner=<owner>; status`, 섹션 안에서 `touched` 최근순.
+- 검사: cap·줄 200자·렌더 4KB·§1 owner·hash·크기·expires 는 그대로. `section`·`title`·`status` 누락·잘못된 section 은 `(라우팅 끊김)`, 추적 중인 인덱스의 손 줄도 `(라우팅 끊김)` — 0.7.x 의 인덱스↔detail 단절과 같은 분류어라 adapter 의 blocking 분류가 유지된다. 고아·섹션 heading 검사는 원천이 하나라 없다.
+- 정리 요청: 요청 하나 = `docs/state/.cleanup/<request-id>.json`(`{"version":1,"request":{...}}`). 같은 잠금·CAS·검증·지문 규칙을 쓰고, archive = detail 삭제 커밋(+`archive [id=]`)이다.
+- 리비전마다 그 시점 `.staterc`로 원천을 판정한다. 이전 전(manual) 커밋의 요청 기준점·archive 증거는 인덱스 줄 규칙으로 계속 읽힌다. 이전 커밋에서 기존 `STATE_CLEANUP_V1` 요청을 내용 그대로 파일로 옮기면 `REQUEST_CHANGED` 없이 통과한다.
+- 계약 v6 은 그대로이고 `index_source_version: 1` capability 를 더한다. 새 runner 는 프로젝트가 frontmatter 원천일 때만 이 capability 를 요구한다 — 0.7.x 설치본은 unavailable(정리 강제면 fail-closed). 옛 runner·manual 프로젝트는 0.8.0 설치본을 그대로 쓴다(설정이 없으면 0.7.x 와 같은 동작). 그래서 0.8.0 을 먼저 개발 머신·CI runner 에 설치하고, 그다음 프로젝트를 전환한다.

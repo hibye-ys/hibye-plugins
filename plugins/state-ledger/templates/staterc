@@ -15,3 +15,7 @@ STATE_BRANCH_EXCLUDE="task-loop/*"
 
 # 사용자 확인 뒤 명시한 정리 요청만 검증하려면 새 runner와 함께 1로 설정.
 STATE_CLEANUP_ENFORCE="0"
+
+# 인덱스 원천. manual = STATE.md 줄을 손으로 쓴다. frontmatter = 항목은 detail frontmatter(section·title·status)에만 쓰고
+# STATE.md 는 git 미추적 생성물(.gitignore)이다 — 병렬 PR 이 인덱스 줄에서 충돌하지 않는다. 플러그인 0.8.0 이상.
+STATE_INDEX_SOURCE="manual"
