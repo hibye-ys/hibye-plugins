@@ -138,3 +138,7 @@ SessionStart는 미완료 요청을 다시 주입한다. 삭제/요청 제거의
 - 정리 요청: 요청 하나 = `docs/state/.cleanup/<request-id>.json`(`{"version":1,"request":{...}}`). 같은 잠금·CAS·검증·지문 규칙을 쓰고, archive = detail 삭제 커밋(+`archive [id=]`)이다.
 - 리비전마다 그 시점 `.staterc`로 원천을 판정한다. 이전 전(manual) 커밋의 요청 기준점·archive 증거는 인덱스 줄 규칙으로 계속 읽힌다. 이전 커밋에서 기존 `STATE_CLEANUP_V1` 요청을 내용 그대로 파일로 옮기면 `REQUEST_CHANGED` 없이 통과한다.
 - 계약 v6 은 그대로이고 `index_source_version: 1` capability 를 더한다. 새 runner 는 프로젝트가 frontmatter 원천일 때만 이 capability 를 요구한다 — 0.7.x 설치본은 unavailable(정리 강제면 fail-closed). 옛 runner·manual 프로젝트는 0.8.0 설치본을 그대로 쓴다(설정이 없으면 0.7.x 와 같은 동작). 그래서 0.8.0 을 먼저 개발 머신·CI runner 에 설치하고, 그다음 프로젝트를 전환한다.
+
+### 0.8.1 정리 참조 검사 속도
+
+`referencesTo`가 index·커밋 스냅샷에서 후보 파일마다 `git show`를 띄워, markdown 이 많은 저장소(EUNHA 약 17초/스냅샷)에서 정리 검사·`validate-staged`가 runner timeout(30초)을 넘었다. 후보 파일을 `git cat-file --batch` 한 번으로 읽는다(같은 결과, 1초 미만).

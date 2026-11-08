@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { finishCleanup, readRequests, requestCleanup, validateCleanupCommit } from './state-cleanup.mjs'
-import { cleanupLockPath } from './state-cleanup-store.mjs'
+import { cleanupLockPath, readBlobs } from './state-cleanup-store.mjs'
 import { checkFrontmatterIndex, detailEntries, entryExists, renderIndex, writeRenderedIndexes } from './state-index.mjs'
 import { stateConfig } from './state-config.mjs'
 
@@ -313,4 +313,14 @@ test('parallel branches adding, editing and archiving different entries merge wi
   const text = renderIndex('root', detailEntries(root), stateConfig(root))
   assert.match(text, /A 가 바꾼 상태/)
   assert.match(text, /B 가 바꾼 상태/)
+})
+
+test('batched blob reads keep order, multi-byte text and missing objects', (t) => {
+  const root = repo(t)
+  write(root, 'a.md', '한글 첫 줄\n둘째 줄\n')
+  write(root, 'b.md', '')
+  commit(root, 'blobs [id=-]')
+  write(root, 'a.md', 'staged 한글\n')
+  git(root, 'add', 'a.md')
+  assert.deepEqual(readBlobs(root, ['HEAD:a.md', 'HEAD:missing.md', 'HEAD:b.md', ':a.md']), ['한글 첫 줄\n둘째 줄\n', null, '', 'staged 한글\n'])
 })

@@ -1,5 +1,5 @@
 import { posix } from 'node:path'
-import { CLEANUP_DIR, config, detailMeta, enabled, fileText, fingerprint, git, isIndexed, readRequests, strippedRequests, target } from './state-cleanup-store.mjs'
+import { CLEANUP_DIR, config, detailMeta, enabled, fileText, fingerprint, git, isIndexed, readBlobs, readRequests, strippedRequests, target } from './state-cleanup-store.mjs'
 
 const violation = (code, message) => ({ code, message })
 const result = (violations, extra = {}) => ({ ok: violations.length === 0, violations, ...extra })
@@ -21,9 +21,12 @@ export function referencesTo(root, targets, snapshot = 'worktree') {
   if (!['index', 'worktree'].includes(snapshot)) files = files.map((file) => file.slice(snapshot.length + 1))
   const pinned = new Map()
   const refs = []
-  for (const file of files) {
-    if (paths.includes(file) || file.startsWith(`${CLEANUP_DIR}/`)) continue
-    let text = fileText(root, file, snapshot === 'worktree' ? null : snapshot === 'index' ? ':' : snapshot)
+  const candidates = files.filter((file) => !paths.includes(file) && !file.startsWith(`${CLEANUP_DIR}/`))
+  // index·커밋 스냅샷은 파일마다 git show 를 띄우지 않고 cat-file --batch 한 번으로 읽는다
+  // (markdown 링크 패턴이 거의 모든 문서에 걸려 수백 번 spawn → 정리 검사가 hook timeout 을 넘었다).
+  const blobs = snapshot === 'worktree' ? null : readBlobs(root, candidates.map((file) => snapshot === 'index' ? `:${file}` : `${snapshot}:${file}`))
+  for (const [i, file] of candidates.entries()) {
+    let text = blobs ? blobs[i] : fileText(root, file, null)
     if (text === null || text.length > 2 * 1024 * 1024 || text.includes('\0')) continue
     if (config(root).indexes.includes(file)) text = strippedRequests(text)
     for (const [n, original] of text.split('\n').entries()) {

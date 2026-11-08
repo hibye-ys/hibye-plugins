@@ -25,6 +25,28 @@ export function git(root, args) {
   return execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024, timeout: 15000 })
 }
 
+// 여러 blob 을 git cat-file --batch 한 번으로 읽는다. 없는 객체는 null.
+export function readBlobs(root, specs) {
+  if (specs.length === 0) return []
+  const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1' }
+  for (const key of ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[key]
+  const out = execFileSync('git', ['cat-file', '--batch'], { cwd: root, env, input: `${specs.join('\n')}\n`, maxBuffer: 512 * 1024 * 1024, timeout: 15000 })
+  const texts = []
+  let offset = 0
+  for (const spec of specs) {
+    const end = out.indexOf(10, offset)
+    if (end < 0) throw new Error(`cat-file output ended before ${spec}`)
+    const header = out.subarray(offset, end).toString('utf8')
+    offset = end + 1
+    const match = /^[0-9a-f]+ (\w+) (\d+)$/.exec(header)
+    if (!match) { texts.push(null); continue } // "<spec> missing" / ambiguous
+    const size = Number(match[2])
+    texts.push(match[1] === 'blob' ? out.subarray(offset, offset + size).toString('utf8') : null)
+    offset += size + 1
+  }
+  return texts
+}
+
 export function fileText(root, file, revision = null) {
   root = realpathSync(root)
   if (revision !== null) {
