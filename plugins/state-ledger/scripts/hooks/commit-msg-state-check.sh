@@ -48,8 +48,13 @@ msg=$(cat "$msgfile")
 
 detail_ids=$(printf '%s\n' "$staged" \
   | sed -nE 's#^docs/state/[^/]+/([a-z0-9-]{3,12})\.md$#\1#p')
-index_ids=$(git diff --cached -U0 -- "${state_index_args[@]}" 2>/dev/null \
-  | sed -nE 's/^[+-]- \[([a-z0-9-]{3,12})\].*/\1/p')
+# frontmatter 원천이면 인덱스는 생성물이라 항목 변경 = detail 변경이다 (인덱스 diff 는 이전 커밋의 일괄 삭제뿐).
+index_source=$(HOOK_PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)" node "$script_dir/state-index.mjs" source 2>/dev/null || echo manual)
+index_ids=""
+if [ "$index_source" != "frontmatter" ]; then
+  index_ids=$(git diff --cached -U0 -- "${state_index_args[@]}" 2>/dev/null \
+    | sed -nE 's/^[+-]- \[([a-z0-9-]{3,12})\].*/\1/p')
+fi
 required_ids=$(printf '%s\n%s\n' "$detail_ids" "$index_ids" | sed '/^$/d' | sort -u)
 
 for id in $required_ids; do

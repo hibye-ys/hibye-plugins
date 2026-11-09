@@ -1,5 +1,5 @@
 import { posix } from 'node:path'
-import { config, detailMeta, enabled, fileText, fingerprint, git, hasEntry, readRequests, strippedRequests, target } from './state-cleanup-store.mjs'
+import { CLEANUP_DIR, config, detailMeta, enabled, fileText, fingerprint, git, isIndexed, readBlobs, readRequests, strippedRequests, target } from './state-cleanup-store.mjs'
 
 const violation = (code, message) => ({ code, message })
 const result = (violations, extra = {}) => ({ ok: violations.length === 0, violations, ...extra })
@@ -21,9 +21,12 @@ export function referencesTo(root, targets, snapshot = 'worktree') {
   if (!['index', 'worktree'].includes(snapshot)) files = files.map((file) => file.slice(snapshot.length + 1))
   const pinned = new Map()
   const refs = []
-  for (const file of files) {
-    if (paths.includes(file)) continue
-    let text = fileText(root, file, snapshot === 'worktree' ? null : snapshot === 'index' ? ':' : snapshot)
+  const candidates = files.filter((file) => !paths.includes(file) && !file.startsWith(`${CLEANUP_DIR}/`))
+  // index·커밋 스냅샷은 파일마다 git show 를 띄우지 않고 cat-file --batch 한 번으로 읽는다
+  // (markdown 링크 패턴이 거의 모든 문서에 걸려 수백 번 spawn → 정리 검사가 hook timeout 을 넘었다).
+  const blobs = snapshot === 'worktree' ? null : readBlobs(root, candidates.map((file) => snapshot === 'index' ? `:${file}` : `${snapshot}:${file}`))
+  for (const [i, file] of candidates.entries()) {
+    let text = blobs ? blobs[i] : fileText(root, file, null)
     if (text === null || text.length > 2 * 1024 * 1024 || text.includes('\0')) continue
     if (config(root).indexes.includes(file)) text = strippedRequests(text)
     for (const [n, original] of text.split('\n').entries()) {
@@ -61,7 +64,7 @@ function archiveProof(root, request, t) {
     const parents = git(root, ['rev-list', '--parents', '-n', '1', sha]).trim().split(' ').slice(1)
     if (parents.length !== 1) continue
     if (fileText(root, t.detail, sha) !== null || fileText(root, t.detail, parents[0]) !== fileText(root, t.detail, request.base_commit)) continue
-    if (hasEntry(fileText(root, t.index, sha), t.id)) continue
+    if (isIndexed(root, t, sha)) continue
     const message = git(root, ['show', '-s', '--format=%B', sha])
     if (new RegExp(`(?:^|[^A-Za-z])archive \\[id=${t.id}\\]`).test(message)) return sha
   }
@@ -76,7 +79,7 @@ export function evaluateRequest(root, request) {
     for (const key of request.targets) {
       const t = target(root, key)
       if (fileText(root, t.detail) !== null || fileText(root, t.detail, ':') !== null || fileText(root, t.detail, 'HEAD') !== null) errors.push(violation('DETAIL_REMAINS', `${key}: detail removal must be committed and present in neither worktree nor index`))
-      if ([null, ':', 'HEAD'].some((rev) => hasEntry(fileText(root, t.index, rev), t.id))) errors.push(violation('INDEX_ENTRY_REMAINS', `${key}: STATE index entry remains`))
+      if ([null, ':', 'HEAD'].some((rev) => isIndexed(root, t, rev))) errors.push(violation('INDEX_ENTRY_REMAINS', `${key}: STATE index entry remains`))
       const proof = archiveProof(root, request, t)
       if (!proof) errors.push(violation('ARCHIVE_COMMIT_MISSING', `${key}: no committed deletion with archive [id=${t.id}] after the request baseline`))
       else archiveCommits.push(proof)
@@ -93,7 +96,7 @@ function validateOrigin(root, request) {
   for (const key of request.targets) {
     const t = target(root, key)
     const text = fileText(root, t.detail, request.base_commit)
-    if (text === null || !hasEntry(fileText(root, t.index, request.base_commit), t.id)) throw new Error(`${key}: target must exist at the committed request baseline`)
+    if (text === null || !isIndexed(root, t, request.base_commit)) throw new Error(`${key}: target must exist at the committed request baseline`)
     if (request.scope === 'session') {
       const meta = detailMeta(text)
       if (meta.lifecycle !== 'awaiting_user' || meta.session_id !== request.owner_session) throw new Error(`${key}: cleanup requires a committed awaiting_user record owned by the original session`)
@@ -130,7 +133,7 @@ export function validateCleanupCommit(root, { message = null } = {}) {
       const authorizations = staged.filter((r) => r.targets.includes(key))
       if (authorizations.length !== 1) errors.push(violation('CLEANUP_NOT_REQUESTED', `${key}: no retained user cleanup request authorizes this deletion`))
       if (authorizations.length === 1 && fileText(root, t.detail, 'HEAD') !== fileText(root, t.detail, authorizations[0].base_commit)) errors.push(violation('TARGET_CHANGED', `${key}: target changed after the user cleanup request; preserve it pending a new user decision`))
-      if (hasEntry(fileText(root, t.index, ':'), t.id)) errors.push(violation('INDEX_ENTRY_REMAINS', `${key}: remove its STATE index entry in the same archive commit`))
+      if (isIndexed(root, t, ':')) errors.push(violation('INDEX_ENTRY_REMAINS', `${key}: remove its STATE index entry in the same archive commit`))
       if (message !== null && !new RegExp(`(?:^|[^A-Za-z])archive \\[id=${t.id}\\]`).test(message)) errors.push(violation('ARCHIVE_TAG_MISSING', `${key}: commit message requires archive [id=${t.id}]`))
     }
     for (const ref of referencesTo(root, targets, 'index')) errors.push(violation('DANGLING_REFERENCE', `index ${ref.file}:${ref.line} -> ${ref.target}`))

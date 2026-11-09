@@ -1,10 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { stateConfig, readStaterc } from './state-config.mjs'
+import { CLEANUP_DIR, entryExists, indexSource } from './state-index.mjs'
+
+export { CLEANUP_DIR }
 
 const MARKER = /^<!-- STATE_CLEANUP_V1 (.+) -->\r?\n?/gm
 const snapshots = new Map()
@@ -20,6 +23,28 @@ export function git(root, args) {
   const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1' }
   for (const key of ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[key]
   return execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024, timeout: 15000 })
+}
+
+// 여러 blob 을 git cat-file --batch 한 번으로 읽는다. 없는 객체는 null.
+export function readBlobs(root, specs) {
+  if (specs.length === 0) return []
+  const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1' }
+  for (const key of ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES']) delete env[key]
+  const out = execFileSync('git', ['cat-file', '--batch'], { cwd: root, env, input: `${specs.join('\n')}\n`, maxBuffer: 512 * 1024 * 1024, timeout: 15000 })
+  const texts = []
+  let offset = 0
+  for (const spec of specs) {
+    const end = out.indexOf(10, offset)
+    if (end < 0) throw new Error(`cat-file output ended before ${spec}`)
+    const header = out.subarray(offset, end).toString('utf8')
+    offset = end + 1
+    const match = /^[0-9a-f]+ (\w+) (\d+)$/.exec(header)
+    if (!match) { texts.push(null); continue } // "<spec> missing" / ambiguous
+    const size = Number(match[2])
+    texts.push(match[1] === 'blob' ? out.subarray(offset, offset + size).toString('utf8') : null)
+    offset += size + 1
+  }
+  return texts
 }
 
 export function fileText(root, file, revision = null) {
@@ -61,6 +86,12 @@ export function hasEntry(text, id) {
   return (text ?? '').split('\n').some((line) => line.startsWith(`- [${id}] `))
 }
 
+// 리비전(null=작업 트리, ':'=index, 커밋)의 원천 규칙대로 target 이 STATE 항목으로 등재돼 있는가.
+// manual = 인덱스 줄, frontmatter = section 이 유효한 detail. 이전 전 커밋은 그 시점 규칙으로 읽는다.
+export function isIndexed(root, t, revision = null) {
+  return entryExists(realpathSync(root), t.area, t.id, revision, config(root))
+}
+
 export function strippedRequests(text) {
   return (text ?? '').replace(MARKER, '')
 }
@@ -83,15 +114,64 @@ export function validateRequest(root, r) {
   return r
 }
 
+// frontmatter 원천: 요청 하나 = docs/state/.cleanup/<request-id>.json. 공유 인덱스 줄이 없어 병렬 PR 이 부딪히지 않는다.
+function requestFiles(root, revision) {
+  const prefix = `${CLEANUP_DIR}/`
+  let paths
+  if (revision === null) {
+    const dir = join(realpathSync(root), CLEANUP_DIR)
+    let entries
+    try {
+      if (lstatSync(dir).isSymbolicLink()) throw new Error(`unsafe STATE cleanup directory: ${CLEANUP_DIR}`)
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch (error) { if (error.code === 'ENOENT') return []; throw error }
+    paths = entries.map((entry) => {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) throw new Error(`unexpected entry in ${CLEANUP_DIR}: ${entry.name}`)
+      return `${prefix}${entry.name}`
+    })
+  } else {
+    const listed = revision === ':' ? git(root, ['ls-files', '--cached', '-z', '--', prefix]) : git(root, ['ls-tree', '-r', '--name-only', '-z', revision, '--', prefix])
+    paths = listed.split('\0').filter(Boolean)
+  }
+  return paths.sort()
+}
+
+function requestFilesSnapshot(root, revision = null) {
+  return JSON.stringify(requestFiles(root, revision).map((path) => [path, fileText(root, path, revision)]))
+}
+
+function currentSnapshot(root) {
+  return indexSource(realpathSync(root)) === 'frontmatter' ? requestFilesSnapshot(root) : fileText(root, config(root).indexes[0])
+}
+
+function parseRequestFiles(root, revision) {
+  const files = requestFiles(root, revision)
+  if (files.length > 32) throw new Error('invalid STATE cleanup metadata: more than 32 requests')
+  const pairs = files.map((path) => [path, fileText(root, path, revision)])
+  if (revision === null) snapshots.set(realpathSync(root), JSON.stringify(pairs))
+  return pairs.map(([path, text]) => {
+    const value = JSON.parse(text ?? 'null')
+    if (value?.version !== 1 || Object.keys(value).some((k) => !['version', 'request'].includes(k))) throw new Error(`invalid STATE cleanup metadata: ${path}`)
+    const r = validateRequest(root, value.request)
+    if (path !== `${CLEANUP_DIR}/${r.id}.json`) throw new Error(`cleanup request file name must match its id: ${path}`)
+    return r
+  })
+}
+
 export function readRequests(root, revision = null) {
-  const text = fileText(root, config(root).indexes[0], revision)
-  if (revision === null) snapshots.set(realpathSync(root), text)
-  const matches = [...(text ?? '').matchAll(MARKER)]
-  if (matches.length > 1) throw new Error('duplicate STATE cleanup metadata')
-  if (!matches.length) return []
-  const value = JSON.parse(matches[0][1])
-  if (value?.version !== 1 || !Array.isArray(value.requests) || value.requests.length > 32 || Object.keys(value).some((k) => !['version', 'requests'].includes(k))) throw new Error('invalid STATE cleanup metadata')
-  const requests = value.requests.map((r) => validateRequest(root, r))
+  let requests
+  if (indexSource(realpathSync(root), revision) === 'frontmatter') {
+    requests = parseRequestFiles(root, revision)
+  } else {
+    const text = fileText(root, config(root).indexes[0], revision)
+    if (revision === null) snapshots.set(realpathSync(root), text)
+    const matches = [...(text ?? '').matchAll(MARKER)]
+    if (matches.length > 1) throw new Error('duplicate STATE cleanup metadata')
+    if (!matches.length) return []
+    const value = JSON.parse(matches[0][1])
+    if (value?.version !== 1 || !Array.isArray(value.requests) || value.requests.length > 32 || Object.keys(value).some((k) => !['version', 'requests'].includes(k))) throw new Error('invalid STATE cleanup metadata')
+    requests = value.requests.map((r) => validateRequest(root, r))
+  }
   if (new Set(requests.map((r) => r.id)).size !== requests.length) throw new Error('duplicate cleanup request id')
   const assigned = requests.flatMap((r) => r.targets)
   if (new Set(assigned).size !== assigned.length) throw new Error('overlapping cleanup requests')
@@ -108,7 +188,7 @@ export function cleanupLockCommand(lock, child, platform = process.platform) {
 
 export function storeRequests(root, requests) {
   root = realpathSync(root)
-  const expected = snapshots.has(root) ? snapshots.get(root) : fileText(root, config(root).indexes[0])
+  const expected = snapshots.has(root) ? snapshots.get(root) : currentSnapshot(root)
   const lock = cleanupLockPath(root)
   if (existsSync(lock) && (!lstatSync(lock).isFile() || lstatSync(lock).isSymbolicLink())) throw new Error('unsafe STATE cleanup lock path')
   // OS record locks release on process death. The zero-byte temporary lock
@@ -120,7 +200,7 @@ export function storeRequests(root, requests) {
       input: JSON.stringify({ root, requests, expected }), maxBuffer: 4 * 1024 * 1024,
     })
   } catch (error) { throw new Error(`STATE cleanup write lock or replacement failed; reread before retrying (requires ${launcher.command}): ${String(error.stderr || error.message).slice(0, 500)}`) }
-  snapshots.set(root, fileText(root, config(root).indexes[0]))
+  snapshots.set(root, currentSnapshot(root))
 }
 
 export function cleanupLockPath(root) {
@@ -128,8 +208,39 @@ export function cleanupLockPath(root) {
   return join(tmpdir(), `state-ledger-cleanup-${process.getuid?.() ?? 'user'}-${key}.lock`)
 }
 
+function storeRequestFilesLocked(root, requests) {
+  const current = requestFilesSnapshot(root)
+  const previous = snapshots.get(realpathSync(root))
+  if (previous !== undefined && previous !== current) throw new Error('STATE changed concurrently; reread the request before retrying')
+  const dir = join(root, CLEANUP_DIR)
+  const stateDir = join(root, 'docs', 'state')
+  if (!existsSync(stateDir) || lstatSync(stateDir).isSymbolicLink()) throw new Error('docs/state is missing or unsafe')
+  if (existsSync(dir) && (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory())) throw new Error(`unsafe STATE cleanup directory: ${CLEANUP_DIR}`)
+  mkdirSync(dir, { recursive: true })
+  const wanted = new Map(requests.map((r) => [`${CLEANUP_DIR}/${r.id}.json`, `${JSON.stringify({ version: 1, request: r }, null, 2)}\n`]))
+  const temps = []
+  try {
+    for (const [path, text] of wanted) {
+      if (fileText(root, path) === text) continue
+      // 임시 파일은 요청 디렉터리 밖(docs/state)에 둔다 — 디렉터리 목록이 곧 요청 집합이다.
+      const temp = join(stateDir, `.cleanup-${randomUUID()}.tmp`)
+      const fd = openSync(temp, 'wx', 0o644)
+      try { writeFileSync(fd, text); fsyncSync(fd) } finally { closeSync(fd) }
+      temps.push([temp, join(root, path)])
+    }
+    if (requestFilesSnapshot(root) !== current) throw new Error('STATE changed concurrently before replacement; no request was overwritten')
+    for (const [temp, path] of temps) renameSync(temp, path)
+    temps.length = 0
+    for (const path of requestFiles(root, null)) if (!wanted.has(path)) unlinkSync(join(root, path))
+    snapshots.set(realpathSync(root), requestFilesSnapshot(root))
+  } finally {
+    for (const [temp] of temps) { try { unlinkSync(temp) } catch (error) { if (error.code !== 'ENOENT') throw error } }
+  }
+}
+
 function storeRequestsLocked(root, requests) {
   for (const r of requests) validateRequest(root, r)
+  if (indexSource(realpathSync(root)) === 'frontmatter') return storeRequestFilesLocked(root, requests)
   const index = config(root).indexes[0]
   const text = fileText(root, index)
   if (text === null) throw new Error('STATE index is missing')

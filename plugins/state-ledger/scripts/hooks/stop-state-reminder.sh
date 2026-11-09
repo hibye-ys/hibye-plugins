@@ -94,7 +94,11 @@ if [ -n "$delta" ] && printf '%s' "$delta" | jq -e '
   fi
   if [ -n "$unknown" ]; then
     attention=true
-    add "STATE reminder: 이번 턴 커밋의 ${unknown_ids}가 STATE 인덱스에 없다 — ${unknown}. 오타·archive된 id인지 확인하고, 새 작업이면 인덱스에 한 줄 등재한다."
+    register_hint="인덱스에 한 줄 등재한다"
+    if [ "$(HOOK_PROJECT_DIR="$root" node "$script_dir/state-index.mjs" source 2>/dev/null)" = "frontmatter" ]; then
+      register_hint="docs/state/<area>/<id>.md 를 frontmatter section·title·status 와 함께 만든다"
+    fi
+    add "STATE reminder: 이번 턴 커밋의 ${unknown_ids}가 STATE 인덱스에 없다 — ${unknown}. 오타·archive된 id인지 확인하고, 새 작업이면 ${register_hint}."
   fi
   if [ -n "$appended" ]; then
     attention=true

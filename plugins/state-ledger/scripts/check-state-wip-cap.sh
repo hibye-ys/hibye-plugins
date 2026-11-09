@@ -72,78 +72,97 @@ count_section() {
   ' "$1"
 }
 
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  case "$f" in
-    STATE.md) area=root ;;
-    *) area=$(basename "$(dirname "$f")") ;;
-  esac
-  [ -z "$TARGET_AREA" ] || [ "$TARGET_AREA" = "$area" ] || continue
-  if [ ! -f "$f" ]; then
-    warn "$f 없음 — 필수 STATE 인덱스 소실"
-    continue
+if ! index_source=$(HOOK_PROJECT_DIR="$root" node "$script_dir/hooks/state-index.mjs" source 2>&1); then
+  echo "WARN: STATE 설정 거부: ${index_source:0:400}" >&2
+  [ "${STATE_CHECK_STRICT:-0}" = "1" ] && exit 1
+  exit 0
+fi
+
+if [ "$index_source" = "frontmatter" ]; then
+  # 항목 정본 = detail frontmatter. 인덱스 파일은 생성물이라 섹션 heading·고아 검사가 없다.
+  if fm_out=$(HOOK_PROJECT_DIR="$root" node "$script_dir/hooks/state-index.mjs" check ${TARGET_AREA:+--area "$TARGET_AREA"} 2>&1); then
+    while IFS= read -r w; do
+      [ -n "$w" ] && warn "$w"
+    done <<EOF
+$fm_out
+EOF
+  else
+    warn "STATE frontmatter 인덱스 검사 실행 실패: ${fm_out:0:400}"
   fi
-
-  active=$(count_section "$f" "1\\. 활성")
-  next=$(count_section "$f" "2\\. 다음")
-  future=$(count_section "$f" "3\\. 미래")
-  unresolved=$(count_section "$f" "4\\. 미해결")
-
-  [ "$active" -gt "$CAPS_ACTIVE" ] && warn "$f §1 활성 = $active (cap $CAPS_ACTIVE 초과)"
-  [ "$next" -gt "$CAPS_NEXT" ] && warn "$f §2 다음 = $next (cap $CAPS_NEXT 초과)"
-  [ "$future" -gt "$CAPS_FUTURE" ] && warn "$f §3 미래 = $future (cap $CAPS_FUTURE 초과)"
-  [ "$unresolved" -gt "$CAPS_UNRESOLVED" ] && warn "$f §4 미해결 = $unresolved (cap $CAPS_UNRESOLVED 초과)"
-
-  for n in 1 2 3 4; do
-    grep -qE "^## $n\\." "$f" || warn "$f §$n heading 없음 (섹션 소실·개명 — cap 검사 무력화)"
-  done
-
-  bytes=$(wc -c < "$f")
-  [ "$bytes" -gt "$FILE_BYTE_CAP" ] && warn "$f ${bytes}B (파일 cap ${FILE_BYTE_CAP}B 초과) — 인덱스는 1줄 항목만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로"
-
-  while IFS= read -r line; do
-    n=${#line}
-    [ "$n" -gt "$LINE_CHAR_CAP" ] && warn "$f \"${line:0:36}…\" ${n}자 (줄 cap ${LINE_CHAR_CAP}자 초과) — 줄은 제목·짧은 상태만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로"
-  done < <(grep '^- ' "$f" || true)
-
-  for id in $(sed -nE 's/^- \[([a-z0-9-]+)\].*/\1/p' "$f"); do
-    n=${#id}
-    if [ "$n" -lt 3 ] || [ "$n" -gt 12 ]; then warn "$f [$id] id ${n}자 (계약 3–12자 위반)"; fi
-    [ -f "docs/state/$area/$id.md" ] || warn "$f [$id] — docs/state/$area/$id.md 없음 (라우팅 끊김)"
-  done
-
-  for id in $(awk '/^## /{ in_sec = ($0 ~ /^## 1\./); next } in_sec' "$f" | sed -nE 's/^- \[([a-z0-9-]+)\].*/\1/p'); do
-    df="docs/state/$area/$id.md"
-    [ -f "$df" ] || continue
-    owner=$(awk '/^---$/{n++; next} n==1' "$df" | sed -nE 's/^owner: (.+)$/\1/p' | head -1)
-    case "$owner" in
-      ""|-|—) warn "$df — §1 활성인데 유효한 frontmatter owner 없음" ;;
+else
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in
+      STATE.md) area=root ;;
+      *) area=$(basename "$(dirname "$f")") ;;
     esac
-  done
+    [ -z "$TARGET_AREA" ] || [ "$TARGET_AREA" = "$area" ] || continue
+    if [ ! -f "$f" ]; then
+      warn "$f 없음 — 필수 STATE 인덱스 소실"
+      continue
+    fi
 
-  # §1·§2·§4 는 id 필수 (id 없는 줄은 §3 placeholder 만 허용), 토큰 문자집합은 [a-z0-9-]
-  while IFS= read -r line; do
-    case "$line" in
-      "- ["*)
-        tok=${line#- [}; tok=${tok%%]*}
-        printf '%s' "$tok" | grep -qE '^[a-z0-9-]+$' || warn "$f \"${line:0:36}…\" id 토큰 '[$tok]' 문자집합 위반 ([a-z0-9-]만)"
-        ;;
-      "- "*)
-        warn "$f \"${line:0:36}…\" id 없는 항목 (§3 placeholder 만 허용)"
-        ;;
-    esac
-  done < <(awk '/^## /{ in_sec = ($0 ~ /^## [124]\./); next } in_sec' "$f" | grep '^- ' || true)
+    active=$(count_section "$f" "1\\. 활성")
+    next=$(count_section "$f" "2\\. 다음")
+    future=$(count_section "$f" "3\\. 미래")
+    unresolved=$(count_section "$f" "4\\. 미해결")
 
-  if [ -d "docs/state/$area" ]; then
-    for df in docs/state/$area/*.md; do
-      [ -e "$df" ] || continue
-      id=$(basename "$df" .md)
-      grep -q "^- \[$id\]" "$f" || warn "docs/state/$area/$id.md — $f 인덱스에 없음 (고아 — 인덱스 등재 또는 archive)"
+    [ "$active" -gt "$CAPS_ACTIVE" ] && warn "$f §1 활성 = $active (cap $CAPS_ACTIVE 초과)"
+    [ "$next" -gt "$CAPS_NEXT" ] && warn "$f §2 다음 = $next (cap $CAPS_NEXT 초과)"
+    [ "$future" -gt "$CAPS_FUTURE" ] && warn "$f §3 미래 = $future (cap $CAPS_FUTURE 초과)"
+    [ "$unresolved" -gt "$CAPS_UNRESOLVED" ] && warn "$f §4 미해결 = $unresolved (cap $CAPS_UNRESOLVED 초과)"
+
+    for n in 1 2 3 4; do
+      grep -qE "^## $n\\." "$f" || warn "$f §$n heading 없음 (섹션 소실·개명 — cap 검사 무력화)"
     done
-  fi
-done <<EOF
+
+    bytes=$(wc -c < "$f")
+    [ "$bytes" -gt "$FILE_BYTE_CAP" ] && warn "$f ${bytes}B (파일 cap ${FILE_BYTE_CAP}B 초과) — 인덱스는 1줄 항목만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로"
+
+    while IFS= read -r line; do
+      n=${#line}
+      [ "$n" -gt "$LINE_CHAR_CAP" ] && warn "$f \"${line:0:36}…\" ${n}자 (줄 cap ${LINE_CHAR_CAP}자 초과) — 줄은 제목·짧은 상태만, 남은 일·결정·WHY는 detail로, 완료 경과는 커밋 메시지로"
+    done < <(grep '^- ' "$f" || true)
+
+    for id in $(sed -nE 's/^- \[([a-z0-9-]+)\].*/\1/p' "$f"); do
+      n=${#id}
+      if [ "$n" -lt 3 ] || [ "$n" -gt 12 ]; then warn "$f [$id] id ${n}자 (계약 3–12자 위반)"; fi
+      [ -f "docs/state/$area/$id.md" ] || warn "$f [$id] — docs/state/$area/$id.md 없음 (라우팅 끊김)"
+    done
+
+    for id in $(awk '/^## /{ in_sec = ($0 ~ /^## 1\./); next } in_sec' "$f" | sed -nE 's/^- \[([a-z0-9-]+)\].*/\1/p'); do
+      df="docs/state/$area/$id.md"
+      [ -f "$df" ] || continue
+      owner=$(awk '/^---$/{n++; next} n==1' "$df" | sed -nE 's/^owner: (.+)$/\1/p' | head -1)
+      case "$owner" in
+        ""|-|—) warn "$df — §1 활성인데 유효한 frontmatter owner 없음" ;;
+      esac
+    done
+
+    # §1·§2·§4 는 id 필수 (id 없는 줄은 §3 placeholder 만 허용), 토큰 문자집합은 [a-z0-9-]
+    while IFS= read -r line; do
+      case "$line" in
+        "- ["*)
+          tok=${line#- [}; tok=${tok%%]*}
+          printf '%s' "$tok" | grep -qE '^[a-z0-9-]+$' || warn "$f \"${line:0:36}…\" id 토큰 '[$tok]' 문자집합 위반 ([a-z0-9-]만)"
+          ;;
+        "- "*)
+          warn "$f \"${line:0:36}…\" id 없는 항목 (§3 placeholder 만 허용)"
+          ;;
+      esac
+    done < <(awk '/^## /{ in_sec = ($0 ~ /^## [124]\./); next } in_sec' "$f" | grep '^- ' || true)
+
+    if [ -d "docs/state/$area" ]; then
+      for df in docs/state/$area/*.md; do
+        [ -e "$df" ] || continue
+        id=$(basename "$df" .md)
+        grep -q "^- \[$id\]" "$f" || warn "docs/state/$area/$id.md — $f 인덱스에 없음 (고아 — 인덱스 등재 또는 archive)"
+      done
+    fi
+  done <<EOF
 $state_indexes
 EOF
+fi
 
 # detail frontmatter·hash·expires·크기 — stamp 훅과 동일한 파싱(python)으로 검사
 if ! command -v python3 >/dev/null 2>&1; then

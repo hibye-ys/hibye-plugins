@@ -12,7 +12,7 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 - **턴 귀속은 커밋 메시지로 판정** — UserPromptSubmit 때 repo 밖에 HEAD·dirty STATE hash·detail 본문 크기를 저장하고, Stop에서 이번 턴에 만든 커밋 중 작업 파일을 바꾼 커밋의 메시지에 유효 `[id=<id>]`가 있는지 본다. 알림은 이번 턴 것만 한 번 내고 다음 턴으로 넘기지 않는다. STATE 갱신은 매 턴 요구하지 않는다.
 - **goal-run과 무관한 전역 lifecycle** — STATE는 live ownership만 담당한다. goal TRACK·item branch 같은 파이프라인 규칙은 해당 스킬이 소유한다.
 
-## 스키마 (대상 프로젝트 AGENTS.md 에 붙여 넣는 작성규칙)
+## 스키마 (작성 규칙 요약 — 프로젝트에서는 `.agents/skills/state-ledger-rules` 사본이 이 내용을 담고, `AGENTS.md`에는 그 위치만 적는다)
 
 ```
 - `STATE.md`는 공유 상태판이다. 누가 무엇을 하는지(owner)·남은 일·미해결 결정과 WHY만 담는다. 남은 일·소유·결정이 바뀌면 그 줄과 detail을 바꿔 쓰고 덧붙이지 않는다. 작업 기록(완료 사실·경과)은 커밋 메시지가 맡으며 git log가 정본이다.
@@ -41,7 +41,9 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: 이번 턴의 태그 없는 커밋·인덱스에 없는 id 커밋, detail 본문 덧붙임, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
 | `hooks/hooks.json` + `global-state-hook.sh` | Codex·Claude 공통 plugin lifecycle. 두 host의 `$CLAUDE_PLUGIN_ROOT`로 설치 버전을 실행하며 `$PLUGIN_ROOT` 유무로 host를 구분한다. STATE 미사용 repo는 no-op, 이행 중 실제 로컬 command만 구조적으로 감지해 이벤트별 중복 억제 |
 | `hooks/antigravity-hooks.json` + `antigravity-*.sh` | Antigravity(Google Antigravity / AGY) lifecycle. PreInvocation·PostToolUse·Stop JSON 계약 변환. Stop은 이번 턴 알림(태그·덧붙임·크기 외 구조 경고)이 있을 때만 1회 `continue`, 없으면 `allow` |
-| `state-ledger-contract.json` | project adapter와 plugin runtime 사이의 독립 계약 버전. v6 미만 설치본은 runner가 실행하지 않음 |
+| `scripts/hooks/state-index.mjs` | 인덱스 원천 선택(`STATE_INDEX_SOURCE`). frontmatter 원천의 렌더·로컬 생성 인덱스 쓰기·구조 검사·리비전별 등재 판정 |
+| `state-ledger-contract.json` | project adapter와 plugin runtime 사이의 독립 계약 버전. v6 미만 설치본은 runner가 실행하지 않음. capability: `cleanup_version`(정리 강제), `index_source_version`(frontmatter 원천) |
+| `templates/skills/state-ledger-rules/` + `scripts/hooks/rules-skill.mjs` | 규칙 스킬 템플릿과 `status`·`install`·`diff`·`update`·`notice`. SessionStart는 프로젝트 사본 기준 버전이 템플릿보다 낮을 때만 한 줄 알린다 |
 | `templates/wiring/state-ledger-runner.mjs` | Git/opencode용 얇은 프로젝트 adapter. 활성화된 Codex version cache 또는 Claude user install을 검증해 plugin-owned script를 실행 |
 
 ## 설정 — `.staterc` (선택)
@@ -54,6 +56,7 @@ STATE_DEFAULT_BRANCH="main"
 STATE_WORK_INCLUDE_RE="(^|/)\.staterc$|(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs|sh|py|css|html|svg|ya?ml|json|sql|toml|go|rs|java|kt|swift|c|cc|cpp|h|hpp|png|jpe?g|webp|gif|avif|woff2?|ttf|otf)$|(^|/)(prompts?|agents?|skills?|commands?)/.*\.md$"
 STATE_WORK_EXCLUDE_RE="(^|/)(node_modules|dist|build|coverage|vendor)/"
 STATE_BRANCH_EXCLUDE="task-loop/*"  # 유령 검사 제외 glob (공백 구분)
+STATE_INDEX_SOURCE="manual"         # manual(기본) | frontmatter — 아래 0.8.0
 ```
 
 area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → 부모 디렉토리 이름 (`apps/api/STATE.md` → `api`). detail 은 항상 `docs/state/<area>/<id>.md`.
@@ -70,17 +73,22 @@ area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → �
 
 알려진 한계: 태그 검사는 id가 STATE 인덱스에 있는지만 확인하고 커밋 내용과의 관련성은 보지 않는다(`[id=-]` 남용은 리뷰 대상). rebase·cherry-pick·amend는 author 시각을 유지하므로 이전 턴 커밋을 다시 쓴 커밋은 다시 알리지 않고, 그때 이전 턴 커밋에 섞어 넣은 새 작업도 판정하지 않는다. 턴 시작 이후에 만든 남의 커밋은 이번 턴 커밋으로 본다. 사용자 중단처럼 Stop 없이 끝난 턴의 커밋은 판정하지 않는다. Claude Code의 Stop systemMessage는 사용자에게만 보인다. opencode는 SessionStart를 instructions 방식으로 대신하므로 정합 warn이 세션 시작에 표면화되지 않는다.
 
+## 스킬
+
+- `setup-state`: 프로젝트 설치·이관.
+- `state-ledger-rules`(템플릿): STATE 사용 규칙(항목 추가·갱신·claim·`awaiting_user`, 경고 대응, 사용자 확인 뒤 정리, 브랜치 보존·폐기). 전역 스킬이 아니다. `templates/skills/state-ledger-rules/`에 있고 `setup-state`가 프로젝트 `.agents/skills/state-ledger-rules/`로 복사한다. 프로젝트는 그 사본을 직접 고친다. 공통 개선은 템플릿의 `metadata.template_version`을 올려 배포하고, 각 프로젝트는 SessionStart 알림을 보고 `scripts/hooks/rules-skill.mjs update`로 3-way 병합한다(`.template-base.md` = 병합 기준, 충돌이 풀릴 때까지 새 템플릿은 `.template-pending.json`에 보류).
+
 ## 설치
 
-Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. 두 도구 모두 기본 `hooks/hooks.json` 하나를 로딩하고 `$CLAUDE_PLUGIN_ROOT`로 같은 dispatcher를 실행한다. Codex도 이 호환 변수를 제공하며 `$PLUGIN_ROOT` 유무로 dispatcher가 host를 구분한다. Claude manifest에 별도 `hooks`를 선언하면 기본 파일에 추가 병합되므로 중복 binding을 두지 않는다. 프로젝트나 사용자 `hooks.json`에 lifecycle command를 복사하지 않는다. Antigravity는 `~/.gemini/config/hooks.json` 또는 프로젝트 `.agents/hooks.json`에 `hooks/antigravity-hooks.json` 스니펫을 병합해 `antigravity-pre-invocation.sh`, `antigravity-post-tool-use.sh`, `antigravity-stop.sh`를 실행한다. Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 각 홈에서 플러그인을 별도로 활성화한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`와, Git/opencode를 쓰는 경우 얇은 `scripts/hooks/state-ledger-runner.mjs` adapter만 둔다. STATE lifecycle·checker·baseline 구현은 복사하지 않는다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
+Codex와 Claude Code에는 `state-ledger@hibye-plugins`를 user scope로 한 번 설치한다. 두 도구 모두 기본 `hooks/hooks.json` 하나를 로딩하고 `$CLAUDE_PLUGIN_ROOT`로 같은 dispatcher를 실행한다. Codex도 이 호환 변수를 제공하며 `$PLUGIN_ROOT` 유무로 dispatcher가 host를 구분한다. Claude manifest에 별도 `hooks`를 선언하면 기본 파일에 추가 병합되므로 중복 binding을 두지 않는다. 프로젝트나 사용자 `hooks.json`에 lifecycle command를 복사하지 않는다. Antigravity는 `~/.gemini/config/hooks.json` 또는 프로젝트 `.agents/hooks.json`에 `hooks/antigravity-hooks.json` 스니펫을 병합해 `antigravity-pre-invocation.sh`, `antigravity-post-tool-use.sh`, `antigravity-stop.sh`를 실행한다. Orca처럼 계정별 `CODEX_HOME`을 쓰는 환경은 각 홈에서 플러그인을 별도로 활성화한다. 프로젝트에는 `STATE.md`·`docs/state/**`·`.staterc`, 규칙 스킬 사본 `.agents/skills/state-ledger-rules/`(+ `.claude/skills/state-ledger-rules` 링크)와, Git/opencode를 쓰는 경우 얇은 `scripts/hooks/state-ledger-runner.mjs` adapter만 둔다. STATE lifecycle·checker·baseline 구현은 복사하지 않는다. `STATE.md`와 `.staterc`가 모두 없는 저장소에서는 전역 훅이 조용히 no-op 한다.
 
 Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `codex plugin add state-ledger@hibye-plugins`로 재설치한다. Claude Code는 `.claude-plugin/plugin.json` version을 올리면 `claude plugin update state-ledger@hibye-plugins`(또는 재설치)로 `~/.claude/plugins/installed_plugins.json`의 version을 맞추고, 로컬 개발 링크를 쓰면 `scripts/link-cache.sh`로 새 version 링크를 만든다 — runner의 Claude fallback은 설치 기록 version과 manifest version이 같을 때만 실행한다. 운영 설치 캐시는 소스 링크로 바꾸지 않는다. `scripts/link-cache.sh`는 기본적으로 Claude 및 Antigravity 개발 캐시만 연결하며, Codex 소스 링크는 격리된 로컬 개발에서 `--codex-dev-links`를 명시한 경우에만 만든다.
 
-`/state-ledger:setup-state`는 프로젝트 데이터·작성 규칙·필요한 adapter만 온보딩한다. runner는 `STATE_LEDGER_PLUGIN_ROOT` 명시 override → Codex의 enabled plugin catalog와 정확한 version cache → Claude의 enabled user install 순으로 정본을 찾고 plugin name/version·`state-ledger-contract.json` v6·대상 파일을 검증한다. Codex CLI를 실행할 수 없거나 제한 시간 안에 응답하지 않으면 v6 계약을 가진 물리 cache directory로만 fallback하며, CLI가 정상 응답해 disabled 상태를 보고한 경우 cache를 임의 활성화하지 않는다. lifecycle stdin과 child stdout/stderr는 runner가 명시적으로 전달하며 일반 검사는 설치·실행 실패를 경고한다. 정리 opt-in 프로젝트의 필수 검사는 실패로 닫는다.
+`/state-ledger:setup-state`는 프로젝트 데이터·작성 규칙·규칙 스킬 사본·필요한 adapter만 온보딩한다. runner는 `STATE_LEDGER_PLUGIN_ROOT` 명시 override → Codex의 enabled plugin catalog와 정확한 version cache → Claude의 enabled user install 순으로 정본을 찾고 plugin name/version·`state-ledger-contract.json` v6·대상 파일을 검증한다. Codex CLI를 실행할 수 없거나 제한 시간 안에 응답하지 않으면 v6 계약을 가진 물리 cache directory로만 fallback하며, CLI가 정상 응답해 disabled 상태를 보고한 경우 cache를 임의 활성화하지 않는다. lifecycle stdin과 child stdout/stderr는 runner가 명시적으로 전달하며 일반 검사는 설치·실행 실패를 경고한다. 정리 opt-in 프로젝트의 필수 검사는 실패로 닫는다.
 
 `commit-msg`는 agent lifecycle이 아니라 Git hook이므로 기존 hook manager에서 `if [ ! -f scripts/hooks/state-ledger-runner.mjs ]; then :; elif command -v node >/dev/null 2>&1; then node scripts/hooks/state-ledger-runner.mjs commit-msg "$1"; else echo "WARN: node가 PATH에 없어 STATE commit-msg 검사를 건너뜁니다." >&2; fi`를 호출한다. shared Git hooks를 쓰는 이전 checkout에 runner가 없거나 Git GUI PATH에 node가 없어도 commit을 막지 않기 위한 guard다. lint-staged에서 구조 검사를 유지하려면 `node scripts/hooks/state-ledger-runner.mjs check-wip`을 사용한다. opencode는 runner와 `templates/wiring/opencode-harness.ts`를 함께 복사하고 `opencode.json` instructions에 인덱스를 지정한다. 기존 `.codex/hooks.json`·`.codex/config.toml`·`.claude/settings*.json`에 복사형 STATE lifecycle이 남아 있으면 제거한다. 이행 중인 브랜치에서는 전역 dispatcher가 JSON/TOML의 실제 로컬 command를 감지해 중복 실행을 피하며, 주석이나 단순 문자열은 로컬 훅으로 취급하지 않는다.
 
-정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
+정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs scripts/hooks/state-cleanup.test.mjs scripts/hooks/rules-skill.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
 
 ## 검증된 설계 근거 (2026-07-28 교차 리뷰 라운드)
 
@@ -121,3 +129,20 @@ Muse·Antigravity adapter는 STATE session inject, turn baseline, detail stamp, 
 5. 미완료 Stop은 원장에 횟수를 먼저 저장하고 요청별 자동 보완을 한 번만 이어간다. 또 실패하면 구체적 이유·요청을 남기고 미완료로 종료한다. `cleanup block --request ID --session SESSION --reason '실제 장애'`도 가능하다. 새 세션은 `cleanup resume --request ID --session NEW_SESSION --instruction-ref NEW_USER_MESSAGE_REF`로 명시적 인계를 기록한다. 기존 대상·원문·예산은 바뀌지 않는다.
 
 SessionStart는 미완료 요청을 다시 주입한다. 삭제/요청 제거의 Git 검사와 bounded Stop이 강제 범위이며, 훅이 이미 출력된 자연어 답변을 취소할 수는 없다. 새 설치의 lifecycle은 새 세션에서 로드한다. Codex·Claude 두 호스트의 native 훅 프로토콜은 실제 fixture로 검증한다.
+
+### 0.8.0 frontmatter 인덱스 원천 (병렬 PR 충돌 제거)
+
+손으로 쓰는 인덱스 줄은 PR 마다 같은 섹션 끝에 추가되고 인접 줄이 archive 로 지워져 git 3-way 병합에서 충돌한다. GitHub PR 병합·mergeability 판정은 저장소 `.gitattributes`의 `merge=union`을 적용하지 않으므로(2026년 사용자 보고 다수) 병합 드라이버로는 풀 수 없다. 그래서 공유 줄 자체를 없앤다.
+
+`.staterc`에 `STATE_INDEX_SOURCE="frontmatter"`를 두면:
+
+- 항목 정본 = `docs/state/<area>/<id>.md` frontmatter의 `section`(`active|next|future|unresolved`)·`title`·`status`. 등록·상태 변경·archive 모두 그 파일 하나만 만들고·고치고·지운다. 다른 항목끼리는 파일이 달라 충돌하지 않는다.
+- `STATE_INDEXES` 경로의 인덱스는 git 미추적 생성물이다(`.gitignore`). SessionStart·detail stamp·Stop·`state-ledger-runner.mjs render`가 작업 트리에 다시 쓰며, git 이 추적 중인 파일은 덮어쓰지 않는다. 렌더 줄은 `- [id] title — owner=<owner>; status`, 섹션 안에서 `touched` 최근순.
+- 검사: cap·줄 200자·렌더 4KB·§1 owner·hash·크기·expires 는 그대로. `section`·`title`·`status` 누락·잘못된 section 은 `(라우팅 끊김)`, 추적 중인 인덱스의 손 줄도 `(라우팅 끊김)` — 0.7.x 의 인덱스↔detail 단절과 같은 분류어라 adapter 의 blocking 분류가 유지된다. 고아·섹션 heading 검사는 원천이 하나라 없다.
+- 정리 요청: 요청 하나 = `docs/state/.cleanup/<request-id>.json`(`{"version":1,"request":{...}}`). 같은 잠금·CAS·검증·지문 규칙을 쓰고, archive = detail 삭제 커밋(+`archive [id=]`)이다.
+- 리비전마다 그 시점 `.staterc`로 원천을 판정한다. 이전 전(manual) 커밋의 요청 기준점·archive 증거는 인덱스 줄 규칙으로 계속 읽힌다. 이전 커밋에서 기존 `STATE_CLEANUP_V1` 요청을 내용 그대로 파일로 옮기면 `REQUEST_CHANGED` 없이 통과한다.
+- 계약 v6 은 그대로이고 `index_source_version: 1` capability 를 더한다. 새 runner 는 프로젝트가 frontmatter 원천일 때만 이 capability 를 요구한다 — 0.7.x 설치본은 unavailable(정리 강제면 fail-closed). 옛 runner·manual 프로젝트는 0.8.0 설치본을 그대로 쓴다(설정이 없으면 0.7.x 와 같은 동작). 그래서 0.8.0 을 먼저 개발 머신·CI runner 에 설치하고, 그다음 프로젝트를 전환한다.
+
+### 0.8.1 정리 참조 검사 속도
+
+`referencesTo`가 index·커밋 스냅샷에서 후보 파일마다 `git show`를 띄워, markdown 이 많은 저장소(EUNHA 약 17초/스냅샷)에서 정리 검사·`validate-staged`가 runner timeout(30초)을 넘었다. 후보 파일을 `git cat-file --batch` 한 번으로 읽는다(같은 결과, 1초 미만).

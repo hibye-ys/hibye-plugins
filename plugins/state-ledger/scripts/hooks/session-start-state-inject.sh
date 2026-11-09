@@ -72,13 +72,45 @@ STATE 경고 요약 실행 실패: ${summary:0:400}
   fi
 fi
 
+# 프로젝트 규칙 스킬 사본이 플러그인 템플릿보다 낮은 버전이면 한 줄 알린다. 실패는 조용히 넘긴다.
+if [ -z "$config_error" ]; then
+  rules_notice=$(HOOK_PROJECT_DIR="$root" node "$script_dir/rules-skill.mjs" notice 2>/dev/null || true)
+  if [ -n "$rules_notice" ]; then
+    out="${out}${out:+
+
+}=== STATE 규칙 스킬 ===
+$rules_notice"
+  fi
+fi
+
 STATE_PRINCIPLE='STATE = 공유 상태판. 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다. 작업 기록은 커밋 메시지 [id=<id>] (STATE 항목과 무관하면 [id=-]).'
 principle_added=0
 total_bytes=0
+# frontmatter 원천: 인덱스는 detail 에서 렌더한다. 로컬 사본(git 미추적)도 함께 갱신한다 — 실패는 주입을 막지 않는다.
+index_source=manual
+if [ -z "$config_error" ]; then
+  index_source=$(HOOK_PROJECT_DIR="$root" node "$script_dir/state-index.mjs" source 2>/dev/null || echo manual)
+fi
+if [ "$index_source" = "frontmatter" ]; then
+  STATE_PRINCIPLE='STATE = 공유 상태판. 항목 정본은 docs/state/<area>/<id>.md frontmatter(section·title·status)이고 인덱스는 생성물이다(직접 고치지 않는다). 남은 일·소유·결정이 바뀌면 그 detail 을 바꿔 쓴다. 작업 기록은 커밋 메시지 [id=<id>] (STATE 항목과 무관하면 [id=-]).'
+  HOOK_PROJECT_DIR="$root" node "$script_dir/state-index.mjs" render --write >/dev/null 2>&1 || true
+fi
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  [ -f "$root/$f" ] || continue
-  bytes=$(wc -c < "$root/$f" 2>/dev/null || echo 0)
+  index_text=""
+  if [ "$index_source" = "frontmatter" ]; then
+    if ! index_text=$(HOOK_PROJECT_DIR="$root" node "$script_dir/state-index.mjs" print "$f" 2>&1); then
+      out="${out}${out:+
+
+}=== STATE hook 경고 ===
+$f 렌더 실패: ${index_text:0:400}"
+      continue
+    fi
+    bytes=$(printf '%s' "$index_text" | wc -c)
+  else
+    [ -f "$root/$f" ] || continue
+    bytes=$(wc -c < "$root/$f" 2>/dev/null || echo 0)
+  fi
   if [ "${bytes:-0}" -gt 16384 ]; then
     out="${out}${out:+
 
@@ -103,7 +135,7 @@ STATE 인덱스 합계가 SessionStart 주입 cap 65536B를 초과해 $f부터 �
   out="${out}${out:+
 
 }=== $f ===
-$(cat "$root/$f")"
+$(if [ "$index_source" = "frontmatter" ]; then printf '%s' "$index_text"; else cat "$root/$f"; fi)"
 done <<EOF
 $indexes
 EOF

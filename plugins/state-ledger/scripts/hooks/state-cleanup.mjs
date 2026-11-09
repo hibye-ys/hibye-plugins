@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
-import { allDetails, config, enabled, fileText, fingerprint, git, hasEntry, readRequests, requireEnabled, storeRequests, target, writeDetailMeta } from './state-cleanup-store.mjs'
+import { CLEANUP_DIR, allDetails, config, enabled, fileText, fingerprint, git, isIndexed, readRequests, requireEnabled, storeRequests, target, writeDetailMeta } from './state-cleanup-store.mjs'
+import { indexSource } from './state-index.mjs'
 import { evaluateRequest, validateCleanupCommit } from './state-cleanup-check.mjs'
 import { projectRoot } from './state-config.mjs'
 
@@ -13,7 +14,7 @@ export function awaitUser(root, { target: key, sessionId }) {
   requireEnabled(root)
   if (!sessionId) throw new Error('sessionId is required')
   const detail = allDetails(root).find((d) => d.key === key)
-  if (!detail || !hasEntry(fileText(root, detail.index), detail.id)) throw new Error(`STATE target is not indexed: ${key}`)
+  if (!detail || !isIndexed(root, detail)) throw new Error(`STATE target is not indexed: ${key}`)
   if (detail.meta.session_id && detail.meta.session_id !== sessionId) throw new Error('another session owns this STATE target')
   writeDetailMeta(root, detail, { session_id: sessionId, lifecycle: 'awaiting_user' })
   return { target: key, lifecycle: 'awaiting_user' }
@@ -29,7 +30,7 @@ export function requestCleanup(root, { sessionId, instructionRef, instruction, t
   for (const key of keys) {
     target(root, key)
     const detail = details.find((d) => d.key === key)
-    if (!detail || !hasEntry(fileText(root, detail.index, base), detail.id)) throw new Error(`target is not committed/indexed: ${key}`)
+    if (!detail || !isIndexed(root, detail, base)) throw new Error(`target is not committed/indexed: ${key}`)
     if (fileText(root, detail.detail) !== detail.text) throw new Error(`${key}: commit the current STATE detail before requesting cleanup`)
     if (scope !== 'explicit' && (detail.meta.session_id !== sessionId || detail.meta.lifecycle !== 'awaiting_user')) throw new Error(`${key}: another session or missing awaiting_user confirmation boundary`)
   }
@@ -79,7 +80,7 @@ export function finishCleanup(root, { requestId, sessionId }) {
   const evidence = evaluateRequest(root, request)
   if (!evidence.ok) throw new Error(evidence.violations.map((v) => `${v.code}: ${v.message}`).join('\n'))
   storeRequests(root, requests.filter((r) => r.id !== requestId))
-  return { ...evidence, request_id: requestId, state: 'awaiting_final_commit', message: `Commit the verified cleanup-request removal in ${config(root).indexes[0]}; keep the archive history.` }
+  return { ...evidence, request_id: requestId, state: 'awaiting_final_commit', message: `Commit the verified cleanup-request removal in ${indexSource(root) === 'frontmatter' ? `${CLEANUP_DIR}/${requestId}.json` : config(root).indexes[0]}; keep the archive history.` }
 }
 
 export function cleanupContext(root) {
