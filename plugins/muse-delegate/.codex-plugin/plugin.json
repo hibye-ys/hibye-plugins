@@ -1,15 +1,15 @@
 {
   "name": "muse-delegate",
-  "version": "0.1.4",
-  "description": "Delegate implementation to Muse workers via Orca, only when the user mentions muse.",
+  "version": "0.1.5",
+  "description": "Delegate implementation to Muse workers via Orca or headless muse exec, only when the user mentions muse.",
   "author": {
     "name": "hibye-ys"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Muse Delegate",
-    "shortDescription": "muse 언급 시 Orca로 muse 워커에 구현 위임",
-    "longDescription": "사용자가 muse를 언급할 때만 Orca CLI로 muse 워커를 띄워 구현을 맡기고, 결과를 acceptance 기준으로 검증하는 스킬입니다.",
+    "shortDescription": "muse 언급 시 Orca 또는 headless muse exec로 구현 위임",
+    "longDescription": "사용자가 muse를 언급할 때만 Orca CLI 또는 Orca 없는 headless `muse exec`로 muse 워커를 띄워 구현을 맡기고, 결과를 acceptance 기준으로 검증하는 스킬입니다.",
     "developerName": "hibye-ys",
     "category": "Productivity",
     "capabilities": [

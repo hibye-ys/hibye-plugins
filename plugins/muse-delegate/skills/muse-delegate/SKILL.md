@@ -1,8 +1,8 @@
 ---
 name: muse-delegate
-description: Delegate implementation work to Muse workers through the Orca CLI to save the main agent's usage. Use only when the user explicitly mentions muse (e.g. "muse로", "muse 써서", "muse한테 맡겨", "use muse"). Never use it on your own initiative or when the user rules muse out ("muse 말고", "without muse"); otherwise do the work yourself.
+description: Delegate implementation work to Muse workers through the Orca CLI or headless `muse exec` to save the main agent's usage. Use only when the user explicitly mentions muse (e.g. "muse로", "muse 써서", "muse한테 맡겨", "use muse"). Never use it on your own initiative or when the user rules muse out ("muse 말고", "without muse"); otherwise do the work yourself.
 metadata:
-  version: "0.1.4"
+  version: "0.1.5"
 ---
 
 # Muse delegate
@@ -23,7 +23,8 @@ Muse is an optional helper for saving the main agent's usage. The main agent
 ## Setup (once per session)
 
 `SCRIPTS` is this skill's `scripts/` directory. Check `orca status`; if Orca is
-not running, tell the user and stop. Then create a fresh coordinator and Run:
+not running (or the user wants no Orca), use the Headless mode section below.
+Otherwise create a fresh coordinator and Run:
 
 ```text
 orca terminal create --worktree <selector> --title Coordinator --json
@@ -51,6 +52,44 @@ Do not relay Muse through an LLM subagent or dynamic-workflow `agent()`:
 a relay costs ~40k tokens because it rereads fixed context every turn. If a
 relay is unavoidable, poll with `worker-show`, never `check` (it steals other
 workers' messages).
+
+## Headless mode (no Orca)
+
+One `muse-exec.sh` per independent task, all started in the background before
+waiting. Specs follow the same shape as for Orca workers.
+
+```text
+SCRIPTS/muse-exec.sh --repo <repo> (--spec "<spec>" | --spec-file <file>) [--trust] [--max-wait 1800] [-- <muse exec args>]
+SCRIPTS/muse-exec.sh --repo <repo> --session <id> --spec "<follow-up>"
+```
+
+- Each new task gets its own worktree `<repo>/.muse/worktrees/...` on branch
+  `muse/session-<id>`. `--no-worktree` runs in the repo itself (read-only
+  tasks only).
+- Output is one JSON line (`session`, `status`, `terminal`, `text`,
+  `worktree`, `branch`, `usage`, `log`, `stderr`, `note`). Exit 0 completed,
+  1 failed or busy, 2 timeout, 3 unknown (no terminal record; inspect the log
+  before retrying), 64 usage; HUP/INT/TERM print status `interrupted`
+  (exit 129/130/143).
+- Follow-ups: `--session <id>` (a lowercase uuid) keeps the conversation and
+  reuses the session's worktree, found by its branch; an unknown id exits 64.
+  For a session started with `--no-worktree`, pass `--no-worktree` again.
+  Never run one session twice at once (a second start reports `busy`);
+  different sessions run in parallel.
+- Headless workers cannot ask questions, so specs must be complete. Muse
+  sessions cannot message each other; the main agent relays.
+- Muse leaves its edits uncommitted in the worktree. Verify acceptance there
+  yourself, commit (or copy) the changes, integrate the branch, and only then
+  remove the worktree (`git worktree remove`).
+- For one large self-contained task, `--trust` lets Muse use its own subagents
+  (trust also loads that workspace's skills and rules).
+- In a test, the default approval mode allowed headless writes; pass
+  `-- --approval-mode never` only if writes are blocked.
+- On timeout the whole process group is killed (unlike Orca workers); the
+  worktree may hold partial changes and the session can be continued with
+  `--session`.
+
+The rule against relaying Muse through an LLM subagent applies here too.
 
 ## Questions
 
