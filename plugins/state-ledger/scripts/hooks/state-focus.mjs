@@ -262,7 +262,8 @@ const joinBody = ({ itemsText, restLine }) => (restLine ? `${itemsText}\n${restL
 // 머리 → 지시문 → 항목 순. 어떤 절단이 와도(Claude SessionStart additionalContext 5000B 한도 포함) 지시문이 항목 꼬리보다 먼저 잘리지 않는다.
 export function buildReminder(root, branch, items) {
   if (items.length === 0) return ''
-  const head = `=== STATE 현재 작업 — 브랜치 ${branch} (매 턴 다시 주입) ===\n${INSTRUCTION}`
+  // 브랜치 이름은 머리줄에서 200B 로 자른다 — 이름이 아주 길어도 지시문과 `외 N개` 줄이 3000B 안에 남게.
+  const head = `=== STATE 현재 작업 — 브랜치 ${clipBytesWith(branch, 200, '…')} (매 턴 다시 주입) ===\n${INSTRUCTION}`
   const budget = MAX_REMINDER_BYTES - bytes(head) - 2
   const full = Math.min(items.length, MAX_ITEMS)
   const last = TIERS[TIERS.length - 1]

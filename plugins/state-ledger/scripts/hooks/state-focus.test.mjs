@@ -551,6 +551,21 @@ test('R2: the 3000B safety net is strict — oversized ids in the 외 N개 line 
   assert.equal(shown.length + Number(m[1]), 20, 'the hidden count stays exact')
 })
 
+test('a very long branch name is clipped in the header so the instruction and the 외 N개 line still fit', (t) => {
+  const root = repo(t)
+  for (let i = 0; i < 12; i += 1) {
+    write(root, `docs/state/root/item${i}.md`, detail(`item${i}`, { touched: `2026-11-0${(i % 9) + 1}T00:00`, fields: { goal: 'g'.repeat(300), step: 's'.repeat(300), next_step: 'n', handoff: 'docs/plans/p.md' } }))
+  }
+  commit(root, 'seed')
+  const text = buildReminder(root, `feat/${'가'.repeat(1500)}`, ownedItems(root, 'feat/x'))
+  assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
+  const lines = text.split('\n')
+  assert.ok(bytesOf(lines[0]) < 300, `header ${bytesOf(lines[0])}B`)
+  assert.match(lines[0], /…/)
+  assert.equal(lines[1], INSTRUCTION)
+  assert.match(text, /\[item\d+\]/)
+})
+
 test('instruction sits right after the header line, before any item', (t) => {
   const root = repo(t)
   seedHandoff(root)

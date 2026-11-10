@@ -5,7 +5,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
@@ -1528,9 +1528,19 @@ const MOVED_KEYS_RE = /STATE_VERIFY_RUNNER, STATE_VERIFY_MODEL, STATE_VERIFY_STE
 const DENIED_PREFIX = '이 저장소의 .staterc 가 독립 검증(STATE_VERIFY)을 요청했지만 사용자 설정에서 허용하지 않아 꺼 둡니다. 켜려면 이 저장소에서: node '
 
 // 같은 checkout 의 다른 세션을 흉내 낸다: 진짜 턴 기준점 엔진으로 활성 기준점(active:true)을 남긴다.
-function startOtherSession(ctx, id = 'other-session') {
-  const result = spawnSync(process.execPath, [BASELINE, 'snapshot'], { cwd: ctx.root, encoding: 'utf8', input: JSON.stringify({ session_id: id }), env: ctx.env })
+// transcriptPath 를 주면 호스트가 넘기는 transcript_path 처럼 기준점에 기록된다(내용은 읽지 않고 수정 시각만 본다).
+function startOtherSession(ctx, id = 'other-session', transcriptPath = undefined) {
+  const input = { session_id: id, ...(transcriptPath === undefined ? {} : { transcript_path: transcriptPath }) }
+  const result = spawnSync(process.execPath, [BASELINE, 'snapshot'], { cwd: ctx.root, encoding: 'utf8', input: JSON.stringify(input), env: ctx.env })
   assert.equal(result.status, 0, result.stderr)
+}
+
+// 다른 세션의 대화 기록 파일 흉내: 내용은 비어 있고 수정 시각만 정한다(ms).
+function fakeTranscript(ctx, name, mtimeMs) {
+  const path = join(`${ctx.root}-stub`, `${name}.jsonl`)
+  writeFileSync(path, '')
+  utimesSync(path, new Date(mtimeMs), new Date(mtimeMs))
+  return path
 }
 
 function endOtherSession(ctx, id = 'other-session') {
@@ -2295,7 +2305,7 @@ test('H4-③: a verdict that finishes after the checkout moved to the base branc
   assert.deepEqual(ctx.jobDirs(), [], 'the job folder was removed')
 })
 
-test('H4-③: the turn start on a detached HEAD delivers the finished verdict; a blocking kind is stale there (no owned items) and never blocks', async (t) => {
+test('H4-③: the turn start on a detached HEAD delivers the finished verdict; a step_unmet verdict about owned items is stale there and, being delivered already, only reports at the Stop', async (t) => {
   const ctx = setup(t)
   ctx.stub.output(DRIFT_STEP)
   ctx.stub.sleep(300)
@@ -2515,7 +2525,7 @@ test('C5: the Stop alone also clears the baseline while denied (no turn start ra
 
 test('C6: an earlier session that left an active baseline before this session started (interrupted turn, /clear) is not a concurrent session; one that takes a turn after it started still is', async (t) => {
   const ctx = setup(t)
-  startOtherSession(ctx, 'interrupted-session') // 이 세션이 시작하기 전에 중단된 세션: active:true 기준점이 30분 동안 남는다
+  startOtherSession(ctx, 'interrupted-session', fakeTranscript(ctx, 'interrupted', Date.now() - 60000)) // 이 세션이 시작하기 전에 중단된 세션: active:true 기준점이 30분 동안 남지만 대화 기록은 멈춰 있다
   await sleep(40)
   ctx.turnStart()
   ctx.setFields(FIELDS_B)
@@ -2524,7 +2534,7 @@ test('C6: an earlier session that left an active baseline before this session st
   assert.equal(ctx.state().concurrentDropTurn, null)
   await ctx.waitResult()
 
-  startOtherSession(ctx, 'live-session') // 이 세션이 시작한 뒤에 턴을 가진 세션
+  startOtherSession(ctx, 'live-session', fakeTranscript(ctx, 'live', Date.now())) // 이 세션이 시작한 뒤에 턴을 가진 세션
   ctx.turnStart()
   ctx.setFields(FIELDS_C)
   const crowded = JSON.parse(ctx.stop())
@@ -2535,7 +2545,7 @@ test('C6: an earlier session that left an active baseline before this session st
 
 test('C6: the turn-start comparison skips only for a live concurrent session, and state-turn-baseline exports capture times without changing otherActiveSessions', async (t) => {
   const ctx = setup(t)
-  startOtherSession(ctx, 'interrupted-session')
+  startOtherSession(ctx, 'interrupted-session', fakeTranscript(ctx, 'interrupted', Date.now() - 60000))
   await sleep(40)
   ctx.turnStart()
   ctx.setFields(FIELDS_B) // Stop-less turn
@@ -2543,7 +2553,7 @@ test('C6: the turn-start comparison skips only for a live concurrent session, an
   assert.equal(ctx.state().pendingTriggers[0].changes[0].at, 'turn-start', 'the dead earlier session does not hide the change')
   assert.equal(ctx.state().concurrentDropTurn, null)
 
-  startOtherSession(ctx, 'live-session')
+  startOtherSession(ctx, 'live-session', fakeTranscript(ctx, 'live', Date.now()))
   const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `import { otherActiveSessions, otherSessionActivity } from ${JSON.stringify(BASELINE)}
 process.stdout.write(JSON.stringify({ hashes: otherActiveSessions(${JSON.stringify(ctx.root)}, ${JSON.stringify(SESSION)}), activity: otherSessionActivity(${JSON.stringify(ctx.root)}, ${JSON.stringify(SESSION)}) }))`], { encoding: 'utf8', env: ctx.env })
   assert.equal(probe.status, 0, probe.stderr)
@@ -2555,4 +2565,229 @@ process.stdout.write(JSON.stringify({ hashes: otherActiveSessions(${JSON.stringi
   const dead = activity.find((entry) => entry.sessionIdHash === sha('interrupted-session').slice(0, 16))
   assert.ok(Date.parse(live.capturedAt) > Date.parse(dead.capturedAt))
   assert.ok(Date.parse(live.capturedAt) > Date.parse(ctx.state().firstTurnAt))
+  assert.equal(dead.lastActiveAt, dead.capturedAt, 'a transcript older than the baseline does not move the last activity')
+  assert.ok(Date.parse(live.lastActiveAt) >= Date.parse(live.capturedAt))
+})
+
+// ======================================================================
+// 0.10.1 3차 수정 — 막힌 Stop 뒤의 중단(D1)·기본 브랜치로 옮긴 Stop(D2)·먼저 시작한 살아 있는 세션(D3)·기본 브랜치 차단 이름(D4)·서브모듈 checkout(D5)
+// ======================================================================
+
+test('D1: a Stop that blocked does not record stopTurn — the agent keeps editing the step, the user presses Esc (no more Stop), and the next turn start still compares', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  ctx.stub.sleep(1500)
+  ctx.turnStart() // 턴 1
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '') // Stop 1: 검사가 시작된다
+  assert.equal(ctx.state().stopTurn, 1)
+  await ctx.waitCalls(1)
+  assert.equal(ctx.turnStart(), '') // 턴 2
+  await ctx.waitResult()
+  const blocked = JSON.parse(ctx.stop()) // Stop 2: 막는다
+  assert.equal(blocked.decision, 'block')
+  assert.equal(ctx.state().blockedTurn, 2)
+  assert.notEqual(ctx.state().stopTurn, 2, 'a blocking Stop does not record its turn')
+  ctx.setFields(FIELDS_C) // 에이전트가 이어서 단계를 바꾸다가 사용자가 Esc — 더 도는 Stop 이 없다
+  ctx.turnStart() // 턴 3
+  const queued = ctx.state().pendingTriggers
+  assert.equal(queued.length, 1, 'the step change of the interrupted continuation is a trigger')
+  assert.equal(queued[0].changes[0].at, 'turn-start')
+  assert.equal(queued[0].changes[0].from.step, FIELDS_B.step)
+  assert.equal(queued[0].changes[0].to.step, FIELDS_C.step)
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(2)
+})
+
+test('D1: a block after a Stop of the same turn that did not block clears the earlier stopTurn too', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  ctx.stub.sleep(1500)
+  ctx.turnStart() // 턴 1
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(1)
+  ctx.turnStart() // 턴 2
+  assert.equal(ctx.stop(), '', 'the check is still running: this Stop compares and does not block') // 턴 2 의 첫 Stop
+  assert.equal(ctx.state().stopTurn, 2)
+  await ctx.waitResult()
+  const blocked = JSON.parse(ctx.stop()) // 같은 턴의 다음 Stop: 판정이 이제야 도착해 막는다
+  assert.equal(blocked.decision, 'block')
+  assert.equal(ctx.state().stopTurn, null, 'the earlier record for this turn is gone')
+  ctx.setFields(FIELDS_C)
+  ctx.turnStart()
+  assert.equal(ctx.state().pendingTriggers[0]?.changes[0].to.step, FIELDS_C.step)
+})
+
+test('D2: a step changed and committed on the feature branch, then a Stop on the base branch — back on the feature branch the next turn start still compares', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart() // 턴 1 (기능 브랜치)
+  ctx.setFields(FIELDS_B)
+  commit(ctx.root, 'step 4 [id=-]')
+  git(ctx.root, 'checkout', '-q', 'main')
+  assert.equal(ctx.stop(), '') // 기본 브랜치의 Stop — 소유 항목이 없어 비교하지 않는다
+  assert.equal(ctx.state().stopTurn, null, 'a Stop without an owned item never records stopTurn')
+  git(ctx.root, 'checkout', '-q', 'feat/x')
+  assert.equal(ctx.turnStart(), '') // 턴 2
+  const queued = ctx.state().pendingTriggers
+  assert.equal(queued.length, 1)
+  assert.equal(queued[0].changes[0].at, 'turn-start')
+  assert.equal(queued[0].changes[0].from.step, FIELDS_A.step)
+  assert.equal(queued[0].changes[0].to.step, FIELDS_B.step)
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(1)
+})
+
+test('D1/D2: stopTurn is recorded only by an owned-branch Stop that compared and did not block (return-path table)', async (t) => {
+  const ctx = setup(t)
+  // 이 세션의 상태 파일이 없으면 기본 브랜치 Stop 은 조용히 끝난다 — 상태 파일 자체가 생기지 않는다.
+  git(ctx.root, 'checkout', '-q', 'main')
+  assert.equal(ctx.stop(), '')
+  assert.equal(ctx.verifyFiles().length, 0)
+  git(ctx.root, 'checkout', '-q', 'feat/x')
+
+  // 기준점이 없는 첫 Stop(턴 시작이 한 번도 안 돈 Codex 형): 비교가 아니므로 남기지 않는다.
+  assert.equal(ctx.stop(), '')
+  assert.equal(ctx.state().stopTurn, null)
+
+  // stop_hook_active Stop 도 비교는 하므로 (막지 않으면) 남긴다.
+  ctx.turnStart()
+  assert.equal(ctx.stop({ stop_hook_active: true }), '')
+  assert.equal(ctx.state().stopTurn, 1)
+
+  // 소유 항목이 없는 기능 브랜치: 비교가 끝까지 돌았으므로 남긴다(소유 해제 비교 포함).
+  ctx.turnStart()
+  ctx.setFields(FIELDS_A, { branch: 'feat/other' })
+  assert.equal(ctx.stop(), '')
+  assert.equal(ctx.state().stopTurn, 2)
+
+  // 허용하지 않은 동안의 Stop(denied)은 남기지 않는다.
+  ctx.allow(null)
+  ctx.turnStart()
+  assert.equal(JSON.parse(ctx.stop()).systemMessage.startsWith(DENIED_PREFIX), true)
+  assert.notEqual(ctx.state().stopTurn, 3)
+})
+
+test('D3: a session that went idle before our first turn is dead — not concurrent — while a long-turn session that started earlier but whose transcript keeps being written is concurrent', async (t) => {
+  const ctx = setup(t)
+  const dead = fakeTranscript(ctx, 'dead', Date.now() - 120000)
+  const live = fakeTranscript(ctx, 'live', Date.now() - 120000) // B 의 턴은 우리보다 먼저 시작했고 대화 기록도 그때는 멈춰 있다
+  startOtherSession(ctx, 'dead-session', dead) // Esc 뒤 /clear: 기준점 active:true 만 남았다
+  startOtherSession(ctx, 'long-turn-session', live)
+  await sleep(40)
+  ctx.turnStart() // A 의 첫 턴
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '', 'only idle sessions: A\'s Stop compares and launches')
+  await ctx.waitCalls(1)
+  assert.equal(ctx.state().concurrentDropTurn, null)
+  await ctx.waitResult()
+
+  // B 가 긴 턴을 이어 가며 대화 기록을 쓴다 (기준점 시각은 A 의 첫 턴보다 앞선 그대로).
+  const first = Date.parse(ctx.state().firstTurnAt)
+  utimesSync(live, new Date(first + 5000), new Date(first + 5000))
+  ctx.turnStart()
+  ctx.setFields(FIELDS_C)
+  const crowded = JSON.parse(ctx.stop())
+  assert.ok(crowded.systemMessage.includes(CONCURRENT_LINE), crowded.systemMessage)
+  assert.equal(ctx.state().concurrentDropTurn, 2)
+  assert.equal(ctx.stub.calls().length, 1, 'the dropped change launched nothing')
+})
+
+test('D3: an active baseline without a transcript path (old baseline, host without transcripts) is unknown and counts as concurrent', async (t) => {
+  const ctx = setup(t)
+  startOtherSession(ctx, 'no-transcript-session') // transcript_path 없음
+  await sleep(40)
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  const crowded = JSON.parse(ctx.stop())
+  assert.ok(crowded.systemMessage.includes(CONCURRENT_LINE), crowded.systemMessage)
+  assert.equal(ctx.state().concurrentDropTurn, 1)
+  await sleep(150)
+  assert.equal(ctx.stub.calls().length, 0)
+})
+
+test('D3: otherSessionActivity — lastActiveAt is max(capturedAt, transcript mtime), capturedAt when the transcript cannot be read, null without a recorded path; only an absolute string path is recorded', async (t) => {
+  const ctx = setup(t)
+  startOtherSession(ctx, 'with-newer-transcript', fakeTranscript(ctx, 'newer', Date.now() + 600000))
+  startOtherSession(ctx, 'with-older-transcript', fakeTranscript(ctx, 'older', Date.now() - 600000))
+  startOtherSession(ctx, 'missing-transcript', join(`${ctx.root}-stub`, 'no-such-file.jsonl'))
+  startOtherSession(ctx, 'without-path')
+  startOtherSession(ctx, 'relative-path', 'relative/transcript.jsonl')
+  startOtherSession(ctx, 'non-string-path', 42)
+  const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `import { otherSessionActivity } from ${JSON.stringify(BASELINE)}
+process.stdout.write(JSON.stringify(otherSessionActivity(${JSON.stringify(ctx.root)}, ${JSON.stringify(SESSION)})))`], { encoding: 'utf8', env: ctx.env })
+  assert.equal(probe.status, 0, probe.stderr)
+  const byId = Object.fromEntries(JSON.parse(probe.stdout).map((entry) => [entry.sessionIdHash, entry]))
+  const of = (id) => byId[sha(id).slice(0, 16)]
+  assert.ok(Date.parse(of('with-newer-transcript').lastActiveAt) > Date.parse(of('with-newer-transcript').capturedAt) + 500000)
+  assert.equal(of('with-older-transcript').lastActiveAt, of('with-older-transcript').capturedAt)
+  assert.equal(of('missing-transcript').lastActiveAt, of('missing-transcript').capturedAt)
+  for (const id of ['without-path', 'relative-path', 'non-string-path']) assert.equal(of(id).lastActiveAt, null, id)
+  for (const entry of Object.values(byId)) assert.deepEqual(Object.keys(entry).sort(), ['capturedAt', 'lastActiveAt', 'sessionIdHash'])
+})
+
+test('D4: on the base branch a verdict of a release-triggered check (snapshot [] equals []) still blocks once unless it was already delivered at turn start', async (t) => {
+  for (const delivered of [false, true]) {
+    const ctx = setup(t)
+    ctx.stub.output(DRIFT_STEP)
+    ctx.stub.sleep(300)
+    ctx.turnStart()
+    ctx.setFields(FIELDS_B, { branch: 'feat/other' }) // 항목이 소유에서 빠졌다(release)
+    assert.equal(ctx.stop(), '')
+    await ctx.waitCalls(1)
+    assert.equal(ctx.state().running.triggers[0].changes[0].removed, true)
+    git(ctx.root, 'checkout', '-q', 'main')
+    await ctx.waitResult()
+    if (delivered) {
+      const text = ctx.turnStart()
+      assert.ok(text.startsWith('=== STATE 독립 검증 결과'), text)
+      const out = JSON.parse(ctx.stop())
+      assert.equal(out.decision, undefined)
+      assert.ok(out.systemMessage.includes(DELIVERED_LINE), out.systemMessage)
+    } else {
+      const out = JSON.parse(ctx.stop())
+      assert.equal(out.decision, 'block', 'a false "done" claim stops the agent once even on the base branch')
+      assert.match(out.reason, /step_unmet/)
+      assert.equal(ctx.stop(), '', 'only once')
+      assert.equal(ctx.state().running, null)
+    }
+  }
+})
+
+test('D5: a real submodule checkout is a registered checkout and can be allowed; a folder with a planted gitfile at the submodule\'s git dir is not', async (t) => {
+  const ctx = setup(t, { allow: null })
+  const source = `${ctx.root}-src`
+  const evil = `${ctx.root}-evil`
+  t.after(() => { rmSync(source, { recursive: true, force: true }); rmSync(evil, { recursive: true, force: true }) })
+  mkdirSync(source)
+  git(source, 'init', '-q', '-b', 'main')
+  git(source, 'config', 'user.name', 'verify fixture')
+  git(source, 'config', 'user.email', 'verify@example.invalid')
+  git(source, 'config', 'core.hooksPath', '/dev/null')
+  write(source, '.staterc', FM_STATERC + 'STATE_VERIFY="1"\n')
+  write(source, 'docs/state/root/notes.md', detail('notes'))
+  commit(source, 'init [id=-]')
+  git(ctx.root, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source, 'mod')
+  const sub = realpathSync(join(ctx.root, 'mod'))
+  git(sub, 'checkout', '-q', '-b', 'feat/x')
+  const common = realpathSync(resolve(sub, git(sub, 'rev-parse', '--git-common-dir')))
+  assert.ok(common.includes(join('.git', 'modules')), common)
+  mkdirSync(dirname(ctx.allowFile), { recursive: true, mode: 0o700 })
+  writeFileSync(ctx.allowFile, JSON.stringify({ version: 1, projects: { [common]: { every: 0 } } }), { mode: 0o600 })
+  chmodSync(ctx.allowFile, 0o600)
+
+  const statusAt = (dir) => spawnSync(process.execPath, [VERIFY, 'status'], { cwd: dir, encoding: 'utf8', env: { ...ctx.env, HOOK_PROJECT_DIR: dir } })
+  assert.match(statusAt(sub).stdout, /사용자 허용: 예/)
+
+  // 공격 폴더: 자기 .staterc 를 가지고 .git 파일이 서브모듈의 git dir 를 가리킨다.
+  mkdirSync(evil)
+  writeFileSync(join(evil, '.git'), `gitdir: ${common}\n`)
+  write(evil, '.staterc', FM_STATERC + 'STATE_VERIFY="1"\n')
+  const denied = statusAt(evil)
+  assert.match(denied.stdout, /사용자 허용: 아니오 \(.*등록된 checkout 이 아닙니다 \(심링크 \.git 이나 --separate-git-dir/)
+  const before = readFileSync(ctx.allowFile, 'utf8')
+  const refused = spawnSync(process.execPath, [VERIFY, 'allow', '--every', '9'], { cwd: evil, encoding: 'utf8', env: { ...ctx.env, HOOK_PROJECT_DIR: evil } })
+  assert.equal(refused.status, 1)
+  assert.match(refused.stderr, /등록된 checkout 이 아닙니다 \(심링크 \.git 이나 --separate-git-dir/)
+  assert.equal(readFileSync(ctx.allowFile, 'utf8'), before)
 })

@@ -13,7 +13,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { projectRoot, readStaterc, stateConfig } from './state-config.mjs'
 import { dataDirectory, ensureOwnedPrivateDirectory } from './state-data-dir.mjs'
@@ -87,6 +87,12 @@ function readPayload() {
 
 function sha(value) {
   return createHash('sha256').update(value).digest('hex')
+}
+
+// 호스트가 준 대화 기록 경로. 절대 경로 문자열일 때만 기록하고, 내용은 읽지 않는다(수정 시각만 본다).
+function transcriptPathOf(payload) {
+  const value = payload?.transcript_path
+  return typeof value === 'string' && value.length > 0 && value.length <= 4096 && !value.includes('\0') && isAbsolute(value) ? value : null
 }
 
 function sessionId(payload) {
@@ -181,13 +187,14 @@ function head(root) {
   }
 }
 
-function snapshot(root, id, config) {
+function snapshot(root, id, config, transcriptPath = null) {
   return {
     version: SNAPSHOT_VERSION,
     root,
     sessionIdHash: sha(id).slice(0, 16),
     capturedAt: new Date().toISOString(),
     active: true,
+    transcriptPath,
     concurrentSessionsSeen: [],
     head: head(root),
     files: dirtyStateFiles(root, config),
@@ -229,10 +236,24 @@ export function otherActiveSessions(root, sessionId) {
   return activeOtherSessions(root, sha(sessionId).slice(0, 16))
 }
 
-// 같은 목록을 기준점을 남긴 시각과 함께 돌려준다: [{ sessionIdHash, capturedAt }] (id 해시 순). 인터럽트된 턴이 남긴 낡은 활성 기준점과
-// 지금 실제로 도는 세션을 가리려면 마지막 기준점 시각이 필요하다.
+// 같은 목록을 활동 시각과 함께 돌려준다: [{ sessionIdHash, capturedAt, lastActiveAt }] (id 해시 순). 중단된 턴이 남긴 낡은 활성 기준점과
+// 긴 턴을 도는 살아 있는 세션을 가리려면 기준점 시각만으로는 모자라다 — 기준점에 기록한 대화 기록 파일의 수정 시각이 더 늦으면 그것이 마지막 활동이다.
+// lastActiveAt = max(capturedAt, 대화 기록 mtime) (ISO). 대화 기록 경로를 기록하지 않았으면(옛 기준점·기록이 없는 호스트) null — 알 수 없다.
+// 경로를 기록했는데 stat 이 실패하면 capturedAt 으로 본다.
 export function otherSessionActivity(root, sessionId) {
-  return activeOtherSessionDetails(root, sha(sessionId).slice(0, 16))
+  return activeOtherSessionDetails(root, sha(sessionId).slice(0, 16)).map(({ sessionIdHash, capturedAt, transcriptPath }) => {
+    let lastActiveAt = null
+    if (typeof transcriptPath === 'string' && transcriptPath) {
+      lastActiveAt = capturedAt
+      try {
+        const mtime = statSync(transcriptPath).mtimeMs
+        if (Number.isFinite(mtime) && mtime > Date.parse(capturedAt)) lastActiveAt = new Date(mtime).toISOString()
+      } catch {
+        // 대화 기록을 stat 할 수 없으면 기준점 시각만 쓴다.
+      }
+    }
+    return { sessionIdHash, capturedAt, lastActiveAt }
+  })
 }
 
 function activeOtherSessions(root, ownSessionIdHash) {
@@ -257,7 +278,7 @@ function activeOtherSessionDetails(root, ownSessionIdHash) {
             Number.isFinite(capturedAt) &&
             capturedAt >= cutoff
           ) {
-            return [{ sessionIdHash: value.sessionIdHash, capturedAt: value.capturedAt }]
+            return [{ sessionIdHash: value.sessionIdHash, capturedAt: value.capturedAt, transcriptPath: typeof value.transcriptPath === 'string' ? value.transcriptPath : null }]
           }
         } catch {
           // 손상되었거나 동시에 교체된 다른 세션 파일은 건너뛴다.
@@ -272,9 +293,9 @@ function activeOtherSessionDetails(root, ownSessionIdHash) {
 }
 
 // 턴 시작 기준점. 이전 턴의 판정 결과는 넘기지 않는다 — Stop은 이번 턴 것만 알린다.
-function saveSnapshot(root, id, config) {
+function saveSnapshot(root, id, config, payload = {}) {
   const concurrentSessions = activeOtherSessions(root, sha(id).slice(0, 16))
-  writeSnapshot(root, id, { ...snapshot(root, id, config), concurrentSessionsSeen: concurrentSessions })
+  writeSnapshot(root, id, { ...snapshot(root, id, config, transcriptPathOf(payload)), concurrentSessionsSeen: concurrentSessions })
   return { concurrentSessions }
 }
 
@@ -457,7 +478,7 @@ function main() {
 
   let result
   if (mode === 'snapshot') {
-    result = saveSnapshot(root, id, config)
+    result = saveSnapshot(root, id, config, payload)
   } else if (mode === 'sessions') {
     // SessionStart는 동시 세션을 읽기만 한다. 프롬프트 없이 열린 세션을 활성으로 잡지 않는다.
     result = { concurrentSessions: activeOtherSessions(root, sha(id).slice(0, 16)) }

@@ -351,7 +351,9 @@ export function validateAllowEntry(entry) {
 // 허용 키(git common dir)만으로는 부족하다: `.git` 파일이 허용된 저장소의 common dir 를 가리키기만 하는 폴더(자기 .staterc 를 가진 비-clone)가 그 허용을 빌릴 수 있다.
 // root 가 그 common dir 에 *등록된* checkout 일 때만 참이다 —
 //   · `.git` 이 디렉터리(심링크 아님)이고 realpath 가 common dir 와 같다, 또는
-//   · `.git` 이 파일(심링크 아님)이고 gitdir 가 `<common>/worktrees/<이름>` 이며, 그 안의 `gitdir` 파일이 이 root 의 `.git` 파일을 되가리킨다.
+//   · `.git` 이 파일(심링크 아님)이고 gitdir 가 `<common>/worktrees/<이름>` 이며, 그 안의 `gitdir` 파일이 이 root 의 `.git` 파일을 되가리킨다, 또는
+//   · `.git` 이 파일(심링크 아님)이고 gitdir 가 common dir 그 자체이며(서브모듈: `<상위>/.git/modules/<이름>`), 그 git dir 의 core.worktree 가 이 root 를 가리킨다.
+// 심링크 `.git` 과 --separate-git-dir 저장소(core.worktree 를 안 남긴다)는 공격자가 심어 둘 수 있어 지원하지 않는다.
 export function isRegisteredCheckout(root, common) {
   try {
     const dotgit = join(root, '.git')
@@ -361,6 +363,10 @@ export function isRegisteredCheckout(root, common) {
     const pointer = readFileSync(dotgit, 'utf8').match(/^gitdir:[ \t]*(.+?)[ \t]*$/m)?.[1]
     if (!pointer) return false
     const gitdir = realpathSync(resolve(root, pointer))
+    if (gitdir === common) {
+      const configured = git(root, ['--git-dir', common, 'config', '--local', '--get', 'core.worktree'])?.trim()
+      return Boolean(configured) && realpathSync(resolve(gitdir, configured)) === realpathSync(root)
+    }
     if (basename(dirname(gitdir)) !== 'worktrees' || dirname(dirname(gitdir)) !== common) return false
     const back = readFileSync(join(gitdir, 'gitdir'), 'utf8').trim()
     return back !== '' && realpathSync(resolve(gitdir, back)) === realpathSync(dotgit)
@@ -369,7 +375,7 @@ export function isRegisteredCheckout(root, common) {
   }
 }
 
-export const NOT_CHECKOUT_REASON = '이 폴더는 허용된 저장소의 등록된 checkout(clone 또는 git worktree)이 아님 — .git 이 그 저장소를 가리키기만 함'
+export const NOT_CHECKOUT_REASON = '이 폴더는 허용된 저장소에 등록된 checkout 이 아닙니다 (심링크 .git 이나 --separate-git-dir 저장소는 지원하지 않습니다)'
 
 // 이 저장소가 사용자 설정에서 허용됐는가. { key, path, file, settings } — settings 가 null 이면 허용 안 됨(invalid 면 이유가 있다, foreign 이면 등록되지 않은 checkout 이다).
 export function lookupAllowed(root) {
@@ -1570,11 +1576,12 @@ function moveBaseline(state, owned, snapshot) {
 
 export const CONCURRENT_LINE = '같은 checkout 에 다른 활성 세션이 있어 이번 단계 변경 검사를 건너뜁니다 — 누가 바꿨는지 구분할 수 없음'
 
-// 이 세션이 시작한 뒤에 턴 기준점을 남긴 다른 활성 세션. 이 세션의 첫 검증 턴보다 앞선 기준점은 중단된 턴(/clear 전 세션 등)이 남긴 낡은 흔적일 수 있어 세지 않는다.
-// 첫 턴 시각을 모르면(옛 상태 파일) 활성 세션을 모두 센다.
+// 이 세션의 첫 검증 턴 뒤에도 활동한 다른 활성 세션. 첫 턴보다 앞서 멈춘 세션(Esc 뒤 /clear 한 세션 등)은 낡은 흔적이라 세지 않지만,
+// 우리보다 먼저 시작해 긴 턴을 도는 세션은 기준점 시각이 오래돼도 대화 기록이 계속 쓰이므로(lastActiveAt) 센다.
+// 마지막 활동을 알 수 없거나(lastActiveAt null: 대화 기록 경로가 없는 기준점) 첫 턴 시각을 모르면(옛 상태 파일) 센다.
 function concurrentSessions(root, sessionId, state) {
   const first = Date.parse(state.firstTurnAt)
-  return otherSessionActivity(root, sessionId).filter((other) => !Number.isFinite(first) || Date.parse(other.capturedAt) > first)
+  return otherSessionActivity(root, sessionId).filter((other) => !Number.isFinite(first) || other.lastActiveAt === null || Date.parse(other.lastActiveAt) > first)
 }
 
 // 가장 새 판정을 에이전트에게 전달할 텍스트로 만들고, 모든 판정을 전달됨으로 표시한다.
@@ -1671,7 +1678,10 @@ function deniedStop(path, root, cfg, sessionId) {
   return messages.length > 0 ? { systemMessage: messages.join('\n') } : null
 }
 
-// 기본 브랜치·detached HEAD 의 Stop. turnStartWithoutOwner 와 같은 이유로, 상태 파일이 이미 있으면 거둔 판정을 보고·전달하고(막는 규칙은 그대로) 새 검사는 시작하지 않는다.
+// 기본 브랜치·detached HEAD 의 Stop. turnStartWithoutOwner 와 같은 이유로, 상태 파일이 이미 있으면 거둔 판정을 보고·전달하고 새 검사는 시작하지 않는다.
+// 막는 규칙(actOnLatest)은 그대로다: 소유 해제(release) 계기의 판정은 검사 시점의 소유 스냅샷이 [] 라 지금의 [] 와 같아, 턴 시작에 아직 전달되지 않았다면 이 Stop 에서도 한 번 막는다
+// (끝났다는 거짓 주장을 한 번은 멈춘다). 그 밖의 판정은 스냅샷이 달라 낡은 것이 되어 보고만 한다.
+// stopTurn 은 남기지 않는다 — 소유 브랜치에서 변경을 비교한 Stop 이 아니므로, 기능 브랜치로 돌아온 뒤의 턴 시작은 그 비교를 건너뛰면 안 된다.
 function stopWithoutOwner(path, root, cfg, sessionId, payload) {
   if (!existsSync(path)) return null
   const state = loadState(path, root, sessionId)
@@ -1681,7 +1691,6 @@ function stopWithoutOwner(path, root, cfg, sessionId, payload) {
   reap(state, now)
   const acted = actOnLatest(state, payload, ownedSnapshot([]), now)
   messages.push(...acted.messages)
-  state.stopTurn = state.userTurn
   saveState(path, state)
   return stopResult(acted, messages)
 }
@@ -1712,6 +1721,8 @@ function stop(root, payload) {
   const acted = actOnLatest(state, payload, snapshot, now)
   messages.push(...acted.messages)
 
+  // 이 Stop 이 이번 턴의 변경을 저장된 기준점과 실제로 비교하는가(기준점이 없거나 브랜치가 바뀌었으면 비교가 아니다) — stopTurn 은 그때만 남긴다.
+  const compared = state.baselined && state.ownedBranch === owned.branch
   const found = baselineChanges(state, owned, snapshot, null)
   const periodicDue = owned.items.length > 0 && cfg.every > 0 && state.turnCount > 0 && state.turnCount % cfg.every === 0 && state.periodicTurn !== state.turnCount
   // 같은 checkout 의 다른 활성 세션이 있으면 누가 바꿨는지 알 수 없다 — 지금 발견한 단계 변경(소유 해제 포함)은 버리고 주기 점검은 건너뛴다. 이미 쌓인 계기와 도는 검사는 그대로다.
@@ -1756,7 +1767,14 @@ function stop(root, payload) {
       }
     }
   }
-  state.stopTurn = state.userTurn // 이 턴의 Stop 이 끝까지 돌았다 — 다음 턴 시작은 이 뒤의 변경을 에이전트 탓으로 비교하지 않는다
+  // stopTurn: 소유 브랜치에서 소유 항목으로 이번 턴의 변경을 비교했고 막지 않은 Stop 만 남긴다 — 다음 턴 시작은 이 뒤의 변경(사용자 손편집·git pull·다른 세션)을 에이전트 탓으로 비교하지 않는다.
+  // 막은 Stop 은 남기지 않고(같은 턴 앞선 Stop 이 남긴 값도 지운다) — 에이전트가 이어 고친 뒤 Esc·API 오류로 Stop 이 더 돌지 않아도 다음 턴 시작이 그 변경을 비교한다.
+  // 비교를 못 한 Stop(기준점 없음·브랜치 바뀜)과 기본 브랜치·허용 안 됨·오류로 이른 반환도 남기지 않는다.
+  if (acted.block) {
+    if (state.stopTurn === state.userTurn) state.stopTurn = null
+  } else if (compared) {
+    state.stopTurn = state.userTurn
+  }
   saveState(path, state)
   return stopResult(acted, messages)
 }
