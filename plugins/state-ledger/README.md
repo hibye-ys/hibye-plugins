@@ -37,7 +37,7 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `scripts/hooks/state-config.mjs` | `.staterc` 공통 파서 — 인덱스 상대경로·정규화·repo 경계·symlink·개수와 설정 크기를 읽기 전에 검증 |
 | `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점(HEAD·dirty STATE hash·detail 본문 크기) 저장, 이어서 `state-focus.mjs` 알림을 `additionalContext` 로 주입. 현재 브랜치 소유 항목이 없으면 오류만 출력 |
 | `scripts/hooks/state-focus.mjs` | 현재 작업 재주입 엔진 — 현재 브랜치가 `branch:` 로 소유한 §1·§2 항목(최대 3개)의 `goal`·`step`·`next_step`·`handoff` 를 약 3KB 이내 텍스트로 만든다. 기본 브랜치·detached HEAD 는 출력 없음. `reminder` 서브커맨드 |
-| `scripts/hooks/state-verify.mjs` | 여러 턴 독립 검증 엔진(opt-in, 0.10.0) — `turn-start`(턴 카운트·단계 기준점, 미전달 판정 주입)·`session-start`(compaction 예약)·`stop`(판정 수거·차단/보고, 계기가 있으면 검사 세션 시작)·`run`(분리된 worker 가 headless `claude -p`/`codex exec` 를 실행). `.staterc` `STATE_VERIFY="1"` 이 아니면 아무것도 하지 않는다 |
+| `scripts/hooks/state-verify.mjs` | 여러 턴 독립 검증 엔진(opt-in, 0.10.0; 0.10.1 부터 사용자 허용 필요 — `allow`·`disallow`·`status`) — `turn-start`(턴 카운트·단계 기준점, 미전달 판정 주입)·`session-start`(compaction 예약)·`stop`(판정 수거·차단/보고, 계기가 있으면 검사 세션 시작)·`run`(분리된 worker 가 headless `claude -p`/`codex exec` 를 실행). `.staterc` `STATE_VERIFY="1"` 이 아니면 아무것도 하지 않는다 |
 | `scripts/hooks/state-turn-baseline.mjs` | 판정 엔진 — 이번 턴 커밋의 `[id=]` 태그, detail 본문 덧붙임, 동시 세션 보류. 턴을 넘는 상태는 저장하지 않는다. git plumbing(rev-list·diff-tree --stdin --cc·cat-file)만 쓴다 |
 | `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
 | `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: 이번 턴의 태그 없는 커밋·인덱스에 없는 id 커밋, detail 본문 덧붙임, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
@@ -59,11 +59,8 @@ STATE_WORK_INCLUDE_RE="(^|/)\.staterc$|(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs
 STATE_WORK_EXCLUDE_RE="(^|/)(node_modules|dist|build|coverage|vendor)/"
 STATE_BRANCH_EXCLUDE="task-loop/*"  # 유령 검사 제외 glob (공백 구분)
 STATE_INDEX_SOURCE="manual"         # manual(기본) | frontmatter — 아래 0.8.0
-STATE_VERIFY="1"                    # 독립 검증 켜기 (기본 꺼짐) — 아래 0.10.0
-STATE_VERIFY_EVERY="5"              # 주기 점검: 소유 항목이 있는 사용자 턴 N번마다 (0=끔)
-STATE_VERIFY_RUNNER="claude"        # claude(기본) | codex
-STATE_VERIFY_MODEL="sonnet"         # 주기·compaction 점검 모델 (codex 는 명시했을 때만 전달)
-STATE_VERIFY_STEP_MODEL="opus"      # 단계 변경 점검 모델
+STATE_VERIFY="1"                    # 독립 검증 요청 (기본 꺼짐) — 사용자가 이 저장소를 허용해야 돈다, 아래 0.10.0·0.10.1
+# 0.10.1: STATE_VERIFY_EVERY·RUNNER·MODEL·STEP_MODEL 은 .staterc 에서 받지 않는다 — 사용자 허용 파일(아래 0.10.1)
 ```
 
 area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → 부모 디렉토리 이름 (`apps/api/STATE.md` → `api`). detail 은 항상 `docs/state/<area>/<id>.md`.
@@ -167,14 +164,14 @@ Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 pri
 
 - **소유 항목**: detail frontmatter `branch:` 가 체크아웃의 현재 브랜치와 같은 §1 활성·§2 다음 항목이다(frontmatter 원천·manual 원천 모두). 활성 먼저, 같은 섹션은 `touched` 최근순, 최대 3개를 싣고 나머지는 `외 N개` 로 줄인다. 전체 텍스트는 약 3000바이트 이내이고 넘치면 필드를 단계적으로 줄인다.
 - **필드(모두 선택, 한 줄, 각 ≤200자)**: `goal`(목표와 완성 기준), `step`(지금 단계), `next_step`(다음 단계와 끝 조건). 계획 문서 경로는 기존 `handoff`(`path` 또는 `path#절`)를 쓴다. 필드가 비어 있거나 200자를 넘거나 콜론 뒤 공백이 없으면(`goal:값`, frontmatter 파서가 무시한다) `check-state-wip-cap.sh` 가 구조 경고를 낸다(없으면 경고 없음). 세 필드가 모두 없으면 `## 현재` 앞부분 발췌(≈600B)를 대신 싣는다. handoff 파일이 없으면 `(파일 없음)` 을 붙이고, handoff 가 없으면 `## 현재` 가 절차 정본이라고 적는다.
-- **지시문**: 알림 끝에 한 번 — 작업을 제안·시작·전환하기 전에 각 항목의 handoff(없으면 detail `## 현재`)에서 지금·다음 단계 절과 끝 조건을 다시 읽고 인용하며, 계획 순서를 벗어나거나 범위를 바꾸려면 먼저 사용자에게 묻되 이번 턴 사용자의 명시 지시가 우선하고(계획과 어긋나면 그 사실만 한 줄 알리고 따른다), 단계가 바뀌면 `step`·`next_step`(과 `status`)을 바꿔 쓴다.
+- **지시문**: 머리줄 바로 뒤에 한 번(0.10.1 — 그 전에는 알림 끝) — 작업을 제안·시작·전환하기 전에 각 항목의 handoff(없으면 detail `## 현재`)에서 지금·다음 단계 절과 끝 조건을 다시 읽고 인용하며, 계획 순서를 벗어나거나 범위를 바꾸려면 먼저 사용자에게 묻되 이번 턴 사용자의 명시 지시가 우선하고(계획과 어긋나면 그 사실만 한 줄 알리고 따른다), 단계가 바뀌면 `step`·`next_step`(과 `status`)을 바꿔 쓴다.
 - **조용한 경우**: 현재 브랜치가 `STATE_DEFAULT_BRANCH`(기본 `main`; `origin/main` 처럼 원격 ref 로 주어도 `refs/remotes/<값>` 이 있으면 `main` 으로 본다)이거나 detached HEAD 이면 아무것도 싣지 않는다. 기본 브랜치를 가리키는 항목은 많아 소유가 모호하다. 소유 항목이 없거나 §3·§4 에만 있어도 출력이 없다.
 - **주입 시점**: UserPromptSubmit 마다 `additionalContext` 로, SessionStart(startup/resume/clear/compact)에서는 `additionalContext` 에 정리 요청 → 초기화·설정 경고 → 현재 작업 알림 → 정합·예산 요약 → 규칙 스킬 알림 → 원칙 → 인덱스 순으로 싣는다. Claude 의 SessionStart `additionalContextLimit: 5000` 절단에서 알림이 요약·인덱스보다 오래 살아남되 초기화 오류는 그보다 먼저 전달되게 하기 위해서다. 엔진 실패는 경고로만 표시하고 주입·기준점 저장은 막지 않는다.
 - **호스트**: Claude Code·Codex(같은 `hooks.json`), Muse(`muse-turn-start.sh` 가 dispatcher 출력을 그대로 전달, 15KB 이내), Antigravity(`antigravity-pre-invocation.mjs` 가 turn-start 알림을 매 호출 `injectSteps` 에 싣고 첫 호출의 session-start 와 중복되면 한 번만). opencode 는 훅이 아니라 instructions 주입이라 현재 작업 알림을 연결하지 않았다 — `templates/wiring/opencode-harness.ts` 의 `chat.message` 는 turn-start 의 오류(`systemMessage`)만 로그에 남기고 알림(`additionalContext`)은 주입도 로그도 하지 않는다.
 
 ### 0.10.0 여러 턴 독립 검증 (opt-in)
 
-0.9.0 은 목표·단계를 매 턴 다시 보여 주지만, 에이전트가 그것을 보고도 순서를 벗어나거나 끝 조건을 채우지 않고 단계를 "끝"으로 적을 수 있다. 에이전트의 자기 점검은 같은 착각을 공유하므로 검증이 아니다. 그래서 **작업 에이전트와 별개인 로컬 headless 에이전트 세션**(모델 API 직접 호출이 아니다)이 목표와 계획 순서를 지키는지 여러 턴에 걸쳐 확인하고, 훅이 그 판정에 따라 움직인다. 토큰 비용은 검사를 생략할 이유가 아니라는 것이 사용자 결정이다. `.staterc` 에 `STATE_VERIFY="1"` 이 없으면 훅은 node 도 띄우지 않고 아무것도 하지 않는다.
+0.9.0 은 목표·단계를 매 턴 다시 보여 주지만, 에이전트가 그것을 보고도 순서를 벗어나거나 끝 조건을 채우지 않고 단계를 "끝"으로 적을 수 있다. 에이전트의 자기 점검은 같은 착각을 공유하므로 검증이 아니다. 그래서 **작업 에이전트와 별개인 로컬 headless 에이전트 세션**(모델 API 직접 호출이 아니다)이 목표와 계획 순서를 지키는지 여러 턴에 걸쳐 확인하고, 훅이 그 판정에 따라 움직인다. 토큰 비용은 검사를 생략할 이유가 아니라는 것이 사용자 결정이다. `.staterc` 에 `STATE_VERIFY="1"` 이 없으면 훅은 node 도 띄우지 않고 아무것도 하지 않는다. 0.10.1 부터는 `.staterc` 가 요청해도 사용자가 그 저장소를 허용해야 돈다(아래 0.10.1).
 
 - **언제 도는가**: ① 이번 턴에 소유 항목의 `step`/`next_step` 이 바뀌었거나 새로 소유한 항목에 step 이 있을 때(= "이 단계 끝" 주장, 필수 계기) ② compaction 직후 첫 Stop(SessionStart `source="compact"` 가 예약 — 호스트가 이 값을 보낼 때만 동작한다. Claude Code 는 확인했고 Codex 는 확인하지 않았다) ③ 소유 항목이 있는 사용자 턴 `STATE_VERIFY_EVERY`(기본 5)번마다(`0` 이면 끔; 0 이상의 정수가 아니면 5 로 보고 Stop `systemMessage` 로 한 번 알림). 계기는 Stop 에서 모아 검사 하나로 묶는다. 한 세션에서 검사가 진행 중이면 계기를 대기열에 넣고 판정을 거둔 뒤 시작한다. 모든 세션을 합쳐 동시에 도는 검사는 최대 2개(job 폴더의 worker pid 가 살아 있는 수로 센다, 시작은 짧은 락으로 직렬화)이고, 상한이면 계기를 대기열에 둔 채 아무 말 없이 다음 Stop 에서 다시 시도한다. 검사를 막은 Stop 과 그 턴의 재진입 Stop(`stop_hook_active`) 에서는 검사를 시작하지 않고 계기만 쌓는다 — 아래 "벗어남이 발견되면".
 - **누가 검사하는가**: Stop 훅이 분리된(detached) worker 를 띄우고, worker 가 새 세션을 **자기 프로세스 그룹**으로 돌린다. 프롬프트는 stdin 으로 넘기고 cwd 는 저장소 루트이며, PATH 에 `claude` 가 없으면 부모 세션이 알려 주는 `CLAUDE_CODE_EXECPATH` 를 쓴다. 모델은 주기·compaction 점검이 `STATE_VERIFY_MODEL`(기본 `sonnet`), 단계 변경 점검이 `STATE_VERIFY_STEP_MODEL`(기본 `opus`)이고 codex 는 변수를 명시했을 때만 `-m` 을 넘긴다. 검사 세션은 매번 새로 시작한다(직전 판정만 프롬프트에 요약해 넣어 지난 지적이 고쳐졌는지 보게 한다). 격리는 "읽기만 한다"는 부탁이 아니라 명령줄이 보장한다.
@@ -183,7 +180,7 @@ Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 pri
     - `--strict-mcp-config`: MCP 서버를 띄우지 않는다. `--tools`·`--allowedTools` 는 `Read,Grep,Glob` 뿐이고 **Bash 는 없다** — 이전 설계의 `Bash(git log:*)` 는 `git log --output=<file>` 로 파일을 쓸 수 있었기에 뺐다. `--permission-mode dontAsk` 는 목록 밖 도구를 묻지 않고 거부하고, `--settings` 의 `disableAllHooks` 는 남은 경로의 훅도 끈다. `--bare` 는 OAuth 구독을 건너뛰므로 쓰지 않는다 — `--restricted` 에서도 OAuth 로그인으로 동작함을 확인했다(API 키 불필요).
     - git 근거는 도구로 받을 수 없으므로 worker 가 프롬프트에 미리 넣는다(아래 "무엇을 읽는가"). 계획이 "테스트를 돌려 통과" 같은 실행을 요구해도 검사 세션은 실행할 수 없고, 그렇게 적어(`missing`/`unclear`) 보고한다.
     - `--add-dir` 는 이 job 의 전용 폴더 하나뿐이다(공유 `verify-jobs/` 를 열지 않는다).
-  - **codex**(`STATE_VERIFY_RUNNER="codex"`): `codex exec --sandbox read-only --ephemeral -C <root> -c approval_policy="never" [-m <m>] -o <file> -`. read-only 샌드박스(파일 쓰기 없음)에 승인 정책 `never`(승인 대기로 멈추지 않고 거부)다. codex 0.166.0 에서 `approval_policy` 가 `-c` 로 받아들여지고 `never` 가 유효한 값임은 `--strict-config` 검증으로 확인했지만 codex 검사 한 판을 끝까지 돌려 본 것은 아니다. 격리 강도는 claude 보다 약하다 — 샌드박스 안에서는 읽기 명령(git 포함)을 실행할 수 있고 사용자 `config.toml`·훅도 로드될 수 있다.
+  - **codex**(`STATE_VERIFY_RUNNER="codex"`): `codex exec --sandbox read-only --ephemeral -C <root> -c approval_policy="never" [-m <m>] -o <file> -`. read-only 샌드박스(파일 쓰기 없음)에 승인 정책 `never`(승인 대기로 멈추지 않고 거부)다. codex 0.166.0 에서 `approval_policy` 가 `-c` 로 받아들여지고 `never` 가 유효한 값임은 `--strict-config` 검증으로 확인했지만 codex 검사 한 판을 끝까지 돌려 본 것은 아니다. 격리 강도는 claude 보다 약하다 — 샌드박스 안에서는 읽기 명령(git 포함)을 실행할 수 있다. 0.10.1 에서 notify·hooks·plugins·apps 를 끄고, 켜진 MCP 서버를 모두 끄고, 셸 환경을 core 로 제한했다(아래 0.10.1).
   - **프로세스 위생**: runner 는 `detached` 로 자기 프로세스 그룹에서 돌고, 제한 시간(기본 15분, 환경변수 `STATE_VERIFY_TIMEOUT_MS`)을 넘으면 그룹에 SIGTERM, 5초 뒤에도 남아 있으면 SIGKILL 한다. 종료는 프로세스 `exit` 로 판단하고 stdout 은 2초만 더 기다린 뒤 파이프를 닫으며 남은 자손도 정리한다. 20분이 지났는데 worker 가 살아 있는 job 을 수거할 때는 worker 그룹을 종료한다(명령줄에 `state-verify.mjs` 가 든 pid 만 — pid 재사용 방지; worker 는 SIGTERM 을 받으면 검사 세션 그룹도 죽인다).
   - **작업 파일**: job 마다 `verify-jobs/<jobId>/`(0700)에 `job.json`·`transcript.txt`(0600)·`result.json`·`worker.pid` 를 두고, 판정을 거두면 폴더째 지운다. 남은 것은 7일 뒤 정리한다.
 - **무엇을 읽는가**: 소유 항목(최대 3개)의 detail 경로·`goal`·`step`·`next_step`·`status`·`handoff`(각 필드 300자까지 싣는다)와, 검사 세션이 직접 읽을 detail·handoff 계획 문서(`path#절`)의 **끝 조건**, worker 가 미리 만들어 프롬프트에 넣는 git 근거 — 마지막 검사(없으면 세션 첫 소유 턴) 이후 `git log --oneline`(최대 50줄), `git diff --stat`, `git diff`(24KB 까지, 넘으면 `…(N bytes truncated)`; `--no-ext-diff --no-textconv --no-color`, `GIT_OPTIONAL_LOCKS=0`, `GIT_DIR` 류 환경변수 제거), 아직 커밋하지 않은 변경(`git status --short`) — 그리고 hook 입력 `transcript_path` 의 **대화 기록 끝부분**(파일 끝 512KB 에서 사용자·에이전트 텍스트만 최근 약 20KB; 도구 결과·생각·도구 호출은 제외, job 폴더의 0600 파일에 써서 검사 세션이 읽게 하고 끝나면 지운다). 프롬프트 전체는 **64KB(바이트)** 안이다: 역할·계기·항목·질문·출력 스키마는 항상 싣고, 커밋(6KB)·변경 요약(6KB)·diff(24KB)·작업 트리(2KB)·직전 판정(3KB)·대화 기록 안내(1KB)만 바이트 예산으로 글자 경계에서 자른다. 대화 기록이 필요한 이유는 실제 사고가 "계획 밖 작업 제안"이었기 때문이다. 모두 로컬 안에서만 읽는다. 질문은 ① 단계 변경 시 끝 조건이 근거와 함께 충족됐는가 ② 지금 작업·제안이 계획의 단계 순서를 따르는가(사용자의 명시 지시는 계획보다 우선) ③ 범위가 목표에서 벗어나는가.
@@ -193,3 +190,26 @@ Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 pri
 - **호스트**: Claude Code·Codex(`STATE_LEDGER_HOST` 비어 있음/`claude`/`codex`). Muse·Antigravity·opencode 는 Stop 계약이 달라 켜져 있어도 no-op. 소유 항목이 없거나 기본 브랜치·detached HEAD 인 세션도 no-op(0.9.0 과 같은 소유 판정을 `state-focus.mjs` 의 `currentOwned` 로 재사용).
 - **테스트·고급**: 환경변수 `STATE_VERIFY_COMMAND` 에 실행 파일을 주면 `claude`/`codex` 대신 그것이 prompt(stdin)를 받아 cwd=저장소 루트, 환경 `STATE_VERIFY_MODEL_SELECTED` 로 실행되고 판정 JSON(또는 그것을 담은 텍스트)을 stdout 으로 낸다. `STATE_VERIFY_TIMEOUT_MS` 는 검사 제한 시간(ms, 기본 15분)을 바꾼다. 둘 다 `.staterc` 가 아니라 환경변수로만 받으므로 저장소 내용만으로 임의 명령이 실행되지 않는다.
 - **알려진 한계**: 검사는 비동기라(1회 수십 초~수 분) 판정이 **다음 Stop 또는 다음 사용자 턴**에야 반영된다. 그 사이 에이전트가 이미 바로잡았어도 단계 표기를 바꾸지 않았다면 막힐 수 있다(바꿨다면 낡은 판정이라 막지 않는다). 실제 `claude`/`codex` 호출이라 시간·토큰이 든다. 검사 세션도 틀릴 수 있다. 검사 세션은 코드를 실행할 수 없으므로 "테스트 통과" 같은 끝 조건은 파일·로그·커밋 근거로만 판단하고 `unclear` 로 답할 수 있다. `--restricted` 는 도구를 제한할 뿐이라 CLAUDE.md 같은 맥락 파일이 프롬프트에 들어가는 것까지 막지 않는다. compaction 계기는 호스트가 SessionStart `source="compact"` 를 보내야 동작한다(Claude Code 확인, Codex 미확인). 검사 세션 인증은 부모와 같은 로컬 CLI 로그인을 쓴다.
+
+### 0.10.1 적대적 리뷰 수정
+
+0.10.0 을 4개 영역(root 선택, 알림, 검사기 격리, 검사기 흐름)으로 나눠 적대적으로 리뷰하고 높음 6건·중간 10건과 낮음 일부를 고쳤다.
+
+- **독립 검증은 사용자가 켠다**: `.staterc` 의 `STATE_VERIFY="1"` 은 프로젝트의 요청일 뿐이다. 남이 만든 저장소의 `.staterc` 가 사용자 계정으로 백그라운드 세션을 반복해 띄우지 못하게, 사용자 허용 파일 `${XDG_CONFIG_HOME:-$HOME/.config}/state-ledger/verify.json` 에 그 저장소가 있어야 돈다(키: `git rev-parse --git-common-dir` 의 realpath — 같은 저장소의 모든 worktree 가 공유). runner·모델·주기도 이 파일에서만 받는다. `.staterc` 의 `STATE_VERIFY_EVERY/RUNNER/MODEL/STEP_MODEL` 은 무시하고 세션당 한 번 알린다. 허용 없이 요청만 있으면 세션당 한 번 안내만 낸다.
+  ```sh
+  # 저장소 안에서 실행 (<plugin> = 설치된 state-ledger 폴더)
+  node <plugin>/scripts/hooks/state-verify.mjs allow                          # 기본값: claude, sonnet/opus, 5턴
+  node <plugin>/scripts/hooks/state-verify.mjs allow --runner codex --every 3  # 준 값만 바꾼다
+  node <plugin>/scripts/hooks/state-verify.mjs status                         # 요청·허용 여부와 실제 설정
+  node <plugin>/scripts/hooks/state-verify.mjs disallow
+  ```
+  파일은 0600·폴더 0700 으로 쓰고, 사용자 소유 일반 파일·64KB 이하·group/other 쓰기 비트 없음일 때만 읽는다.
+- **데이터 폴더는 사용자별**: 기본 경로가 `tmpdir/state-ledger-hooks-<uid>` 로 바뀌었다(`STATE_HOOK_DATA_DIR` 우선은 그대로). 데이터 폴더·`verify-jobs`·pin 폴더가 심링크이거나 다른 사용자 소유면 그 안에서 읽기·쓰기·정리를 하지 않는다 — 공유 `/tmp` 에 미리 심어 둔 심링크를 따라 피해자 폴더의 오래된 파일을 지우던 경로를 막았다. 업그레이드 직후 첫 턴은 옛 경로의 기준점을 보지 못해 `missing-baseline` 이 한 번 날 수 있다.
+- **검사 세션 격리 강화**: 환경은 허용 목록(PATH·HOME·로캘·프록시·runner 별 인증 변수)으로 새로 만든다 — `CLAUDE_CODE_MESSAGING_TOKEN`·`SSH_AUTH_SOCK`·임의 비밀은 넘기지 않는다. codex 는 `notify=[]`, `features.hooks/plugins/apps=false`, `shell_environment_policy.inherit="core"` 를 주고, worker 가 같은 설정으로 `codex mcp list --json` 을 읽어 켜진 MCP 서버를 모두 끈다(목록을 못 읽으면 세션을 띄우지 않고 `unclear`). 판정 텍스트는 제어 문자를 지우고 summary 600자·evidence/missing 5×200자로 줄이며, 차단 사유와 턴 시작 전달은 훅 지시를 먼저 쓰고 판정은 "검증되지 않은 자료" 라벨 아래 `> ` 인용으로 싣는다. 저장소 밖 handoff 는 검사 세션에 경로로 넘기지 않는다.
+- **검사 계기를 놓치지 않는다**: 턴 시작이 직전 기준점과 비교해, Stop 이 돌지 못한 턴(Esc 중단·API 오류·정리 요청 중 이른 종료)의 단계 변경도 다음 Stop 에서 검사한다(첫 턴·브랜치 전환은 비교하지 않는다). 소유에서 빠진 항목(아카이브·§ 이동·`branch:` 변경·삭제)은 완료 주장으로 검사하고, 소유 항목이 0개가 돼도 진행 중 판정을 거두고 반영한다.
+- **차단 규칙**: 사용자 턴당 한 번 차단은 소유 여부와 무관한 사용자 턴 수로 센다(`stop_hook_active` 를 안 주는 Codex 포함). 같은 checkout 에 다른 활성 세션이 있으면 누가 바꿨는지 구분할 수 없으므로 그 턴의 단계 변경·주기 검사를 건너뛰고 알린다. 턴 시작에 이미 전달한 판정과 끝난 지 6시간 넘은 판정은 막지 않고 보고만 한다. 수거는 worker 가 죽은 뒤 결과 파일을 한 번 더 보고, worker 명령줄의 job id 까지 맞추며, 기록해 둔 runner 그룹은 시작 시각이 같을 때만 정리한다.
+- **root 는 턴 안에서 고정**: dispatcher 는 SessionStart·UserPromptSubmit 에서만 세션 root 를 다시 고르고 고정한다. stamp·Stop 은 고정된 root 를 쓰므로 primary 세션이 턴 중간에 형제 worktree 로 `cd` 해도 Stop 이 turn-start 의 기준점을 찾는다. EnterWorktree 로 옮긴 세션은 다음 턴부터 새 checkout 을 쓴다. 고정은 `CLAUDE_PROJECT_DIR` 과 같은 저장소일 때만 받아들이고, 저장소 밖에서 시작한 Claude 세션(`CLAUDE_PROJECT_DIR` 이 git 이 아님)은 고정하지 않고 cwd 를 따른다(Codex 처럼 `CLAUDE_PROJECT_DIR` 이 없으면 고정을 계속 쓴다).
+- **stamp**: 편집한 파일이 같은 저장소의 다른 worktree 에 있으면 그 checkout 기준으로 스탬프하고 그쪽 로컬 인덱스도 렌더한다. 본문이 같아도 frontmatter(`step`·`next_step`·`status` 등)가 HEAD 와 다르면 `touched` 를 갱신한다(`hash` 는 그대로, 바뀐 게 없으면 다시 쓰지 않는다).
+- **브랜치 이름**: 같은 이름의 태그가 있어도 `refs/heads/` 전체 ref 로 읽어 소유 판정·기본 브랜치 침묵·유령 검사가 깨지지 않는다. `STATE_DEFAULT_BRANCH="origin/main"` 이면 로컬 `main` 도 기본 브랜치로 본다. 유령 검사는 `for-each-ref` 의 `%(ahead-behind:)` 한 번과 묶음 tree 읽기로 바꿔 미등재 브랜치 300개에서 약 12초 → 1초 미만이다(git 2.41 미만은 브랜치별 폴백).
+- **알림 배치**: 지시문은 머리줄 바로 뒤에 온다. handoff 경로와 `#절` 은 자르지 않는다(300자 초과는 고정 안내). 예산이 모자라면 필드·발췌 → 보이는 항목 수 순으로 줄이고 `외 N개` 줄은 항상 남긴다(id 는 12개까지). YAML 블록·null 표기(`>` `|` `""` `null` `~` 등)는 빈 값으로 보고 `check-state-wip-cap.sh` 가 경고한다. 저장소 밖 handoff 는 `(저장소 밖 경로 — 무시)` 로 표시하고 stat 하지 않는다. SessionStart 의 정리 요청 목록은 4줄로 줄여 알림이 5000바이트 한도 안에 들어오게 한다. Antigravity 는 알림 구간만 비교해 판정 블록이 있어도 알림을 두 번 싣지 않는다.
+- **남은 한계**: 저장소 밖에서 시작한 세션은 고정이 없어 한 턴 안에 다른 저장소로 `cd` 하면 Stop 이 기준점을 찾지 못한다. codex 하드닝 키는 `codex sandbox`·`features list`·`mcp list` 로 확인했고 `codex exec` 한 판은 돌려 보지 않았다. Stop 훅이 30초를 넘겨 출력이 버려지면 그 판정의 차단·보고가 사라질 수 있다. PATH 에 상대 경로 항목이 있으면 저장소 cwd 기준으로 runner 를 찾는다(기존 git 호출과 같은 성질). Muse adapter 의 이벤트별 root 선택은 손대지 않았다.
