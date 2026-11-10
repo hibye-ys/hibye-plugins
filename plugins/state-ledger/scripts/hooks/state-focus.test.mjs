@@ -517,9 +517,12 @@ test('M8: five max-length items keep whole items (title + handoff), the 외 N개
 
 test('M8: as a last resort only the item tail is clipped (with a marker); instruction and 외 N개 line stay, total stays within 3000B', (t) => {
   const root = repo(t)
-  const branch = Array.from({ length: 7 }, (_, i) => `${String.fromCharCode(97 + i)}${'x'.repeat(190)}`).join('/')
-  const handoff = `docs/plans/${'가'.repeat(250)}.md#절`
-  write(root, 'docs/state/root/a1.md', detail('a1', { branch, fields: { goal: 'g'.repeat(200), step: 's'.repeat(200), next_step: 'n'.repeat(200), handoff } }))
+  // 머리줄의 브랜치 이름은 200B 로 잘리므로, 안전망은 항목 1개의 고정 줄(긴 id·경로, 4바이트 문자 필드, 300자 직전 handoff)로 부른다.
+  const branch = 'feat/x'
+  const id = `a1${'x'.repeat(240)}`
+  const emoji = '😀'.repeat(200)
+  const handoff = `docs/plans/${'😀'.repeat(280)}.md#절`
+  write(root, `docs/state/root/${id}.md`, detail(id, { branch, title: emoji, fields: { goal: emoji, step: emoji, next_step: emoji, handoff } }))
   write(root, 'docs/state/root/a2.md', detail('a2', { branch, touched: '2026-10-01T00:00' }))
   commit(root, 'seed')
   const text = buildReminder(root, branch, ownedItems(root, branch))
