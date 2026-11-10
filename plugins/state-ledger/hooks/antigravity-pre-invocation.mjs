@@ -84,14 +84,20 @@ function main() {
     if (existsSync(stopFlag)) unlinkSync(stopFlag)
   } catch {}
 
-  // 1. Snapshot turn start
+  // 1. Snapshot turn start. stdout 의 additionalContext(현재 브랜치 소유 항목의 목표·단계 알림)는 매 호출 주입한다.
+  let focusText = ''
   try {
-    spawnSync('bash', [DISPATCH, 'turn-start'], {
+    const turnRes = spawnSync('bash', [DISPATCH, 'turn-start'], {
       cwd: repoRoot,
       env: { ...process.env, STATE_LEDGER_HOST: 'antigravity', HOOK_PROJECT_DIR: repoRoot },
       input: normalizedInput,
       encoding: 'utf8',
     })
+    const turnOut = (turnRes.stdout || '').trim()
+    if (turnOut) {
+      const context = JSON.parse(turnOut)?.hookSpecificOutput?.additionalContext
+      if (typeof context === 'string') focusText = context.trim()
+    }
   } catch {}
 
   // 2. Inject session start context on first invocation of conversation
@@ -126,6 +132,11 @@ function main() {
     } catch {}
 
 
+  }
+
+  // 첫 호출의 session-start 텍스트가 이미 같은 알림을 담고 있으면 중복해서 붙이지 않는다.
+  if (focusText && !injectText.includes(focusText)) {
+    injectText = injectText ? `${focusText}\n\n${injectText}` : focusText
   }
 
   if (injectText) {

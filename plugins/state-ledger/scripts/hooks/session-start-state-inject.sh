@@ -16,7 +16,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 input=$(cat)
-root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+root="${HOOK_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}")}"
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 out=""
@@ -49,27 +49,42 @@ if [ "${concurrent_count:-0}" -gt 0 ]; then
 같은 worktree에서 최근 30분 내 다른 활성 세션 ${concurrent_count}개가 감지됐습니다. 변경 귀속이 불명확하므로 Stop의 커밋 태그·덧붙임 판정은 보류됩니다."
 fi
 
+# 현재 브랜치 소유 항목의 목표·단계·절차. additionalContextLimit(5000) 절단에서 살아남도록 정합 요약·인덱스보다 앞에 두되,
+# 초기화 오류는 그보다도 앞이다. 최종 순서: 정리 요청 → 초기화·설정 경고 → 현재 작업 알림 → 정합·예산 요약 → 규칙 스킬 → 원칙 → 인덱스.
+# 실패는 주입을 막지 않고 알림 자리에 경고로 남는다. config_error 면 건너뛴다.
+focus_context=""
+if [ -z "$config_error" ]; then
+  focus_err_file=$(mktemp "${TMPDIR:-/tmp}/state-ledger-focus.XXXXXX" 2>/dev/null) || focus_err_file=""
+  if ! focus_context=$(HOOK_PROJECT_DIR="$root" node "$script_dir/state-focus.mjs" reminder 2>"${focus_err_file:-/dev/null}"); then
+    focus_err=""
+    [ -n "$focus_err_file" ] && focus_err=$(cat "$focus_err_file" 2>/dev/null)
+    focus_context="=== STATE hook 경고 ===
+STATE 현재 작업 알림 실패: ${focus_err:0:400}"
+  fi
+  [ -n "$focus_err_file" ] && rm -f "$focus_err_file"
+fi
+
 # 정합 검사 원본은 그대로 둔다. 시작 맥락에는 종류·건수·대표와 원본 조회 경로만 넣는다.
 # 초기화 오류와 전체 조회 경로는 인덱스보다 먼저 전달한다.
 if [ -z "$config_error" ]; then
   sync=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-branch-sync.sh" 2>&1 || true)
   budget=$(HOOK_PROJECT_DIR="$root" bash "$script_dir/../check-state-wip-cap.sh" 2>&1 || true)
+  initialization=""
+  warning_summary=""
   if summary=$(printf '%s\n%s' "$sync" "$budget" | node "$script_dir/session-start-warning-summary.mjs" "$root" "$script_dir/../.." 2>&1); then
     initialization=$(printf '%s' "$summary" | jq -r '.initialization')
     warning_summary=$(printf '%s' "$summary" | jq -r '.summary')
-    for section in "$initialization" "$warning_summary"; do
-      [ -n "$section" ] || continue
-      out="${out}${out:+
-
-}$section"
-    done
   else
-    out="${out}${out:+
-
-}=== STATE hook 경고 ===
+    warning_summary="=== STATE hook 경고 ===
 STATE 경고 요약 실행 실패: ${summary:0:400}
 전체 경고는 $script_dir/../check-state-branch-sync.sh 와 $script_dir/../check-state-wip-cap.sh 를 HOOK_PROJECT_DIR=$root 로 다시 조회하세요."
   fi
+  for section in "$initialization" "$focus_context" "$warning_summary"; do
+    [ -n "$section" ] || continue
+    out="${out}${out:+
+
+}$section"
+  done
 fi
 
 # 프로젝트 규칙 스킬 사본이 플러그인 템플릿보다 낮은 버전이면 한 줄 알린다. 실패는 조용히 넘긴다.

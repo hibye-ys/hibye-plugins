@@ -229,6 +229,47 @@ export function checkFrontmatterIndex(root, { area: targetArea = '' } = {}, conf
   return warnings
 }
 
+// 리비전별 "detail frontmatter `branch:` 가 가리키는 브랜치" 집합 — 유령 브랜치 검사(check-state-branch-sync.sh ②)용.
+// 병렬 브랜치는 자기 트리에만 자기를 등재하므로, 한 checkout 의 작업 트리만 보면 오탐한다.
+// 비용: 리비전마다 `git ls-tree` 1회 + 서로 다른 blob 전체를 `git cat-file --batch` 1회(같은 blob 은 한 번만 읽는다).
+// docs/state 아래 .md 의 첫 `---` … `---` 블록만 인정한다 — 본문 서사의 언급은 등재가 아니다.
+export function frontmatterBranches(root, revisions) {
+  root = realpathSync(root)
+  const shaByRev = new Map()
+  const shas = new Set()
+  for (const rev of revisions) {
+    const own = []
+    let listed = ''
+    try { listed = git(root, ['ls-tree', '-r', '-z', rev, '--', 'docs/state/']) } catch (error) { if (error.status !== 128) throw error }
+    for (const record of listed.split('\0')) {
+      const match = /^100\d{3} blob ([0-9a-f]+)\t(.+)$/.exec(record)
+      if (!match || !match[2].endsWith('.md')) continue
+      own.push(match[1])
+      shas.add(match[1])
+    }
+    shaByRev.set(rev, own)
+  }
+  const branchesBySha = new Map()
+  const ordered = [...shas]
+  if (ordered.length) {
+    const out = execFileSync('git', ['cat-file', '--batch'], { cwd: root, input: `${ordered.join('\n')}\n`, maxBuffer: 512 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 })
+    let offset = 0
+    for (const sha of ordered) {
+      const end = out.indexOf(10, offset)
+      if (end < 0) break
+      const header = out.subarray(offset, end).toString('utf8')
+      offset = end + 1
+      const match = /^[0-9a-f]+ blob (\d+)$/.exec(header)
+      if (!match) continue
+      const size = Number(match[1])
+      const branch = parseFrontmatter(out.subarray(offset, offset + size).toString('utf8'))?.branch
+      if (branch) branchesBySha.set(sha, branch)
+      offset += size + 1
+    }
+  }
+  return new Map([...shaByRev].map(([rev, list]) => [rev, new Set(list.map((sha) => branchesBySha.get(sha)).filter(Boolean))]))
+}
+
 function main() {
   const [command, ...args] = process.argv.slice(2)
   const root = projectRoot()
@@ -252,11 +293,15 @@ function main() {
       if (!entry.section || (wanted && !wanted.has(entry.section))) continue
       process.stdout.write(`${entry.area} ${entry.id}\n`)
     }
+  } else if (command === 'branches') {
+    // branches --rev <rev> [--rev <rev>…]: "<rev>\t<branch>" 줄 (리비전의 detail frontmatter branch: 값).
+    const revisions = args.flatMap((arg, index) => (args[index - 1] === '--rev' ? [arg] : []))
+    for (const [rev, branches] of frontmatterBranches(root, revisions)) for (const branch of branches) process.stdout.write(`${rev}\t${branch}\n`)
   } else if (command === 'check') {
     const areaIndex = args.indexOf('--area')
     for (const warning of checkFrontmatterIndex(root, { area: areaIndex >= 0 ? args[areaIndex + 1] : '' }, config)) process.stdout.write(`${warning}\n`)
   } else {
-    process.stderr.write('usage: state-index.mjs source|render [--write]|print <index>|ids [--sections a,b]|check [--area X]\n')
+    process.stderr.write('usage: state-index.mjs source|render [--write]|print <index>|ids [--sections a,b]|branches --rev <rev>…|check [--area X]\n')
     process.exitCode = 2
   }
 }

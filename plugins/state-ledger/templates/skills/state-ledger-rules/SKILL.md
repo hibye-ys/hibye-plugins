@@ -7,7 +7,7 @@ description: >-
   브랜치를 폐기하거나 archive 태그로 보존할 때 사용한다. 설치·이관은 setup-state 스킬이 맡는다.
 metadata:
   template: state-ledger-rules
-  template_version: "3"
+  template_version: "4"
 ---
 
 # STATE — 진행 중인 일의 공유 상태판
@@ -40,7 +40,7 @@ STATE 는 공유 상태판이다. 지금 누가 무엇을 하고, 무엇이 남�
   정리 요청은 `docs/state/.cleanup/<request-id>.json`에 남는다.
 - 인덱스 = 항목당 1줄(≤200자): `- [<id>] <제목> — <짧은 상태·조건>`. id 없는 줄은 §3 placeholder 만. 인덱스 파일 ≤4KB.
 - 상세 = `docs/state/<area>/<id>.md`. 전체 ≤8KB, `## 현재` ≤4KB.
-  - frontmatter: `id·area·owner·branch·touched·hash` (+`session_id`·`lifecycle`·`depends`·`blocks`·`handoff`·`expires`)
+  - frontmatter: `id·area·owner·branch·touched·hash` (+`session_id`·`lifecycle`·`depends`·`blocks`·`handoff`·`expires`, 긴 다단계 작업은 +`goal`·`step`·`next_step` 한 줄씩 ≤200자)
   - 본문: `## 현재`(필수 — 요약·남은 것·WHY) + `## 원장`(선택 — 결정 WHY 만)
 - `id` 는 3–12자, `[a-z0-9-]`, 바뀌지 않는 식별자다.
 
@@ -55,7 +55,7 @@ STATE 는 공유 상태판이다. 지금 누가 무엇을 하고, 무엇이 남�
 
 - detail 은 Edit/Write(Codex 는 apply_patch)로만 고친다. PostToolUse 훅이 본문 hash 가 바뀔 때 `touched`·`hash`를 찍는다.
   셸(sed·python·heredoc)이나 외부 편집기로 고치면 hash 불일치 경고가 남는다.
-- 훅은 세션의 프로젝트 루트 안 `docs/state/<area>/<id>.md`만 찍는다. 다른 폴더에서 연 세션이 이 저장소 detail 을 고치면 찍히지 않는다.
+- 훅은 세션 자기 checkout(git worktree 세션이면 그 worktree) 안 `docs/state/<area>/<id>.md`만 찍는다. 다른 checkout·폴더의 detail 을 고치면 찍히지 않는다.
   그때는 대상 저장소 루트에서 재스탬프한다(본문 hash 가 기록과 다를 때만 갱신):
   `printf '{"tool_input":{"file_path":"docs/state/<area>/<id>.md"}}' | HOOK_PROJECT_DIR="$(git rev-parse --show-toplevel)" node scripts/hooks/state-ledger-runner.mjs stamp`
 - `owner`·`branch` 는 훅이 바꾸지 않는다. 손으로 claim 한다. 스치는 편집이 소유를 바꾸지 않게 하기 위해서다.
@@ -63,6 +63,11 @@ STATE 는 공유 상태판이다. 지금 누가 무엇을 하고, 무엇이 남�
 - `## 현재`는 바꿔 쓴다. 단계별 경과·완료 로그를 덧붙이지 않는다(Stop 훅이 이번 턴 본문 1KB 초과 증가를 알린다).
 - 구현·검증을 마치면 `session_id`에 현재 대화 ID 를, `lifecycle: awaiting_user`를 남기고 정상 커밋한다. 완료만을 이유로 지우지 않는다.
   대화 ID 는 호스트가 알려준 값을 쓴다. 모르면 추측하지 말고 사용자에게 묻는다.
+
+## 긴 작업의 목표·절차 유지
+
+- 단계가 여럿인 긴 작업은 claim 할 때 `goal`(목표와 완성 기준)·`step`(지금 단계)·`next_step`(다음 단계와 끝 조건)·`handoff`(계획 문서 `path` 또는 `path#절`)를 채운다. 단계가 바뀌면 `step`·`next_step`(과 `status`)을 바꿔 쓴다. 각 필드는 한 줄 ≤200자이고 상세는 `## 현재`·handoff 에 둔다.
+- 현재 브랜치가 `branch:` 로 소유한 §1·§2 항목은 매 턴 훅이 목표·단계·절차를 다시 실어 준다(기본 브랜치·detached HEAD 에서는 없음). 그 알림을 따른다: 작업을 제안·시작·전환하기 전에 각 항목의 handoff(없으면 detail `## 현재`)에서 지금·다음 단계 절과 끝 조건을 다시 읽고, 제안에 그 절 제목이나 줄을 인용한다. 계획 순서를 벗어나거나 범위를 바꾸려면 먼저 사용자에게 묻는다 — 단, 이번 턴 사용자의 명시 지시가 우선한다(계획과 어긋나면 그 사실만 한 줄 알리고 따른다).
 
 ## 커밋 [id=] 규칙
 
@@ -88,6 +93,7 @@ STATE 는 공유 상태판이다. 지금 누가 무엇을 하고, 무엇이 남�
 | hash 불일치 | 훅을 우회한 편집 | 내용을 확인한 뒤 Edit 으로 재저장하거나 runner `stamp`로 재스탬프 |
 | 인덱스↔detail 단절·고아 | 라우팅 끊김 | detail 을 만들거나 인덱스에 등재한다. 지울 것이면 아래 정리 절차 |
 | §1 owner 없음·필수 필드 없음 | claim 누락 | owner·branch 를 채운다 |
+| frontmatter goal·step·next_step 빈 값·200자 초과 | 선택 필드가 비었거나 길다 | 지우거나 한 줄 요약으로 고치고 상세는 `## 현재`·handoff 로 옮긴다 |
 | `expires` 경과 | 재확인 시점 | 사용자 확인 뒤 갱신하거나 정리한다 |
 | branch 소멸·이미 머지됨 | 포인터가 낡음 | 포인터를 고치거나 정리 후보로 제안한다 |
 | 유령 브랜치(미등재, 미머지 커밋) | 소유 불명 | 등재 또는 폐기 결정을 사용자에게 받는다. 아래 브랜치 절차 |

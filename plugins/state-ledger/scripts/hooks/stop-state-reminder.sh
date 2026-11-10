@@ -12,8 +12,8 @@
 # stateLedgerContinue=true 를 함께 내 어댑터가 1회 continue 하게 한다.
 #
 # 환경변수:
-#   HOOK_PROJECT_DIR — 프로젝트 루트 (우선)
-#   CLAUDE_PROJECT_DIR — Claude Code 호환 (차선)
+#   HOOK_PROJECT_DIR — 세션 checkout 루트 (dispatcher 가 넘긴다, 우선)
+#   없으면 현재 디렉터리의 git toplevel, 그다음 CLAUDE_PROJECT_DIR (worktree 세션에서는 primary 일 수 있다)
 
 set -u
 
@@ -28,7 +28,7 @@ if [ ! -t 0 ]; then
   input=$(cat 2>/dev/null || true)
 fi
 
-root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+root="${HOOK_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}")}"
 cd "$root" 2>/dev/null || exit 0
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
