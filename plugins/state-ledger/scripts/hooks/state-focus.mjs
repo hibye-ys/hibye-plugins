@@ -5,10 +5,10 @@
 //   node state-focus.mjs reminder   → 알림 텍스트 stdout (없으면 출력 없음). 실패는 stderr + 종료 코드 1.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { projectRoot, readStaterc, stateConfig } from './state-config.mjs'
+import { projectRoot, readStaterc, stateConfig, staysWithinRoot } from './state-config.mjs'
 import { detailEntries, indexSource, parseFrontmatter } from './state-index.mjs'
 
 export const MAX_ITEMS = 3
@@ -16,7 +16,15 @@ export const MAX_REMINDER_BYTES = 3000
 const SECTION_LABEL = { active: '§1 활성', next: '§2 다음' }
 const SECTION_ORDER = { active: 0, next: 1 }
 const NONE_VALUES = new Set(['', '-', '—'])
-// 크기 예산을 넘으면 필드·발췌 길이를 단계적으로 줄인다.
+// YAML 블록 스칼라 표지·빈 문자열·null 표기. frontmatter 파서는 한 줄 값만 읽으므로 이 값은 내용이 아니다 (check-state-wip-cap.sh 와 같은 목록).
+const YAML_PLACEHOLDERS = new Set(['>', '|', '>-', '|-', '>+', '|+', '""', "''", 'null', 'Null', 'NULL', '~'])
+// handoff 값이 이보다 길면 잘린 경로를 싣지 않고 고정 안내로 대체한다 (경로·`#절` 앵커는 절대 자르지 않는다).
+const HANDOFF_MAX_CHARS = 300
+const HANDOFF_TOO_LONG = `(handoff 값이 ${HANDOFF_MAX_CHARS}자를 넘음 — detail frontmatter 에서 직접 확인)`
+const HANDOFF_OUTSIDE = '(저장소 밖 경로 — 무시)'
+const TRUNCATED = '…(잘림)'
+const MAX_LISTED_REST_IDS = 12
+// 크기 예산을 넘으면 필드·발췌 길이를 단계적으로 줄인다 (handoff 는 줄이지 않는다).
 const TIERS = [
   { field: 200, excerpt: 600 },
   { field: 120, excerpt: 300 },
@@ -52,12 +60,27 @@ function clipBytes(text, max) {
   return `${chars.slice(0, lo).join('')}…`
 }
 
+// 바이트 예산 안에서 문자 경계로 자르고 marker 를 붙인다 (합계가 max 이하).
+function clipBytesWith(text, max, marker) {
+  if (bytes(text) <= max) return text
+  const chars = [...text]
+  let lo = 0
+  let hi = chars.length
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (bytes(`${chars.slice(0, mid).join('')}${marker}`) <= max) lo = mid
+    else hi = mid - 1
+  }
+  return `${chars.slice(0, lo).join('')}${marker}`
+}
+
 export function currentBranch(root) {
   const env = { ...process.env }
   for (const key of ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[key]
   try {
-    const out = execFileSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    return out.trim() || null
+    // `--short` 는 같은 이름의 태그가 있으면 `heads/<name>` 으로 줄여 소유·기본 브랜치 판정을 깨므로 전체 ref 에서 접두사를 뗀다.
+    const ref = execFileSync('git', ['symbolic-ref', '--quiet', 'HEAD'], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+    return ref.startsWith('refs/heads/') && ref.length > 'refs/heads/'.length ? ref.slice('refs/heads/'.length) : null
   } catch (error) {
     if (error.status === 1) return null // detached HEAD
     throw error
@@ -151,7 +174,27 @@ export function currentExcerpt(text, limit) {
 
 function value(meta, key) {
   const raw = meta?.[key]
-  return raw && !NONE_VALUES.has(raw) ? raw : ''
+  return raw && !NONE_VALUES.has(raw) && !YAML_PLACEHOLDERS.has(raw) ? raw : ''
+}
+
+// handoff 경로 상태: '' (정상) | HANDOFF_OUTSIDE (저장소 밖 — stat 하지 않는다) | '(파일 없음)'.
+function handoffStatus(root, handoff) {
+  const path = handoff.split('#')[0]
+  if (!path) return '(파일 없음)'
+  if (path.startsWith('~') || isAbsolute(path) || path.includes('\0')) return HANDOFF_OUTSIDE
+  const absolute = resolve(root, path)
+  if (!staysWithinRoot(root, absolute)) return HANDOFF_OUTSIDE
+  try {
+    return staysWithinRoot(realpathSync(root), realpathSync(absolute)) ? '' : HANDOFF_OUTSIDE
+  } catch {
+    return '(파일 없음)'
+  }
+}
+
+function handoffLine(root, handoff) {
+  if ([...handoff].length > HANDOFF_MAX_CHARS) return `- 절차(handoff): ${HANDOFF_TOO_LONG}`
+  const status = handoffStatus(root, handoff)
+  return `- 절차(handoff): ${handoff}${status ? ` ${status}` : ''}`
 }
 
 function renderItem(root, item, tier) {
@@ -166,8 +209,7 @@ function renderItem(root, item, tier) {
   if (!goal || !step || !next) lines.push(`- 상태: ${clip(item.status, tier.field)}`)
   const handoff = value(meta, 'handoff')
   if (handoff) {
-    const missing = !existsSync(resolve(root, handoff.split('#')[0]))
-    lines.push(`- 절차(handoff): ${clip(handoff, tier.field)}${missing ? ' (파일 없음)' : ''}`)
+    lines.push(handoffLine(root, handoff))
   } else {
     lines.push('- 절차(handoff): 없음 — detail ## 현재 가 절차 정본')
   }
@@ -181,24 +223,35 @@ function renderItem(root, item, tier) {
   return lines.join('\n')
 }
 
-function render(root, branch, items, tier) {
-  const shown = items.slice(0, MAX_ITEMS)
-  const parts = [`=== STATE 현재 작업 — 브랜치 ${branch} (매 턴 다시 주입) ===`, ...shown.map((item) => renderItem(root, item, tier))]
-  if (items.length > shown.length) {
-    parts.push(`외 ${items.length - shown.length}개: ${items.slice(MAX_ITEMS).map((item) => `[${item.id}]`).join(' ')}`)
-  }
-  return parts.join('\n')
+// 항목 count 개를 tier 로 그린 본문. 숨긴 항목은 `외 N개` 줄에 id 로 남긴다 (id 목록은 길이를 제한하고 N 은 정확히 쓴다).
+function renderBody(root, items, count, tier) {
+  const itemsText = items.slice(0, count).map((item) => renderItem(root, item, tier)).join('\n')
+  if (items.length <= count) return { itemsText, restLine: '' }
+  const rest = items.slice(count)
+  const listed = rest.slice(0, MAX_LISTED_REST_IDS).map((item) => `[${item.id}]`).join(' ')
+  return { itemsText, restLine: `외 ${rest.length}개: ${listed}${rest.length > MAX_LISTED_REST_IDS ? ' …' : ''}` }
 }
 
+const joinBody = ({ itemsText, restLine }) => (restLine ? `${itemsText}\n${restLine}` : itemsText)
+
+// 머리 → 지시문 → 항목 순. 어떤 절단이 와도(Claude SessionStart additionalContext 5000B 한도 포함) 지시문이 항목 꼬리보다 먼저 잘리지 않는다.
 export function buildReminder(root, branch, items) {
   if (items.length === 0) return ''
-  const budget = MAX_REMINDER_BYTES - bytes(INSTRUCTION) - 2
-  let body = ''
-  for (const tier of TIERS) {
-    body = render(root, branch, items, tier)
-    if (bytes(body) <= budget) break
+  const head = `=== STATE 현재 작업 — 브랜치 ${branch} (매 턴 다시 주입) ===\n${INSTRUCTION}`
+  const budget = MAX_REMINDER_BYTES - bytes(head) - 2
+  const full = Math.min(items.length, MAX_ITEMS)
+  const last = TIERS[TIERS.length - 1]
+  // 1) 항목은 모두 두고 필드·발췌를 단계적으로 줄인다. 2) 최소 단계도 넘치면 항목 수를 줄인다 (나머지는 `외 N개`).
+  const attempts = [...TIERS.map((tier) => [full, tier]), ...Array.from({ length: full - 1 }, (_, i) => [full - 1 - i, last])]
+  let body = null
+  for (const [count, tier] of attempts) {
+    body = renderBody(root, items, count, tier)
+    if (bytes(joinBody(body)) <= budget) return `${head}\n\n${joinBody(body)}`
   }
-  return `${clipBytes(body, budget)}\n\n${INSTRUCTION}`
+  // 마지막 안전망: 항목 1개의 고정 줄(handoff 등)만으로도 넘치는 경우. 지시문과 `외 N개` 줄은 두고 항목 꼬리만 자른다.
+  const room = budget - (body.restLine ? bytes(body.restLine) + 1 : 0)
+  const itemsText = clipBytesWith(body.itemsText, Math.max(room, 0), TRUNCATED)
+  return `${head}\n\n${joinBody({ itemsText, restLine: body.restLine })}`
 }
 
 // 기본 브랜치 판정. BASE 가 `origin/main` 같은 원격 ref 로 주어질 수 있다 — refs/remotes/<BASE> 가 실제로 있을 때만

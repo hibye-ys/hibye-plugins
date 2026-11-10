@@ -164,9 +164,20 @@ if command -v node >/dev/null 2>&1; then
   cleanup_context=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-cleanup.mjs" context 2>&1)
   cleanup_status=$?
   if [ "$cleanup_status" -ne 0 ]; then cleanup_context="STATE 정리 요청 초기화 실패: $cleanup_context"; fi
-  if [ -n "$cleanup_context" ]; then out="$cleanup_context
+  if [ -n "$cleanup_context" ]; then
+    # 정리 요청은 맨 앞이라 길이 제한이 없으면 뒤의 현재 작업 알림을 Claude additionalContext 5000B 한도 밖으로 밀어낸다.
+    # 머리 + 요청 3줄만(줄당 100자) 싣고 나머지는 `…(N개 더)` 로 줄인다. 전체는 state-cleanup.mjs context 로 조회한다.
+    cleanup_context=$(printf '%s' "$cleanup_context" | node -e '
+      const lines = require("node:fs").readFileSync(0, "utf8").split("\n")
+      const clip = (t) => { const c = [...t]; return c.length > 100 ? `${c.slice(0, 99).join("")}…` : t }
+      const kept = lines.slice(0, 4).map(clip)
+      if (lines.length > 4) kept.push(`…(${lines.length - 4}개 더)`)
+      process.stdout.write(kept.join("\n"))
+    ' 2>/dev/null || printf '%s' "$cleanup_context")
+    out="$cleanup_context
 
-$out"; fi
+$out"
+  fi
 fi
 
 [ -z "$out" ] && exit 0

@@ -9,6 +9,14 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const LEDGER_ROOT = process.env.STATE_LEDGER_ROOT || path.resolve(SCRIPT_DIR, '..')
 const DISPATCH = path.join(LEDGER_ROOT, 'scripts/hooks/global-state-hook.sh')
 
+// turn-start 텍스트 = 현재 작업 알림 [+ 독립 검증 판정 블록]. 판정 블록은 `=== STATE 독립 검증 결과` 머리줄부터 끝까지다.
+function splitFocusText(text) {
+  const marker = /(^|\n)=== STATE 독립 검증 결과/.exec(text)
+  if (!marker) return { reminder: text, verdict: '' }
+  const at = marker.index + marker[1].length
+  return { reminder: text.slice(0, at).trim(), verdict: text.slice(at).trim() }
+}
+
 function main() {
   let input = ''
   try {
@@ -135,8 +143,14 @@ function main() {
   }
 
   // 첫 호출의 session-start 텍스트가 이미 같은 알림을 담고 있으면 중복해서 붙이지 않는다.
-  if (focusText && !injectText.includes(focusText)) {
-    injectText = injectText ? `${focusText}\n\n${injectText}` : focusText
+  // turn-start 텍스트 뒤에는 독립 검증 판정 블록이 붙을 수 있으므로 알림 구간만 비교하고, 판정 블록은 따로 싣는다.
+  const { reminder, verdict } = splitFocusText(focusText)
+  const additions = []
+  if (reminder && !injectText.includes(reminder)) additions.push(reminder)
+  if (verdict && !injectText.includes(verdict)) additions.push(verdict)
+  if (additions.length) {
+    const prefix = additions.join('\n\n')
+    injectText = injectText ? `${prefix}\n\n${injectText}` : prefix
   }
 
   if (injectText) {
