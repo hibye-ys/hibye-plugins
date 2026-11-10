@@ -324,3 +324,77 @@ test('batched blob reads keep order, multi-byte text and missing objects', (t) =
   git(root, 'add', 'a.md')
   assert.deepEqual(readBlobs(root, ['HEAD:a.md', 'HEAD:missing.md', 'HEAD:b.md', ':a.md']), ['한글 첫 줄\n둘째 줄\n', null, '', 'staged 한글\n'])
 })
+
+// 유령 브랜치 검사는 이 checkout 작업 트리·기본 브랜치 트리·그 브랜치 자기 트리 어디서든 등재를 인정한다.
+function ghostFixture(t) {
+  const root = repo(t)
+  write(root, 'README.md', 'x\n')
+  write(root, 'docs/state/root/basereg.md', detail('basereg', { branch: 'feat/base-reg' }))
+  // 본문 서사의 언급은 등재가 아니다 (frontmatter 밖에 `branch:` 줄이 있어도).
+  write(root, 'docs/state/root/bodyref.md', `${detail('bodyref')}branch: feat/body-only\n- feat/body-own 은 아직 정해지지 않았다\n`)
+  commit(root, 'seed [id=-]')
+  const branch = (name, files) => {
+    git(root, 'checkout', '-q', '-b', name, 'main')
+    for (const [path, text] of Object.entries(files)) write(root, path, text)
+    commit(root, `${name} work [id=-]`)
+    git(root, 'checkout', '-q', 'main')
+  }
+  branch('feat/base-reg', { 'a.txt': 'a\n' })
+  branch('feat/self', { 'docs/state/root/selfreg.md': detail('selfreg', { branch: 'feat/self' }) })
+  branch('feat/body-only', { 'b.txt': 'b\n' })
+  branch('feat/body-own', { 'docs/state/root/ownbody.md': `${detail('ownbody', { branch: 'main' })}branch: feat/body-own\n` })
+  branch('feat/unreg', { 'c.txt': 'c\n' })
+  return root
+}
+
+const ghostLines = (out) => out.split('\n').filter((line) => line.includes('유령 브랜치')).sort()
+const ghostLine = (name) => `WARN: 유령 브랜치 ${name} — main 에 없는 커밋 1개, STATE 미등재 (등재 또는 폐기 결정 필요)`
+
+test('ghost branch check counts a branch registered in its own tree or in the base tree', (t) => {
+  const root = ghostFixture(t)
+  const { out } = run(BRANCH_SYNC_SCRIPT, root)
+  assert.deepEqual(ghostLines(out), [ghostLine('feat/body-only'), ghostLine('feat/body-own'), ghostLine('feat/unreg')])
+})
+
+test('ghost branch check from another checkout: a base-tree registration survives a changed pointer here', (t) => {
+  const root = ghostFixture(t)
+  git(root, 'checkout', '-q', '-b', 'work', 'main')
+  write(root, 'docs/state/root/basereg.md', detail('basereg', { branch: 'feat/moved' }))
+  write(root, 'docs/state/root/workitem.md', detail('workitem', { branch: 'work' }))
+  commit(root, 'move pointer [id=-]')
+  const { out } = run(BRANCH_SYNC_SCRIPT, root)
+  // feat/base-reg 는 기본 브랜치 트리에만 이름이 남았고, work 는 이 checkout 작업 트리가 등재한다 — 둘 다 유령이 아니다.
+  assert.deepEqual(ghostLines(out), [ghostLine('feat/body-only'), ghostLine('feat/body-own'), ghostLine('feat/unreg')])
+  assert.match(out, /basereg\.md branch=feat\/moved — 브랜치 소멸/)
+})
+
+test('ghost branch check reports only the lookup failure, not every candidate, when the registration lookup fails', (t) => {
+  const root = ghostFixture(t)
+  // git 래퍼: 등재 조회가 쓰는 `cat-file --batch` 만 실패시킨다 (검사 스크립트 자체는 cat-file 을 쓰지 않는다).
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+  const shimDir = `${root}-shim`
+  mkdirSync(shimDir, { recursive: true })
+  t.after(() => rmSync(shimDir, { recursive: true, force: true }))
+  writeFileSync(join(shimDir, 'git'), `#!/bin/sh\nif [ "$1" = cat-file ]; then echo 'injected cat-file failure' >&2; exit 3; fi\nexec "${realGit}" "$@"\n`, { mode: 0o755 })
+  const { out } = run(BRANCH_SYNC_SCRIPT, root, { env: { PATH: `${shimDir}:${process.env.PATH}` } })
+  assert.match(out, /WARN: STATE 브랜치 등재 조회 실패/)
+  assert.deepEqual(ghostLines(out), [])
+})
+
+test('state-index branches lists frontmatter branch values per revision, ignoring missing revisions', (t) => {
+  const root = ghostFixture(t)
+  const revs = ['refs/heads/main', 'refs/heads/feat/self', 'refs/heads/feat/base-reg', 'refs/heads/missing']
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./state-index.mjs', import.meta.url)), 'branches', ...revs.flatMap((rev) => ['--rev', rev])], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, HOOK_PROJECT_DIR: root },
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(result.stdout.trim().split('\n').sort(), [
+    'refs/heads/feat/base-reg\tfeat/base-reg',
+    'refs/heads/feat/base-reg\tmain',
+    'refs/heads/feat/self\tfeat/base-reg',
+    'refs/heads/feat/self\tfeat/self',
+    'refs/heads/feat/self\tmain',
+    'refs/heads/main\tfeat/base-reg',
+    'refs/heads/main\tmain',
+  ].sort())
+})

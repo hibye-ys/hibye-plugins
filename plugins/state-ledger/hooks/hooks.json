@@ -20,7 +20,7 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PLUGIN_ROOT/scripts/hooks/global-state-hook.sh\" turn-start",
-            "statusMessage": "STATE 턴 기준점 저장 중"
+            "statusMessage": "STATE 턴 기준점·현재 작업 알림"
           }
         ]
       }

@@ -18,7 +18,7 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 - `STATE.md`는 공유 상태판이다. 누가 무엇을 하는지(owner)·남은 일·미해결 결정과 WHY만 담는다. 남은 일·소유·결정이 바뀌면 그 줄과 detail을 바꿔 쓰고 덧붙이지 않는다. 작업 기록(완료 사실·경과)은 커밋 메시지가 맡으며 git log가 정본이다.
 - 카테고리 4개와 WIP cap: §1 활성 ≤6 (owner 필수) · §2 다음 ≤6 · §3 미래 placeholder ≤5 · §4 미해결 결정 ≤8. cap 초과는 분류 실패 신호 — 사용자와 남길 작업을 정한다. 나이·cap만으로 자동 archive하지 않는다.
 - 항목 = 1줄 인덱스: `- [<id>] <제목> — <짧은 상태·조건>` (≤200자). 상세 정본 = docs/state/<area>/<id>.md.
-  frontmatter: id·area·owner·branch·touched·hash (+depends/blocks/handoff/expires)
+  frontmatter: id·area·owner·branch·touched·hash (+depends/blocks/handoff/expires, 긴 다단계 작업은 +goal·step·next_step 한 줄씩 ≤200자 — 0.9.0)
   본문: ## 현재 (필수, ≤4KB — 요약·남은 것·WHY) + ## 원장 (선택 — 결정 WHY만). detail 전체 ≤8KB.
 - `id`는 3–12자 stable identifier다. id 없는 줄은 §3 placeholder만 허용한다. meta는 detail frontmatter가 정본 — hook이 touched·hash만 스탬프하고 owner·branch는 수동 claim이다. 착수한 항목은 §1로 옮기고 owner를 claim한다.
 - 작업 커밋 메시지에는 `[id=<인덱스 id>]`를 붙인다. `[id=-]`는 STATE 항목과 정말 무관한 잡무에만 쓴다. id를 빠뜨렸으면 직접 만든 미push 직전 커밋은 `git commit --amend`로 붙이고, 아니면 다음 커밋부터 붙인다. STATE에 경과를 적어 대신하지 않는다.
@@ -35,7 +35,8 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `scripts/hooks/session-start-state-inject.sh` | SessionStart — 인덱스 전문 유지, 두 checker 경고의 유형·건수·대표·원본 조회 경로 요약, 같은 worktree 동시 세션 경고(읽기만, 기준점은 만들지 않음) |
 | `scripts/hooks/commit-msg-state-check.sh` | commit-msg — 인덱스/detail에서 실제 바뀐 모든 id별 `[id=<id>]` / detail 삭제 파일별 `archive [id=<id>]` 검사 |
 | `scripts/hooks/state-config.mjs` | `.staterc` 공통 파서 — 인덱스 상대경로·정규화·repo 경계·symlink·개수와 설정 크기를 읽기 전에 검증 |
-| `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점(HEAD·dirty STATE hash·detail 본문 크기) 저장. 오류만 출력 |
+| `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점(HEAD·dirty STATE hash·detail 본문 크기) 저장, 이어서 `state-focus.mjs` 알림을 `additionalContext` 로 주입. 현재 브랜치 소유 항목이 없으면 오류만 출력 |
+| `scripts/hooks/state-focus.mjs` | 현재 작업 재주입 엔진 — 현재 브랜치가 `branch:` 로 소유한 §1·§2 항목(최대 3개)의 `goal`·`step`·`next_step`·`handoff` 를 약 3KB 이내 텍스트로 만든다. 기본 브랜치·detached HEAD 는 출력 없음. `reminder` 서브커맨드 |
 | `scripts/hooks/state-turn-baseline.mjs` | 판정 엔진 — 이번 턴 커밋의 `[id=]` 태그, detail 본문 덧붙임, 동시 세션 보류. 턴을 넘는 상태는 저장하지 않는다. git plumbing(rev-list·diff-tree --stdin --cc·cat-file)만 쓴다 |
 | `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
 | `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: 이번 턴의 태그 없는 커밋·인덱스에 없는 id 커밋, detail 본문 덧붙임, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
@@ -88,7 +89,7 @@ Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `
 
 `commit-msg`는 agent lifecycle이 아니라 Git hook이므로 기존 hook manager에서 `if [ ! -f scripts/hooks/state-ledger-runner.mjs ]; then :; elif command -v node >/dev/null 2>&1; then node scripts/hooks/state-ledger-runner.mjs commit-msg "$1"; else echo "WARN: node가 PATH에 없어 STATE commit-msg 검사를 건너뜁니다." >&2; fi`를 호출한다. shared Git hooks를 쓰는 이전 checkout에 runner가 없거나 Git GUI PATH에 node가 없어도 commit을 막지 않기 위한 guard다. lint-staged에서 구조 검사를 유지하려면 `node scripts/hooks/state-ledger-runner.mjs check-wip`을 사용한다. opencode는 runner와 `templates/wiring/opencode-harness.ts`를 함께 복사하고 `opencode.json` instructions에 인덱스를 지정한다. 기존 `.codex/hooks.json`·`.codex/config.toml`·`.claude/settings*.json`에 복사형 STATE lifecycle이 남아 있으면 제거한다. 이행 중인 브랜치에서는 전역 dispatcher가 JSON/TOML의 실제 로컬 command를 감지해 중복 실행을 피하며, 주석이나 단순 문자열은 로컬 훅으로 취급하지 않는다.
 
-정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs scripts/hooks/state-cleanup.test.mjs scripts/hooks/rules-skill.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
+정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs scripts/hooks/state-frontmatter.test.mjs scripts/hooks/state-focus.test.mjs scripts/hooks/state-cleanup.test.mjs scripts/hooks/rules-skill.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
 
 ## 검증된 설계 근거 (2026-07-28 교차 리뷰 라운드)
 
@@ -146,3 +147,21 @@ SessionStart는 미완료 요청을 다시 주입한다. 삭제/요청 제거의
 ### 0.8.2 Linux·macOS 정리 잠금
 
 정리 요청 쓰기는 Linux의 util-linux `flock`, macOS의 BSD `lockf`를 사용한다. 설치 호스트에 해당 명령이 필요하며, 없거나 잠금을 얻지 못하면 STATE를 쓰지 않고 실패한다. 두 경로 모두 같은 빈 잠금 파일을 보존하고 비차단 배타 잠금·프로세스 종료 시 해제·기존 내용 대조 후 원자 교체를 유지한다. Linux는 `flock -F`로 writer를 직접 실행해 writer의 종료와 잠금 수명을 맞춘다. macOS 실행 검증은 macOS에서 별도로 수행해야 한다.
+
+### 0.9.0 세션 자기 checkout (git worktree 세션)
+
+Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 primary checkout 으로 넘긴다. 0.8.x dispatcher 는 그것을 `$PWD`보다 먼저 써서 worktree 세션이 primary(보통 `main`)의 STATE 를 주입받았다 — 브랜치에서 바꾼 `status`가 아니라 main 의 옛 상태가 compaction 마다 들어가 에이전트가 계획을 잃었다(EUNHA `[testmod]` 실측). 같은 원인으로 detail 스탬프는 worktree 경로를 프로젝트 밖으로 보고 건너뛰었고(나중에 hash 불일치), 턴 기준점은 모든 worktree 세션을 "같은 worktree 의 동시 세션"으로 묶어 Stop 판정을 보류시킬 수 있었다.
+
+- 루트 선택(`global-state-hook.sh`): adapter 가 명시한 `HOOK_PROJECT_DIR`(Muse·Antigravity·테스트)이 있으면 그대로. 아니면 `here`(hook 입력 `cwd` → `$PWD` 의 첫 git toplevel), `project`(`CLAUDE_PROJECT_DIR` 의 toplevel), `pinned`(이 세션이 앞서 고정한 root)를 두고 `anchor = project || pinned` 로 삼는다. `here` 가 있고 anchor 가 없거나 anchor 와 **같은 저장소**(`git rev-parse --git-common-dir` 를 `pwd -P` 로 푼 값이 같음 — worktree 는 달라도 됨)이면 `here` 를 쓰고 고정하며, 아니면 `pinned` → `project` → `here` 순서다. 이유: worktree 세션은 `CLAUDE_PROJECT_DIR`(primary)보다 자기 worktree 가 정답이지만, hook 입력 `cwd` 는 에이전트가 추가 작업 디렉터리의 다른 저장소로 `cd` 하면 따라 움직여 그 저장소를 건드리거나 원장이 없다며 조용히 멈춘다 — 같은 저장소 가드와 세션 고정이 이를 막는다. 고정은 세션 id(`session_id`·`sessionID`·`sessionId`)의 `git hash-object` 해시로 `${STATE_HOOK_DATA_DIR:-${TMPDIR:-/tmp}/state-ledger-hooks}/root-<hash>.json`(`{"root": "..."}`, 임시 파일 + `mv`)에 쓴다. 턴 기준점 엔진의 같은 디렉터리 리더는 `version` 이 다른 `.json` 을 건너뛰고 7일 지난 `.json` 은 지우므로 충돌 없이 함께 정리된다. jq 나 세션 id 가 없으면 고정 없이 동작한다. 하위 스크립트를 직접 실행할 때와 `projectRoot()`도 git toplevel 을 `CLAUDE_PROJECT_DIR`보다 먼저 본다. primary checkout 세션의 동작은 그대로다.
+- 검사별 시야: 구조·예산(`check-state-wip-cap.sh`)과 §1·§2 branch 포인터(`check-state-branch-sync.sh` ①)는 자기 checkout 을 본다 — 그 브랜치가 고치고 머지할 파일이고 commit-msg 검사도 같은 파일을 본다. 유령 브랜치(②)만 저장소 전체 질문이라 공유 시야가 필요하다: 등재는 병렬 브랜치에 흩어져 있으므로 자기 checkout 작업 트리 ∪ `STATE_DEFAULT_BRANCH` 트리 ∪ 그 브랜치 자기 트리 중 어디든 frontmatter `branch:`가 이름을 대면 등재로 본다(본문 언급은 여전히 아님). 트리는 node 한 번(리비전마다 `ls-tree` 1회 + `cat-file --batch` 1회)으로 읽고, 후보가 없으면 node 를 띄우지 않는다. 등재 조회가 실패하면 `WARN: STATE 브랜치 등재 조회 실패` 만 알리고 후보를 유령으로 몰지 않는다. 알려진 한계: 자기 트리에 자신을 등재한 브랜치는 BASE 가 나중에 그 항목을 archive 했어도 유령이 아니다 — archive 절차(사용자 확인을 받은 정리)가 그 브랜치를 폐기하거나 태그로 보존하므로 그 절차에 맡긴다.
+
+### 0.9.0 현재 작업 재주입 (긴 작업의 목표·절차 유지)
+
+긴 다단계 작업은 컨텍스트 압축 뒤 목표와 정해진 단계 순서를 잃고, 에이전트가 계획 순서를 벗어난 작업을 제안한다. 목표와 절차를 매 턴 눈앞에 두는 것이 토큰 비용보다 중요하므로, 비용을 이유로 생략하지 않는다.
+
+- **소유 항목**: detail frontmatter `branch:` 가 체크아웃의 현재 브랜치와 같은 §1 활성·§2 다음 항목이다(frontmatter 원천·manual 원천 모두). 활성 먼저, 같은 섹션은 `touched` 최근순, 최대 3개를 싣고 나머지는 `외 N개` 로 줄인다. 전체 텍스트는 약 3000바이트 이내이고 넘치면 필드를 단계적으로 줄인다.
+- **필드(모두 선택, 한 줄, 각 ≤200자)**: `goal`(목표와 완성 기준), `step`(지금 단계), `next_step`(다음 단계와 끝 조건). 계획 문서 경로는 기존 `handoff`(`path` 또는 `path#절`)를 쓴다. 필드가 비어 있거나 200자를 넘거나 콜론 뒤 공백이 없으면(`goal:값`, frontmatter 파서가 무시한다) `check-state-wip-cap.sh` 가 구조 경고를 낸다(없으면 경고 없음). 세 필드가 모두 없으면 `## 현재` 앞부분 발췌(≈600B)를 대신 싣는다. handoff 파일이 없으면 `(파일 없음)` 을 붙이고, handoff 가 없으면 `## 현재` 가 절차 정본이라고 적는다.
+- **지시문**: 알림 끝에 한 번 — 작업을 제안·시작·전환하기 전에 각 항목의 handoff(없으면 detail `## 현재`)에서 지금·다음 단계 절과 끝 조건을 다시 읽고 인용하며, 계획 순서를 벗어나거나 범위를 바꾸려면 먼저 사용자에게 묻되 이번 턴 사용자의 명시 지시가 우선하고(계획과 어긋나면 그 사실만 한 줄 알리고 따른다), 단계가 바뀌면 `step`·`next_step`(과 `status`)을 바꿔 쓴다.
+- **조용한 경우**: 현재 브랜치가 `STATE_DEFAULT_BRANCH`(기본 `main`; `origin/main` 처럼 원격 ref 로 주어도 `refs/remotes/<값>` 이 있으면 `main` 으로 본다)이거나 detached HEAD 이면 아무것도 싣지 않는다. 기본 브랜치를 가리키는 항목은 많아 소유가 모호하다. 소유 항목이 없거나 §3·§4 에만 있어도 출력이 없다.
+- **주입 시점**: UserPromptSubmit 마다 `additionalContext` 로, SessionStart(startup/resume/clear/compact)에서는 `additionalContext` 에 정리 요청 → 초기화·설정 경고 → 현재 작업 알림 → 정합·예산 요약 → 규칙 스킬 알림 → 원칙 → 인덱스 순으로 싣는다. Claude 의 SessionStart `additionalContextLimit: 5000` 절단에서 알림이 요약·인덱스보다 오래 살아남되 초기화 오류는 그보다 먼저 전달되게 하기 위해서다. 엔진 실패는 경고로만 표시하고 주입·기준점 저장은 막지 않는다.
+- **호스트**: Claude Code·Codex(같은 `hooks.json`), Muse(`muse-turn-start.sh` 가 dispatcher 출력을 그대로 전달, 15KB 이내), Antigravity(`antigravity-pre-invocation.mjs` 가 turn-start 알림을 매 호출 `injectSteps` 에 싣고 첫 호출의 session-start 와 중복되면 한 번만). opencode 는 훅이 아니라 instructions 주입이라 현재 작업 알림을 연결하지 않았다 — `templates/wiring/opencode-harness.ts` 의 `chat.message` 는 turn-start 의 오류(`systemMessage`)만 로그에 남기고 알림(`additionalContext`)은 주입도 로그도 하지 않는다.

@@ -17,10 +17,16 @@ function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' })
 }
 
+// HOOK_PROJECT_DIR(dispatcher·adapter 가 고른 세션 checkout) → 현재 디렉터리의 git toplevel → CLAUDE_PROJECT_DIR.
+// CLAUDE_PROJECT_DIR 은 worktree 세션에서도 primary checkout 일 수 있어 마지막에 둔다.
 export function projectRoot() {
-  const configured = process.env.HOOK_PROJECT_DIR ?? process.env.CLAUDE_PROJECT_DIR
-  const root = configured || git(process.cwd(), ['rev-parse', '--show-toplevel']).trim()
-  return realpathSync(resolve(root))
+  if (process.env.HOOK_PROJECT_DIR) return realpathSync(resolve(process.env.HOOK_PROJECT_DIR))
+  try {
+    return realpathSync(resolve(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()))
+  } catch (error) {
+    if (!process.env.CLAUDE_PROJECT_DIR) throw error
+  }
+  return realpathSync(resolve(process.env.CLAUDE_PROJECT_DIR))
 }
 
 export function readStaterc(root, key) {

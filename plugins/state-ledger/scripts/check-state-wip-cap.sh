@@ -5,7 +5,7 @@
 # - 인덱스 [id] ↔ docs/state/<area>/<id>.md 존재 (양방향 — lazy loading 라우팅 무결성) + id 자수·문자집합
 # - §1·§2·§4 id 필수 (id 없는 줄은 §3 placeholder 만 허용)
 # - detail frontmatter: 존재·id/area 경로 일치·필수 필드(owner·branch·touched)·hash(훅 우회 편집 감지)
-#   ·expires 경과·§1 owner·'## 현재' 필수
+#   ·expires 경과·§1 owner·'## 현재' 필수·선택 goal/step/next_step(있으면 비어 있지 않은 ≤200자 한 줄)
 # - detail 크기: 파일 ≤8KB·'## 현재' ≤4KB. STATE는 공유 상태판이므로 완료 경과는 커밋 메시지로 보낸다.
 #   크기 경고는 구조 실패가 아니다 — STATE_CHECK_STRICT=1 에서도 실패로 세지 않는다
 #   (strict는 구조 결함만 실패로 센다. 큰 detail은 구조 결함이 아니라 바꿔 쓰기 대상이다).
@@ -16,7 +16,7 @@
 set -u
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+root="${HOOK_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}")}"
 cd "$root" 2>/dev/null || exit 0
 
 if ! command -v node >/dev/null 2>&1; then
@@ -223,6 +223,20 @@ for p in sorted(glob.glob("docs/state/*/*.md")):
     real = hashlib.sha256(body.encode("utf-8")).hexdigest()[:8]
     if not h or h.group(1) != real:
         print(f"{p} hash 불일치 (기록 {h.group(1) if h else '없음'} ≠ 실제 {real}) — 훅 우회 편집, Edit 재저장 또는 재스탬프")
+    # 선택 필드 goal·step·next_step: 있으면 한 줄 요약(≤200자). 없으면 경고하지 않는다.
+    for k in ("goal", "step", "next_step"):
+        # parseFrontmatter 는 `^([a-z_]+): (.*)$` 만 필드로 읽는다 — 콜론 뒤 공백이 없으면 값이 무시된다.
+        fv = re.search(rf"^{k}:(.*)$", fm, re.M)
+        if not fv:
+            continue
+        raw = fv.group(1)
+        val = raw.strip()
+        if not val:
+            print(f"{p} frontmatter {k} 빈 값 — 지우거나 한 줄로 채운다")
+        elif not raw.startswith(" "):
+            print(f"{p} frontmatter {k} 형식 — '{k}: 값' (콜론 뒤 공백 하나)")
+        elif len(val) > 200:
+            print(f"{p} frontmatter {k} {len(val)}자 (cap 200자 초과) — 한 줄 요약만, 상세는 ## 현재·handoff 로")
     exp = re.search(r"^expires: (\S+)$", fm, re.M)
     if exp and exp.group(1) <= today:
         print(f"{p} expires={exp.group(1)} 경과 — 갱신 또는 archive")

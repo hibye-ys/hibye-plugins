@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1789,4 +1789,287 @@ test('Muse and Antigravity STATE adapters never invoke project context or valida
     runHook(ANTIGRAVITY_POST_TOOL_USE, root, { ...sessionPayload, toolCall: { name: 'replace_file_content', args: { TargetFile: target } } })
     assert.equal(existsSync(marker), false)
   })
+})
+
+// ── linked git worktree 세션: 세션 자기 checkout 의 STATE 를 쓴다 ─────────────────────────────
+// Claude 데스크톱 앱은 worktree 세션에도 CLAUDE_PROJECT_DIR 을 primary checkout 으로 넘긴다.
+// 아래 헬퍼는 HOOK_PROJECT_DIR 를 지우고 그 상황을 재현한다 (기존 runGlobalHook 은 HOOK_PROJECT_DIR 를 설정한다).
+const WT_ID = 'wtitem'
+const MAIN_STATUS = 'MAINSTATUS-primary-checkout'
+const BRANCH_STATUS = 'BRANCHSTATUS-worktree-branch'
+
+function wtDetail(status, branch, extraBody = '') {
+  const body = `\n## 현재\n\n${WT_ID} 남은 일.\n${extraBody}`
+  const hash = createHash('sha256').update(body).digest('hex').slice(0, 8)
+  return `---\nid: ${WT_ID}\narea: root\nsection: active\ntitle: ${WT_ID} 제목\nstatus: ${status}\nowner: agent\nbranch: ${branch}\ntouched: 2026-11-01T00:00\nhash: ${hash}\n---\n${body}`
+}
+
+function wtManualIndex(status) {
+  return `# STATE\n\n## 1. 활성 (지금 작업 중)\n\n- [${WT_ID}] ${WT_ID} 제목 — owner=agent; ${status}\n\n## 2. 다음 (활성 끝나면 시작)\n\n## 3. 미래 placeholder (조건부 트리거 대기)\n\n## 4. 미해결 결정 (의사결정 필요)\n`
+}
+
+// primary(main) + linked worktree(feat/x). 두 checkout 은 같은 항목의 status 만 다르다.
+function worktreeFixture(t, source) {
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), 'state-wt-')))
+  t.after(() => {
+    rmSync(parent, { recursive: true, force: true })
+    rmSync(`${parent}-hook-data`, { recursive: true, force: true })
+  })
+  const primary = join(parent, 'primary')
+  const worktree = join(parent, 'wt')
+  mkdirSync(primary)
+  git(primary, ['init', '-q', '-b', 'main'])
+  git(primary, ['config', 'user.email', 'test@example.com'])
+  git(primary, ['config', 'user.name', 'test'])
+  git(primary, ['config', 'core.hooksPath', '/dev/null'])
+  const frontmatter = source === 'frontmatter'
+  write(primary, '.staterc', `STATE_INDEXES="STATE.md"\nSTATE_DEFAULT_BRANCH="main"\n${frontmatter ? 'STATE_INDEX_SOURCE="frontmatter"\n' : ''}`)
+  write(primary, 'docs/state/root/wtitem.md', wtDetail(MAIN_STATUS, 'main'))
+  if (frontmatter) write(primary, '.gitignore', '/STATE.md\n')
+  else write(primary, 'STATE.md', wtManualIndex(MAIN_STATUS))
+  git(primary, ['add', '-A'])
+  git(primary, ['commit', '-q', '-m', 'seed [id=-]'])
+  git(primary, ['worktree', 'add', '-q', '-b', 'feat/x', worktree])
+  write(worktree, 'docs/state/root/wtitem.md', wtDetail(BRANCH_STATUS, 'feat/x'))
+  if (!frontmatter) write(worktree, 'STATE.md', wtManualIndex(BRANCH_STATUS))
+  git(worktree, ['add', '-A'])
+  git(worktree, ['commit', '-q', '-m', 'branch status [id=-]'])
+  return { primary, worktree, dataDir: `${parent}-hook-data` }
+}
+
+// HOOK_PROJECT_DIR 없음, CLAUDE_PROJECT_DIR = primary, 프로세스 cwd 와 입력 payload 는 호출자가 고른다.
+function runSessionDispatcher(mode, fixture, { cwd, payload, env = {} }) {
+  const childEnv = { ...process.env, CLAUDE_PROJECT_DIR: fixture.primary, STATE_HOOK_DATA_DIR: fixture.dataDir, PWD: cwd }
+  delete childEnv.HOOK_PROJECT_DIR
+  const merged = { ...childEnv, ...env }
+  for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key] // env: { KEY: undefined } 는 변수를 지운다
+  const result = spawnSync('bash', [GLOBAL_SCRIPT, mode], {
+    cwd,
+    encoding: 'utf8',
+    env: merged,
+    input: JSON.stringify(payload),
+  })
+  assert.equal(result.status, 0, result.stderr)
+  return result.stdout.trim()
+}
+
+function sessionContext(fixture, options) {
+  const output = runSessionDispatcher('session-start', fixture, {
+    ...options,
+    payload: { session_id: 'wt-session', hook_event_name: 'SessionStart', source: 'compact', ...options.payload },
+  })
+  return JSON.parse(output).hookSpecificOutput.additionalContext
+}
+
+function assertWorktreeStatus(context) {
+  assert.match(context, new RegExp(BRANCH_STATUS))
+  assert.doesNotMatch(context, new RegExp(MAIN_STATUS))
+}
+
+for (const source of ['frontmatter', 'manual']) {
+  test(`worktree SessionStart injects the worktree branch STATE, not the primary checkout (${source} index)`, (t) => {
+    const fixture = worktreeFixture(t, source)
+    assertWorktreeStatus(sessionContext(fixture, { cwd: fixture.worktree, payload: { cwd: fixture.worktree } }))
+  })
+}
+
+test('worktree SessionStart without a payload cwd falls back to the process cwd', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  assertWorktreeStatus(sessionContext(fixture, { cwd: fixture.worktree, payload: {} }))
+})
+
+test('worktree SessionStart prefers the payload cwd over the process cwd', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  assertWorktreeStatus(sessionContext(fixture, { cwd: fixture.primary, payload: { cwd: fixture.worktree } }))
+})
+
+test('worktree SessionStart accepts a payload cwd in a subdirectory of the worktree', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  assertWorktreeStatus(sessionContext(fixture, { cwd: fixture.primary, payload: { cwd: join(fixture.worktree, 'docs/state') } }))
+})
+
+test('a plain checkout session still injects its own STATE', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const context = sessionContext(fixture, { cwd: fixture.primary, payload: { cwd: fixture.primary } })
+  assert.match(context, new RegExp(MAIN_STATUS))
+  assert.doesNotMatch(context, new RegExp(BRANCH_STATUS))
+})
+
+test('an explicit HOOK_PROJECT_DIR from an adapter wins over the payload cwd', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const context = sessionContext(fixture, {
+    cwd: fixture.worktree,
+    payload: { cwd: fixture.worktree },
+    env: { HOOK_PROJECT_DIR: fixture.primary },
+  })
+  assert.match(context, new RegExp(MAIN_STATUS))
+  assert.doesNotMatch(context, new RegExp(BRANCH_STATUS))
+})
+
+test('worktree stamp updates the worktree detail and leaves the primary checkout untouched', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const detailPath = join(fixture.worktree, 'docs/state/root/wtitem.md')
+  const primaryDetail = join(fixture.primary, 'docs/state/root/wtitem.md')
+  const primaryBefore = readFileSync(primaryDetail, 'utf8')
+  const before = readFileSync(detailPath, 'utf8')
+  writeFileSync(detailPath, `${before}- 새 본문 한 줄\n`)
+  runSessionDispatcher('stamp', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: 'wt-stamp', hook_event_name: 'PostToolUse', cwd: fixture.worktree, tool_input: { file_path: detailPath } },
+  })
+  const after = readFileSync(detailPath, 'utf8')
+  const body = after.slice(after.indexOf('\n---\n') + 5)
+  const expectedHash = createHash('sha256').update(body).digest('hex').slice(0, 8)
+  assert.notEqual(after, `${before}- 새 본문 한 줄\n`, 'stamp rewrote the frontmatter')
+  assert.match(after, new RegExp(`^hash: ${expectedHash}$`, 'm'))
+  assert.doesNotMatch(after, /^touched: 2026-11-01T00:00$/m)
+  assert.equal(readFileSync(primaryDetail, 'utf8'), primaryBefore)
+  // frontmatter 원천이면 렌더된 로컬 인덱스는 worktree 에 쓰이고 primary 의 STATE.md 는 건드리지 않는다.
+  assert.match(readFileSync(join(fixture.worktree, 'STATE.md'), 'utf8'), new RegExp(BRANCH_STATUS))
+  assert.equal(existsSync(join(fixture.primary, 'STATE.md')), false)
+})
+
+test('an active turn baseline in the primary checkout is not a concurrent session of a worktree session', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  runSessionDispatcher('turn-start', fixture, {
+    cwd: fixture.primary,
+    payload: { session_id: 'session-in-primary', hook_event_name: 'UserPromptSubmit', cwd: fixture.primary },
+  })
+  const worktreeStart = (sessionId) => sessionContext(fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, cwd: fixture.worktree },
+  })
+  assert.doesNotMatch(worktreeStart('session-in-worktree-b'), /다른 활성 세션/)
+
+  // 같은 worktree 의 두 번째 세션은 여전히 동시 세션으로 잡힌다.
+  runSessionDispatcher('turn-start', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: 'session-in-worktree-a', hook_event_name: 'UserPromptSubmit', cwd: fixture.worktree },
+  })
+  assert.match(worktreeStart('session-in-worktree-b'), /같은 worktree에서 최근 30분 내 다른 활성 세션 1개가 감지됐습니다/)
+})
+
+// ── 세션 root 선택: cwd 가 다른 저장소로 나가도 세션의 checkout 에 머문다 ────────────────────────
+// CLAUDE_PROJECT_DIR=A 인데 hook 입력 cwd 가 에이전트의 cd 를 따라 다른 저장소 B 로 가는 상황을 재현한다.
+const OTHER_STATUS = 'OTHERSTATUS-other-repository'
+
+// fixture 와 같은 부모 아래의 별도 저장소. ledger=false 면 원장 없는 git 저장소.
+function otherRepository(fixture, { ledger }) {
+  const dir = join(dirname(fixture.primary), 'other')
+  mkdirSync(dir)
+  git(dir, ['init', '-q', '-b', 'main'])
+  git(dir, ['config', 'user.email', 'test@example.com'])
+  git(dir, ['config', 'user.name', 'test'])
+  git(dir, ['config', 'core.hooksPath', '/dev/null'])
+  write(dir, 'README.md', 'other\n')
+  if (ledger) {
+    write(dir, '.staterc', 'STATE_INDEXES="STATE.md"\nSTATE_DEFAULT_BRANCH="main"\n')
+    write(dir, 'docs/state/root/wtitem.md', wtDetail(OTHER_STATUS, 'main'))
+    write(dir, 'STATE.md', wtManualIndex(OTHER_STATUS))
+  }
+  git(dir, ['add', '-A'])
+  git(dir, ['commit', '-q', '-m', 'seed [id=-]'])
+  return realpathSync(dir)
+}
+
+function plainDirectory(fixture) {
+  const dir = join(dirname(fixture.primary), 'nogit')
+  mkdirSync(dir)
+  return realpathSync(dir)
+}
+
+function stampDetail(fixture, root, cwd, sessionId) {
+  const detailPath = join(root, 'docs/state/root/wtitem.md')
+  const before = `${readFileSync(detailPath, 'utf8')}- 새 본문 한 줄\n`
+  writeFileSync(detailPath, before)
+  runSessionDispatcher('stamp', fixture, {
+    cwd,
+    payload: { session_id: sessionId, hook_event_name: 'PostToolUse', cwd, tool_input: { file_path: detailPath } },
+  })
+  return { before, after: readFileSync(detailPath, 'utf8') }
+}
+
+const pinFiles = (fixture) => (existsSync(fixture.dataDir) ? readdirSync(fixture.dataDir).filter((name) => /^root-[0-9a-f]+\.json$/.test(name)) : [])
+
+test('cwd in another git repository without a ledger: CLAUDE_PROJECT_DIR still decides (stamp and SessionStart)', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const other = otherRepository(fixture, { ledger: false })
+  const { before, after } = stampDetail(fixture, fixture.primary, other, 'cwd-away-a')
+  assert.notEqual(after, before, 'stamp rewrote the primary detail although cwd is another repository')
+  assert.match(after, /^hash: [0-9a-f]{8}$/m)
+  const context = sessionContext(fixture, { cwd: other, payload: { cwd: other, session_id: 'cwd-away-a2' } })
+  assert.match(context, new RegExp(MAIN_STATUS))
+})
+
+test('cwd in another ledger repository: the session acts on CLAUDE_PROJECT_DIR and leaves the other repository untouched', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const other = otherRepository(fixture, { ledger: true })
+  const otherDetail = join(other, 'docs/state/root/wtitem.md')
+  const otherBefore = readFileSync(otherDetail, 'utf8')
+  const { before, after } = stampDetail(fixture, fixture.primary, other, 'cwd-away-b')
+  assert.notEqual(after, before)
+  const context = sessionContext(fixture, { cwd: other, payload: { cwd: other, session_id: 'cwd-away-b2' } })
+  assert.match(context, new RegExp(MAIN_STATUS))
+  assert.doesNotMatch(context, new RegExp(OTHER_STATUS))
+  assert.equal(readFileSync(otherDetail, 'utf8'), otherBefore)
+  assert.equal(git(other, ['status', '--porcelain']).trim(), '')
+  assert.equal(existsSync(join(other, '.git', 'state-ledger')), false)
+})
+
+test('a worktree session keeps its own checkout after cwd leaves the repository (SessionStart pins it)', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const away = plainDirectory(fixture)
+  assertWorktreeStatus(sessionContext(fixture, { cwd: fixture.worktree, payload: { cwd: fixture.worktree, source: 'startup' } }))
+  assert.equal(pinFiles(fixture).length, 1)
+  assertWorktreeStatus(sessionContext(fixture, { cwd: away, payload: { cwd: away } }))
+  const turn = runSessionDispatcher('turn-start', fixture, {
+    cwd: away,
+    payload: { session_id: 'wt-session', hook_event_name: 'UserPromptSubmit', cwd: away },
+  })
+  assertWorktreeStatus(JSON.parse(turn).hookSpecificOutput.additionalContext)
+  // 다른 세션 id 는 고정이 없으니 CLAUDE_PROJECT_DIR(primary)을 쓴다.
+  const fresh = sessionContext(fixture, { cwd: away, payload: { cwd: away, session_id: 'wt-other-session' } })
+  assert.match(fresh, new RegExp(MAIN_STATUS))
+})
+
+test('without CLAUDE_PROJECT_DIR (Codex-like) SessionStart pins the root and a later cwd in another ledger repo still acts on it', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const other = otherRepository(fixture, { ledger: true })
+  const noProject = { CLAUDE_PROJECT_DIR: undefined }
+  const start = (cwd, sessionId) => JSON.parse(runSessionDispatcher('session-start', fixture, {
+    cwd,
+    payload: { session_id: sessionId, hook_event_name: 'SessionStart', source: 'startup', cwd },
+    env: noProject,
+  })).hookSpecificOutput.additionalContext
+  assert.match(start(fixture.primary, 'codex-session'), new RegExp(MAIN_STATUS))
+  assert.equal(pinFiles(fixture).length, 1)
+
+  const away = start(other, 'codex-session')
+  assert.match(away, new RegExp(MAIN_STATUS))
+  assert.doesNotMatch(away, new RegExp(OTHER_STATUS))
+
+  const detailPath = join(fixture.primary, 'docs/state/root/wtitem.md')
+  const before = `${readFileSync(detailPath, 'utf8')}- 새 본문 한 줄\n`
+  writeFileSync(detailPath, before)
+  runSessionDispatcher('stamp', fixture, {
+    cwd: other,
+    payload: { session_id: 'codex-session', hook_event_name: 'PostToolUse', cwd: other, tool_input: { file_path: detailPath } },
+    env: noProject,
+  })
+  assert.notEqual(readFileSync(detailPath, 'utf8'), before, 'stamp acted on the pinned checkout')
+
+  // 고정이 없는 다른 세션은 cwd 의 저장소를 쓴다.
+  assert.match(start(other, 'codex-unpinned'), new RegExp(OTHER_STATUS))
+})
+
+test('a payload without a session id keeps working and writes no pin', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const other = otherRepository(fixture, { ledger: false })
+  const read = (cwd) => JSON.parse(runSessionDispatcher('session-start', fixture, {
+    cwd,
+    payload: { hook_event_name: 'SessionStart', source: 'startup', cwd },
+  })).hookSpecificOutput.additionalContext
+  assertWorktreeStatus(read(fixture.worktree))
+  assert.match(read(other), new RegExp(MAIN_STATUS), 'falls back to CLAUDE_PROJECT_DIR')
+  assert.deepEqual(pinFiles(fixture), [])
 })

@@ -31,12 +31,24 @@ export const StateLedgerPlugin: Plugin = async ({ client, $, worktree }) => {
     }
   }
 
+  const hookSystemMessage = (out: string): string => {
+    if (!out) return ""
+    try {
+      const parsed = JSON.parse(out)
+      return typeof parsed?.systemMessage === "string" ? parsed.systemMessage : ""
+    } catch {
+      return out
+    }
+  }
+
   return {
     "chat.message": async (input: any) => {
       const out = await runHook($, worktree, "turn-start", {
         session_id: input.sessionID,
       })
-      const msg = hookMessage(out)
+      // turn-start 는 현재 작업 알림을 additionalContext 로 돌려주지만 opencode 는 그것을 모델에 주입하지 못한다.
+      // 로그에는 오류(systemMessage)만 남기고 알림 본문은 매 메시지 경고로 찍지 않는다.
+      const msg = hookSystemMessage(out)
       if (!msg) return
       await client.app.log({
         body: {

@@ -8,7 +8,7 @@
 #   - Claude Code: tool_input.file_path (단일)
 #   - Codex (apply_patch): tool_input.command 패치 헤더에서 docs/state 경로 전부 추출 (다중 파일)
 #
-# 환경변수: HOOK_PROJECT_DIR(우선)/CLAUDE_PROJECT_DIR
+# 환경변수: HOOK_PROJECT_DIR(세션 checkout, 우선) → git toplevel → CLAUDE_PROJECT_DIR
 
 set -u
 
@@ -23,7 +23,7 @@ fi
 
 input=$(cat)
 
-root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+root="${HOOK_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}")}"
 cd "$root" 2>/dev/null || exit 0
 
 paths=$(echo "$input" | jq -r '.tool_input.file_path // empty')

@@ -5,7 +5,7 @@
 #    §3·§4 의 브랜치는 역사적 맥락이라 검사하지 않는다. 기본 브랜치 tip 과 동일한 브랜치는
 #    방금 예약한 빈 브랜치이므로 머지 오탐에서 제외한다.
 # ② 유령 브랜치: 기본 브랜치에 없는 커밋을 가진 로컬 브랜치가 어떤 detail frontmatter `branch:` 에도
-#    없다 → 등재하거나 폐기를 결정해야 한다. 본문 서사의 언급은 등재로 치지 않는다
+#    없다 (이 checkout 작업 트리·기본 브랜치 트리·그 브랜치 자기 트리 중 어디서도) → 등재하거나 폐기를 결정해야 한다. 본문 서사의 언급은 등재로 치지 않는다
 #    (substring 오탐 방지). STATE_BRANCH_EXCLUDE glob(기본 task-loop/*)은 자체 도구 관리로 보고 제외.
 #
 # 프로젝트 설정: 루트 `.staterc` (선택) — STATE_INDEXES, STATE_DEFAULT_BRANCH, STATE_BRANCH_EXCLUDE.
@@ -15,7 +15,7 @@ set -u
 command -v git >/dev/null 2>&1 || exit 0
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-root="${HOOK_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}"
+root="${HOOK_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}")}"
 cd "$root" 2>/dev/null || exit 0
 
 # .staterc — KEY="value" 고정 형식만 읽는다 (source ✕: set -u 중단·변수 오염·임의 실행 방지)
@@ -77,16 +77,44 @@ done <<EOF
 $pairs
 EOF
 
-# ② 유령 브랜치 — 기본 브랜치에 없는 커밋 보유 + 어떤 detail frontmatter `branch:` 에도 없음
+# ② 유령 브랜치 — 기본 브랜치에 없는 커밋 보유 + 등재된 detail frontmatter `branch:` 가 없음.
+# 등재는 병렬 브랜치에 흩어져 있다 → 이 checkout 작업 트리 / 기본 브랜치 트리 / 그 브랜치 자기 트리
+# 중 어디든 frontmatter 가 이름을 대면 등재로 본다. 앞의 둘만 보면 자기 트리에만 등재한 병렬 브랜치가
+# 전부 유령으로 보이고, 이 checkout 에서 포인터가 바뀐 브랜치도 유령이 된다.
+# git 트리는 node 한 번(리비전마다 ls-tree 1회 + cat-file --batch 1회)으로 읽는다 — SessionStart 마다 돈다.
 known_branches=$(find docs/state -name '*.md' -exec awk 'FNR==1{n=0} /^---$/{n++; next} n==1' {} + 2>/dev/null | sed -nE 's/^branch: (.+)$/\1/p' | sort -u)
+ghost_candidates=""
 for br in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
   case "$br" in "$BASE") continue ;; esac
   for pat in $BR_EXCLUDE; do case "$br" in $pat) continue 2 ;; esac; done
+  printf '%s\n' "$known_branches" | grep -qxF "$br" && continue
   ahead=$(git rev-list --count "$BASE..$br" 2>/dev/null || echo 0)
   [ "${ahead:-0}" -gt 0 ] || continue
-  if ! printf '%s\n' "$known_branches" | grep -qxF "$br"; then
-    echo "WARN: 유령 브랜치 $br — $BASE 에 없는 커밋 ${ahead}개, STATE 미등재 (등재 또는 폐기 결정 필요)"
-  fi
+  ghost_candidates="${ghost_candidates}${br} ${ahead}
+"
 done
+if [ -n "$ghost_candidates" ]; then
+  rev_args="--rev $BASE"  # 기본 브랜치는 위에서 rev-parse 로 확인한 이름 그대로 (origin/main 같은 설정 포함)
+  while read -r br ahead; do
+    [ -n "$br" ] && rev_args="$rev_args --rev refs/heads/$br"
+  done <<EOF
+$ghost_candidates
+EOF
+  # shellcheck disable=SC2086
+  if ! tree_registered=$(HOOK_PROJECT_DIR="$root" node "$script_dir/hooks/state-index.mjs" branches $rev_args 2>&1); then
+    # 조회가 실패하면 등재 여부를 알 수 없다 — 후보를 전부 유령으로 몰지 않고 실패만 알린다.
+    echo "WARN: STATE 브랜치 등재 조회 실패: ${tree_registered:0:400}"
+    ghost_candidates=""
+  fi
+  tab=$(printf '\t')
+  while read -r br ahead; do
+    [ -n "$br" ] || continue
+    printf '%s\n' "$tree_registered" | grep -qxF "$BASE$tab$br" && continue
+    printf '%s\n' "$tree_registered" | grep -qxF "refs/heads/$br$tab$br" && continue
+    echo "WARN: 유령 브랜치 $br — $BASE 에 없는 커밋 ${ahead}개, STATE 미등재 (등재 또는 폐기 결정 필요)"
+  done <<EOF
+$ghost_candidates
+EOF
+fi
 
 exit 0
