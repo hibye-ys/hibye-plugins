@@ -37,7 +37,7 @@ def command(*args, cwd=None):
 
 
 def tree_hashes(root, native_host=None):
-    payload = publication.capture_payload(root, claude_usage_markers=native_host == 'claude')
+    payload = publication.capture_claude_snapshot(root) if native_host == 'claude' else publication.capture_payload(root)
     return {name: hashlib.sha256(data).hexdigest() for name, (data, _) in payload.items()}
 
 
@@ -290,8 +290,15 @@ def check_plugin(name, hosts, expected=None, allow_inactive=False):
             verify_snapshot(record['cache'], data['codex'], expected, native_host=host)
             if host == 'claude':
                 target, _ = publication_for(name)
-                if record.get('git_commit') != publication.git(target, 'rev-parse', 'HEAD'):
+                expected_commit = publication.git(target, 'rev-parse', 'HEAD')
+                if record.get('git_commit') != expected_commit:
                     raise RuntimeError(f'Claude scope={record["scope"]} project={record.get("projectPath")} is not bound to the published Git commit: {name}')
+                if (record['cache'] / '.git').exists():
+                    if publication.git(record['cache'], 'rev-parse', 'HEAD') != expected_commit:
+                        raise RuntimeError(f'Claude native clone HEAD differs from the published Git commit: {name}')
+                    origin = publication.git(record['cache'], 'config', '--local', '--no-includes', '--get', 'remote.origin.url')
+                    if origin != target.as_uri():
+                        raise RuntimeError(f'Claude native clone origin differs from the published source: {name}')
         print(f'OK {host}/{name}: {version}, {len(expected)} payload files, {len(records)} scope(s)')
     if tree_hashes(source) != expected:
         raise RuntimeError('Source changed during verification; rerun with stable inputs')
@@ -356,7 +363,7 @@ def same_version_drift(name, hosts):
         for record in records:
             if record and record['version'] == version:
                 try:
-                    if tree_hashes(record['cache']) != wanted:
+                    if tree_hashes(record['cache'], native_host=host) != wanted:
                         return True
                     if host == 'claude':
                         # Equal bytes do not prove native execution: an old
@@ -464,9 +471,9 @@ def prepare_claude_catalog(names):
         finally:
             candidate.unlink(missing_ok=True)
     try:
-        command('claude', 'plugin', 'marketplace', 'add', str(catalog_root()), '--json')
+        command('claude', 'plugin', 'marketplace', 'add', str(catalog_root()))
         # Re-add alone does not invalidate the native marketplace listing cache.
-        command('claude', 'plugin', 'marketplace', 'update', MARKETPLACE, '--json')
+        command('claude', 'plugin', 'marketplace', 'update', MARKETPLACE)
     except RuntimeError as error:
         raise RuntimeError('claude marketplace source switch/listing refresh: ' + str(error)) from error
     verify_claude_catalog(names)
@@ -521,10 +528,6 @@ def sync_plugin(name, hosts, catalog_prepared=False, preserve_activation=False):
                     try:
                         exists = record_key(record) in activations
                         args = ['claude', 'plugin', 'update' if exists else 'install', plugin_id, '--scope', scope]
-                        if exists:
-                            args += ['--json', '-y']
-                        else:
-                            args += ['--json']
                         command(*args, **({'cwd': Path(project)} if project else {}))
                         current = next((item for item in claude_records(name) if record_key(item) == record_key(record)), None)
                         if current is None:

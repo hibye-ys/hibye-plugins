@@ -18,7 +18,7 @@ def unlinked(path):
     return path
 
 
-def capture_payload(source, claude_usage_markers=False):
+def capture_payload(source, claude_usage_markers=False, claude_git_metadata=False):
     source = unlinked(source)
     if not source.is_dir():
         raise RuntimeError(f'Payload directory missing: {source}')
@@ -26,6 +26,8 @@ def capture_payload(source, claude_usage_markers=False):
     for path in sorted(source.rglob('*')):
         unlinked(path)
         relative = path.relative_to(source).as_posix()
+        if not path.is_file() and not path.is_dir():
+            raise RuntimeError(f'Non-regular payload entry: {path}')
         if claude_usage_markers and relative.split('/')[0] == '.in_use':
             # Native Claude creates/removes PID markers during normal use. This
             # exception is installed-cache-only; source/publication calls stay
@@ -42,12 +44,21 @@ def capture_payload(source, claude_usage_markers=False):
                     continue
             raise RuntimeError(f'Invalid native Claude usage marker: {path}')
         if relative.split('/')[0] == '.git':
+            if claude_git_metadata:
+                continue
             raise RuntimeError('Plugin payload must not contain .git')
         if path.is_file():
             result[relative] = (path.read_bytes(), bool(path.stat().st_mode & 0o111))
         elif not path.is_dir():
             raise RuntimeError(f'Non-regular payload entry: {path}')
     return result
+
+
+def capture_claude_snapshot(source):
+    payload = capture_payload(source, claude_usage_markers=True, claude_git_metadata=True)
+    if (Path(source) / '.git').exists():
+        verify_git_payload(Path(source), payload, allow_shallow=True)
+    return payload
 
 
 def digest(payload):
@@ -83,11 +94,6 @@ def verify_publication(target, payload, require_read_only=True):
     target = unlinked(target)
     if not target.is_dir() or not (target / '.git').is_dir():
         raise RuntimeError(f'Invalid published Git repository: {target}')
-    if (any((target / '.git' / name).exists()
-            for name in ('commondir', 'config.worktree', 'shallow',
-                         'objects/info/alternates', 'objects/info/http-alternates'))
-            or any((target / '.git/objects/pack').glob('*.promisor'))):
-        raise RuntimeError('Published Git objects must be self-contained')
     actual = {}
     for path in sorted(target.rglob('*')):
         unlinked(path)
@@ -106,7 +112,21 @@ def verify_publication(target, payload, require_read_only=True):
         raise RuntimeError(f'Published payload changed: {target}')
     if require_read_only and any(path.stat().st_mode & 0o222 for path in (target, *[p for p in target.rglob('*') if p.is_dir()])):
         raise RuntimeError(f'Published repository directory is writable: {target}')
-    # Generated repositories do not depend on remote promises or included config.
+    verify_git_payload(target, payload)
+    return target
+
+
+def verify_git_payload(target, payload, allow_shallow=False):
+    metadata = unlinked(target / '.git')
+    if not metadata.is_dir():
+        raise RuntimeError('Snapshot Git metadata must be a real directory')
+    forbidden = ['commondir', 'config.worktree', 'objects/info/alternates', 'objects/info/http-alternates']
+    if not allow_shallow:
+        forbidden.append('shallow')
+    if any((metadata / name).exists() for name in forbidden) or any((metadata / 'objects/pack').glob('*.promisor')):
+        raise RuntimeError('Published Git objects must be self-contained')
+    # Native Claude uses a shallow clone. Its committed payload must still be
+    # complete locally; no alternates, lazy fetch or executable config is trusted.
     # Inspect only local keys before object queries; all Git transports are also
     # disabled in git_environment, including for configurations being rejected.
     keys = git(target, 'config', '--local', '--no-includes', '--name-only', '--list').lower().splitlines()
@@ -115,6 +135,14 @@ def verify_publication(target, payload, require_read_only=True):
            or (key.startswith('remote.') and key.rsplit('.', 1)[-1] in ('promisor', 'partialclonefilter'))
            for key in keys):
         raise RuntimeError('Published Git objects must be self-contained')
+    if allow_shallow:
+        safe = {'core.repositoryformatversion', 'core.filemode', 'core.bare', 'core.logallrefupdates',
+                'core.ignorecase', 'core.precomposeunicode', 'extensions.objectformat', 'submodule.active',
+                'remote.origin.url', 'remote.origin.fetch'}
+        if any(key not in safe and not (key.startswith('branch.') and key.rsplit('.', 1)[-1] in ('remote', 'merge')) for key in keys):
+            raise RuntimeError('Unsupported native snapshot Git configuration')
+        if any(path.is_file() and not path.name.endswith('.sample') for path in (metadata / 'hooks').glob('*')):
+            raise RuntimeError('Native snapshot must not contain active Git hooks')
     # Native clones consume committed Git objects, not merely worktree files.
     # Compare committed blob IDs/modes, then validate the actual stored objects.
     algorithm = git(target, 'rev-parse', '--show-object-format')
