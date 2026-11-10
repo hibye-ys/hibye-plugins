@@ -114,10 +114,6 @@ Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `
 Muse·Antigravity adapter는 STATE session inject, turn baseline, detail stamp, warn-only stop만 실행한다. 프로젝트 memory·intent 초기화는 독립 등록된 `project-context`가 소유하고, `post-edit-knip.sh` 같은 프로젝트 검사는 프로젝트의 native hook 등록이 소유한다. STATE adapter가 프로젝트 hook 파일을 찾아 대신 실행하지 않는다. 기존 Muse의 세션 ID·파일 경로 정규화와 16KB 출력 제한은 유지한다. 연결 API는 바뀌지 않아 `state-ledger-contract.json` v6를 유지한다.
 
 
-### 0.5.1 Linux·macOS 정리 잠금
-
-정리 요청 쓰기는 Linux의 util-linux `flock`, macOS의 BSD `lockf`를 사용한다. 설치 호스트에 해당 명령이 필요하며, 없거나 잠금을 얻지 못하면 STATE를 쓰지 않고 실패한다. 두 경로 모두 같은 빈 잠금 파일을 보존하고 비차단 배타 잠금·프로세스 종료 시 해제·기존 내용 대조 후 원자 교체를 유지한다. Linux는 `flock -F`로 writer를 직접 실행해 writer의 종료와 잠금 수명을 맞춘다. macOS 실행 검증은 macOS에서 별도로 수행해야 한다.
-
 ### 0.5.0 사용자 확인 뒤 정리 (Codex·Claude Code)
 
 기존 v6 계약은 유지하고 `cleanup_version: 1` capability를 더한다. 기본값은 off다. 정리 원장 쓰기에는 BSD `lockf`(macOS 기본 제공)이 필요하며 없거나 잠금 중이면 요청을 보존하고 실패한다. OS 임시 경로의 0바이트 파일에 운영체제 잠금을 잡으며 프로세스가 죽으면 자동 해제된다. 요청은 기존 STATE에만 기록한다. 프로젝트가 `.staterc`에 `STATE_CLEANUP_ENFORCE="1"`을 넣고 새 runner를 설치하면 다음 절차를 쓴다. 일반 cap·브랜치·태그 경고는 그대로다.
@@ -146,3 +142,7 @@ SessionStart는 미완료 요청을 다시 주입한다. 삭제/요청 제거의
 ### 0.8.1 정리 참조 검사 속도
 
 `referencesTo`가 index·커밋 스냅샷에서 후보 파일마다 `git show`를 띄워, markdown 이 많은 저장소(EUNHA 약 17초/스냅샷)에서 정리 검사·`validate-staged`가 runner timeout(30초)을 넘었다. 후보 파일을 `git cat-file --batch` 한 번으로 읽는다(같은 결과, 1초 미만).
+
+### 0.8.2 Linux·macOS 정리 잠금
+
+정리 요청 쓰기는 Linux의 util-linux `flock`, macOS의 BSD `lockf`를 사용한다. 설치 호스트에 해당 명령이 필요하며, 없거나 잠금을 얻지 못하면 STATE를 쓰지 않고 실패한다. 두 경로 모두 같은 빈 잠금 파일을 보존하고 비차단 배타 잠금·프로세스 종료 시 해제·기존 내용 대조 후 원자 교체를 유지한다. Linux는 `flock -F`로 writer를 직접 실행해 writer의 종료와 잠금 수명을 맞춘다. macOS 실행 검증은 macOS에서 별도로 수행해야 한다.
