@@ -241,7 +241,9 @@ export function otherActiveSessions(root, sessionId) {
 // lastActiveAt = max(capturedAt, 대화 기록 mtime) (ISO). 대화 기록 경로를 기록하지 않았으면(옛 기준점·기록이 없는 호스트) null — 알 수 없다.
 // 경로를 기록했는데 stat 이 실패하면 capturedAt 으로 본다.
 export function otherSessionActivity(root, sessionId) {
-  return activeOtherSessionDetails(root, sha(sessionId).slice(0, 16)).map(({ sessionIdHash, capturedAt, transcriptPath }) => {
+  // 30분 창은 lastActiveAt 에 건다 — 기준점이 오래됐어도 대화 기록이 계속 쓰이는(30분 넘는 긴 턴) 살아 있는 세션을 놓치지 않는다. 대화 기록 경로가 없으면 capturedAt 창이 그대로다.
+  const cutoff = Date.now() - ACTIVE_SESSION_MS
+  return activeOtherSessionDetails(root, sha(sessionId).slice(0, 16), true).map(({ sessionIdHash, capturedAt, transcriptPath }) => {
     let lastActiveAt = null
     if (typeof transcriptPath === 'string' && transcriptPath) {
       lastActiveAt = capturedAt
@@ -253,14 +255,15 @@ export function otherSessionActivity(root, sessionId) {
       }
     }
     return { sessionIdHash, capturedAt, lastActiveAt }
-  })
+  }).filter((entry) => Date.parse(entry.lastActiveAt ?? entry.capturedAt) >= cutoff)
 }
 
 function activeOtherSessions(root, ownSessionIdHash) {
   return activeOtherSessionDetails(root, ownSessionIdHash).map((entry) => entry.sessionIdHash)
 }
 
-function activeOtherSessionDetails(root, ownSessionIdHash) {
+// byActivity: 대화 기록 경로를 기록한 세션은 capturedAt 창으로 거르지 않고 호출자가 lastActiveAt 으로 거른다.
+function activeOtherSessionDetails(root, ownSessionIdHash, byActivity = false) {
   const directory = dataDirectory()
   const cutoff = Date.now() - ACTIVE_SESSION_MS
   try {
@@ -276,7 +279,7 @@ function activeOtherSessionDetails(root, ownSessionIdHash) {
             value?.active === true &&
             value?.sessionIdHash !== ownSessionIdHash &&
             Number.isFinite(capturedAt) &&
-            capturedAt >= cutoff
+            (capturedAt >= cutoff || (byActivity && typeof value.transcriptPath === 'string' && value.transcriptPath !== ''))
           ) {
             return [{ sessionIdHash: value.sessionIdHash, capturedAt: value.capturedAt, transcriptPath: typeof value.transcriptPath === 'string' ? value.transcriptPath : null }]
           }

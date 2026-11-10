@@ -2638,7 +2638,7 @@ test('D2: a step changed and committed on the feature branch, then a Stop on the
   await ctx.waitCalls(1)
 })
 
-test('D1/D2: stopTurn is recorded only by an owned-branch Stop that compared and did not block (return-path table)', async (t) => {
+test('D1/D2: stopTurn is recorded by every owned-branch Stop that ran to the end and did not block (return-path table)', async (t) => {
   const ctx = setup(t)
   // 이 세션의 상태 파일이 없으면 기본 브랜치 Stop 은 조용히 끝난다 — 상태 파일 자체가 생기지 않는다.
   git(ctx.root, 'checkout', '-q', 'main')
@@ -2646,9 +2646,9 @@ test('D1/D2: stopTurn is recorded only by an owned-branch Stop that compared and
   assert.equal(ctx.verifyFiles().length, 0)
   git(ctx.root, 'checkout', '-q', 'feat/x')
 
-  // 기준점이 없는 첫 Stop(턴 시작이 한 번도 안 돈 Codex 형): 비교가 아니므로 남기지 않는다.
+  // 기준점이 없는 첫 Stop(턴 시작이 한 번도 안 돈 Codex 형): 비교는 못 했어도 끝에서 기준점을 옮기므로 남긴다.
   assert.equal(ctx.stop(), '')
-  assert.equal(ctx.state().stopTurn, null)
+  assert.equal(ctx.state().stopTurn, 0)
 
   // stop_hook_active Stop 도 비교는 하므로 (막지 않으면) 남긴다.
   ctx.turnStart()
@@ -2666,6 +2666,37 @@ test('D1/D2: stopTurn is recorded only by an owned-branch Stop that compared and
   ctx.turnStart()
   assert.equal(JSON.parse(ctx.stop()).systemMessage.startsWith(DENIED_PREFIX), true)
   assert.notEqual(ctx.state().stopTurn, 3)
+})
+
+test('E1: a Stop that could not compare (turn started on main, agent switched to the owned branch) still records stopTurn — a hand edit before the next turn start is not blamed on the agent', async (t) => {
+  const ctx = setup(t)
+  git(ctx.root, 'checkout', '-q', 'main')
+  assert.equal(ctx.turnStart(), '') // 턴 1: 기본 브랜치라 상태 파일도 기준점도 없다
+  git(ctx.root, 'checkout', '-q', 'feat/x') // 에이전트가 이 턴 안에서 기능 브랜치로 옮겼다
+  assert.equal(ctx.stop(), '') // 비교할 기준점이 없는 Stop
+  assert.equal(ctx.state().stopTurn, ctx.state().userTurn)
+  ctx.setFields(FIELDS_B) // 사용자가 손으로 단계를 고친다
+  assert.equal(ctx.turnStart(), '') // 턴 2
+  assert.deepEqual(ctx.state().pendingTriggers, [], 'the hand edit after the Stop is not a trigger')
+})
+
+test('E2: otherSessionActivity applies the 30-minute window to lastActiveAt — a 40-minute-old baseline whose transcript is still being written is listed, a stale transcript is not, and no transcript path keeps the capturedAt window', async (t) => {
+  const ctx = setup(t)
+  startOtherSession(ctx, 'long-turn', fakeTranscript(ctx, 'long', Date.now() - 60000))
+  startOtherSession(ctx, 'stale', fakeTranscript(ctx, 'stale', Date.now() - 40 * 60000))
+  startOtherSession(ctx, 'no-path')
+  const old = new Date(Date.now() - 40 * 60000).toISOString()
+  for (const name of readdirSync(ctx.dataDir).filter((n) => n.endsWith('.json') && !n.startsWith('verify-'))) {
+    const file = join(ctx.dataDir, name)
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), capturedAt: old }))
+  }
+  const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `import { otherActiveSessions, otherSessionActivity } from ${JSON.stringify(BASELINE)}
+process.stdout.write(JSON.stringify({ hashes: otherActiveSessions(${JSON.stringify(ctx.root)}, ${JSON.stringify(SESSION)}), activity: otherSessionActivity(${JSON.stringify(ctx.root)}, ${JSON.stringify(SESSION)}) }))`], { encoding: 'utf8', env: ctx.env })
+  assert.equal(probe.status, 0, probe.stderr)
+  const { hashes, activity } = JSON.parse(probe.stdout)
+  assert.deepEqual(activity.map((entry) => entry.sessionIdHash), [sha('long-turn').slice(0, 16)])
+  assert.ok(Date.parse(activity[0].lastActiveAt) > Date.now() - 5 * 60000)
+  assert.deepEqual(hashes, [], 'otherActiveSessions keeps the capturedAt window')
 })
 
 test('D3: a session that went idle before our first turn is dead — not concurrent — while a long-turn session that started earlier but whose transcript keeps being written is concurrent', async (t) => {

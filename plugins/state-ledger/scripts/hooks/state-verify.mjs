@@ -1681,7 +1681,7 @@ function deniedStop(path, root, cfg, sessionId) {
 // 기본 브랜치·detached HEAD 의 Stop. turnStartWithoutOwner 와 같은 이유로, 상태 파일이 이미 있으면 거둔 판정을 보고·전달하고 새 검사는 시작하지 않는다.
 // 막는 규칙(actOnLatest)은 그대로다: 소유 해제(release) 계기의 판정은 검사 시점의 소유 스냅샷이 [] 라 지금의 [] 와 같아, 턴 시작에 아직 전달되지 않았다면 이 Stop 에서도 한 번 막는다
 // (끝났다는 거짓 주장을 한 번은 멈춘다). 그 밖의 판정은 스냅샷이 달라 낡은 것이 되어 보고만 한다.
-// stopTurn 은 남기지 않는다 — 소유 브랜치에서 변경을 비교한 Stop 이 아니므로, 기능 브랜치로 돌아온 뒤의 턴 시작은 그 비교를 건너뛰면 안 된다.
+// stopTurn 은 남기지 않는다 — 소유 브랜치에서 끝까지 돈 Stop 이 아니므로, 기능 브랜치로 돌아온 뒤의 턴 시작은 그 비교를 건너뛰면 안 된다.
 function stopWithoutOwner(path, root, cfg, sessionId, payload) {
   if (!existsSync(path)) return null
   const state = loadState(path, root, sessionId)
@@ -1721,8 +1721,6 @@ function stop(root, payload) {
   const acted = actOnLatest(state, payload, snapshot, now)
   messages.push(...acted.messages)
 
-  // 이 Stop 이 이번 턴의 변경을 저장된 기준점과 실제로 비교하는가(기준점이 없거나 브랜치가 바뀌었으면 비교가 아니다) — stopTurn 은 그때만 남긴다.
-  const compared = state.baselined && state.ownedBranch === owned.branch
   const found = baselineChanges(state, owned, snapshot, null)
   const periodicDue = owned.items.length > 0 && cfg.every > 0 && state.turnCount > 0 && state.turnCount % cfg.every === 0 && state.periodicTurn !== state.turnCount
   // 같은 checkout 의 다른 활성 세션이 있으면 누가 바꿨는지 알 수 없다 — 지금 발견한 단계 변경(소유 해제 포함)은 버리고 주기 점검은 건너뛴다. 이미 쌓인 계기와 도는 검사는 그대로다.
@@ -1767,12 +1765,13 @@ function stop(root, payload) {
       }
     }
   }
-  // stopTurn: 소유 브랜치에서 소유 항목으로 이번 턴의 변경을 비교했고 막지 않은 Stop 만 남긴다 — 다음 턴 시작은 이 뒤의 변경(사용자 손편집·git pull·다른 세션)을 에이전트 탓으로 비교하지 않는다.
+  // stopTurn: 소유 브랜치에서 끝까지 돌았고 막지 않은 Stop 만 남긴다 — 이 Stop 은 끝에서 기준점을 옮기므로(비교를 못 했어도 같다), 다음 턴 시작이 비교하는 구간은 이 뒤의
+  // 변경(사용자 손편집·git pull·다른 세션)뿐이라 에이전트 탓으로 비교하지 않는다. 기준점이 없거나 브랜치가 바뀌어 이번 Stop 이 비교를 못 한 경우도 같다.
   // 막은 Stop 은 남기지 않고(같은 턴 앞선 Stop 이 남긴 값도 지운다) — 에이전트가 이어 고친 뒤 Esc·API 오류로 Stop 이 더 돌지 않아도 다음 턴 시작이 그 변경을 비교한다.
-  // 비교를 못 한 Stop(기준점 없음·브랜치 바뀜)과 기본 브랜치·허용 안 됨·오류로 이른 반환도 남기지 않는다.
+  // 기본 브랜치·허용 안 됨·오류로 이른 반환도 남기지 않는다.
   if (acted.block) {
     if (state.stopTurn === state.userTurn) state.stopTurn = null
-  } else if (compared) {
+  } else {
     state.stopTurn = state.userTurn
   }
   saveState(path, state)
