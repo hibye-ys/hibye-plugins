@@ -203,7 +203,7 @@ export function buildReminder(root, branch, items) {
 
 // 기본 브랜치 판정. BASE 가 `origin/main` 같은 원격 ref 로 주어질 수 있다 — refs/remotes/<BASE> 가 실제로 있을 때만
 // 첫 `<remote>/` 마디를 떼고 비교한다 (로컬 기본 브랜치 `release/2026` 같은 이름은 자르지 않는다).
-function isBaseBranch(root, branch, base) {
+export function isBaseBranch(root, branch, base) {
   if (branch === base) return true
   const slash = base.indexOf('/')
   if (slash <= 0 || branch !== base.slice(slash + 1)) return false
@@ -217,13 +217,19 @@ function isBaseBranch(root, branch, base) {
   }
 }
 
+// 현재 브랜치의 소유 항목 {branch, items}. 기본 브랜치·detached HEAD 는 소유를 따지지 않으므로 null (items 가 비어 있을 수는 있다).
+// 독립 검증(state-verify.mjs)도 같은 소유 판정을 쓴다.
+export function currentOwned(root) {
+  const branch = currentBranch(root)
+  if (!branch) return null
+  if (isBaseBranch(root, branch, readStaterc(root, 'STATE_DEFAULT_BRANCH') || 'main')) return null
+  return { branch, items: ownedItems(root, branch) }
+}
+
 // 알림 텍스트 또는 ''. 기본 브랜치·detached HEAD·소유 항목 없음은 조용히 ''.
 export function focusReminder(root) {
-  const branch = currentBranch(root)
-  if (!branch) return ''
-  if (isBaseBranch(root, branch, readStaterc(root, 'STATE_DEFAULT_BRANCH') || 'main')) return ''
-  const items = ownedItems(root, branch)
-  return buildReminder(root, branch, items)
+  const owned = currentOwned(root)
+  return owned ? buildReminder(root, owned.branch, owned.items) : ''
 }
 
 function main() {

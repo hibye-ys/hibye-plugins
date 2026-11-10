@@ -98,6 +98,11 @@ $rules_notice"
   fi
 fi
 
+# 독립 검증(opt-in): compaction 으로 시작한 세션이면 다음 Stop 에서 점검하도록 예약한다. 출력은 쓰지 않고 실패도 주입을 막지 않는다.
+if [ -z "$config_error" ] && [ -f "$root/.staterc" ] && grep -Eq '^STATE_VERIFY="1"[[:space:]]*$' "$root/.staterc" 2>/dev/null; then
+  printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-verify.mjs" session-start >/dev/null 2>&1 || true
+fi
+
 STATE_PRINCIPLE='STATE = 공유 상태판. 남은 일·소유·결정이 바뀌면 그 줄을 바꿔 쓴다. 작업 기록은 커밋 메시지 [id=<id>] (STATE 항목과 무관하면 [id=-]).'
 principle_added=0
 total_bytes=0
