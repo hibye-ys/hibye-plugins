@@ -2,12 +2,13 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { INSTRUCTION, MAX_REMINDER_BYTES, focusReminder } from './state-focus.mjs'
+import { blockCleanup, requestCleanup } from './state-cleanup.mjs'
+import { INSTRUCTION, MAX_REMINDER_BYTES, buildReminder, currentBranch, focusReminder, ownedItems } from './state-focus.mjs'
 
 const WIP_CHECK_SCRIPT = fileURLToPath(new URL('../check-state-wip-cap.sh', import.meta.url))
 const SESSION_SCRIPT = fileURLToPath(new URL('./session-start-state-inject.sh', import.meta.url))
@@ -115,10 +116,10 @@ test('owned active item: turn-start injects goal, step, next step, handoff and t
   assert.ok(text.includes(`- 목표·완성 기준: ${FULL_FIELDS.goal}`))
   assert.ok(text.includes(`- 지금 단계: ${FULL_FIELDS.step}`))
   assert.ok(text.includes(`- 다음 단계: ${FULL_FIELDS.next_step}`))
-  assert.ok(text.includes(`- 절차(handoff): ${FULL_FIELDS.handoff}\n`))
+  assert.ok(text.trimEnd().endsWith(`- 절차(handoff): ${FULL_FIELDS.handoff}`))
   assert.doesNotMatch(text, /파일 없음|- 상태:|앞부분/)
   assert.equal(text.split(INSTRUCTION).length, 2, 'instruction appears exactly once')
-  assert.ok(text.trimEnd().endsWith(INSTRUCTION))
+  assert.ok(text.startsWith(`${text.split('\n')[0]}\n${INSTRUCTION}\n`), 'instruction follows the header line')
   console.log(`--- example reminder ---\n${text}\n------------------------`)
 })
 
@@ -235,9 +236,9 @@ test('more than three owned items: three shown (active first, newest first) plus
   const order = ['[a2]', '[a3]', '[a1]'].map((id) => text.indexOf(id))
   assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], 'active items newest first')
   assert.doesNotMatch(text, /\[n1\] .*—/)
-  assert.match(text, /\n외 2개: \[n1\] \[n2\]\n/)
+  assert.match(text, /\n외 2개: \[n1\] \[n2\]$/)
   assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_REMINDER_BYTES, `${Buffer.byteLength(text, 'utf8')}B`)
-  assert.ok(text.trimEnd().endsWith(INSTRUCTION), 'instruction survives size shrinking')
+  assert.ok(text.includes(`===\n${INSTRUCTION}\n`), 'instruction survives size shrinking')
   assert.doesNotMatch(text, /�/)
 })
 
@@ -251,7 +252,7 @@ test('a single oversized item (long title, excerpt) still fits the byte budget',
   const text = focusReminder(root)
   assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_REMINDER_BYTES)
   assert.ok(text.includes('detail ## 현재 앞부분'))
-  assert.ok(text.trimEnd().endsWith(INSTRUCTION))
+  assert.ok(text.includes(`===\n${INSTRUCTION}\n`))
 })
 
 test('wip-cap warns for empty or over-200-char goal·step·next_step, passes 200, and ignores absent fields', (t) => {
@@ -429,4 +430,285 @@ test('a remote-ref STATE_DEFAULT_BRANCH counts the matching local branch as the 
   write(local, 'docs/state/root/year.md', detail('year', { branch: '2026', fields: FULL_FIELDS }))
   commit(local, 'year [id=year]')
   assert.match(focusReminder(local), /브랜치 2026/)
+})
+
+const bytesOf = (text) => Buffer.byteLength(text, 'utf8')
+const HEADER_RE = /^=== STATE 현재 작업 — 브랜치 .+ \(매 턴 다시 주입\) ===$/
+
+// ---------- 0.10.1: 현재 작업 알림 보강 ----------
+
+test('M1: a tag named like the branch does not turn the branch into heads/<name>', (t) => {
+  const root = repo(t)
+  write(root, 'docs/state/root/notes.md', detail('notes', { fields: FULL_FIELDS }))
+  commit(root, 'seed [id=notes]')
+  git(root, 'tag', 'feat/x')
+  assert.equal(git(root, 'symbolic-ref', '--short', 'HEAD'), 'heads/feat/x', 'fixture: git itself reports the ambiguous short name')
+  assert.equal(currentBranch(root), 'feat/x')
+  const text = focusReminder(root)
+  assert.match(text, /^=== STATE 현재 작업 — 브랜치 feat\/x \(/)
+  assert.match(text, /\[notes\]/)
+
+  // 기본 브랜치와 같은 이름의 태그가 있어도 기본 브랜치는 조용하다.
+  const onMain = repo(t, { branch: 'main' })
+  write(onMain, 'docs/state/root/basework.md', detail('basework', { branch: 'main', fields: FULL_FIELDS }))
+  commit(onMain, 'seed [id=basework]')
+  git(onMain, 'tag', 'main')
+  assert.equal(currentBranch(onMain), 'main')
+  assert.equal(focusReminder(onMain), '')
+  assert.equal(turnStart(onMain), '')
+
+  git(onMain, 'checkout', '-q', '--detach')
+  assert.equal(currentBranch(onMain), null)
+})
+
+test('H6: the handoff path and #anchor are printed in full while goal/step/next shrink to fit the budget', (t) => {
+  const root = repo(t)
+  const long = '가'.repeat(200)
+  const handoffs = ['a1', 'a2', 'a3'].map((id) => `docs/plans/${'long-plan-directory/'.repeat(5)}${id}-plan.md#${'section-anchor-'.repeat(4)}end`)
+  handoffs.forEach((handoff, i) => {
+    assert.ok([...handoff].length <= 300 && [...handoff].length > 120, `fixture handoff length ${[...handoff].length}`)
+    write(root, `docs/state/root/a${i + 1}.md`, detail(`a${i + 1}`, { touched: `2026-11-0${i + 1}T00:00`, fields: { goal: long, step: long, next_step: long, handoff } }))
+  })
+  commit(root, 'seed')
+
+  const text = focusReminder(root)
+  assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
+  for (const handoff of handoffs) assert.ok(text.includes(`- 절차(handoff): ${handoff} (파일 없음)`), `handoff clipped or item dropped: ${handoff}\n${text}`)
+  assert.match(text, /목표·완성 기준: 가+…/, 'long fields were shrunk, not the handoff')
+  assert.doesNotMatch(text, /외 \d+개/, 'all three items stay shown')
+  assert.doesNotMatch(text, /�/)
+
+  // 300자를 넘는 handoff 는 깨진 접두사 대신 고정 안내.
+  const huge = `docs/plans/${'다'.repeat(310)}.md#절`
+  write(root, 'docs/state/root/a1.md', detail('a1', { touched: '2026-11-09T00:00', fields: { goal: 'g', step: 's', next_step: 'n', handoff: huge } }))
+  commit(root, 'huge handoff')
+  const note = focusReminder(root)
+  assert.ok(note.includes('- 절차(handoff): (handoff 값이 300자를 넘음 — detail frontmatter 에서 직접 확인)'))
+  assert.ok(!note.includes('다'.repeat(20)), 'no broken prefix of the oversized handoff')
+})
+
+test('M8: five max-length items keep whole items (title + handoff), the 외 N개 line and the 3000B cap; nothing is cut mid-line', (t) => {
+  const root = repo(t)
+  const long = '나'.repeat(200)
+  const handoff = `docs/plans/${'계획-'.repeat(60)}.md#${'절'.repeat(40)}`
+  ;[['a1', 'active', '2026-11-05'], ['a2', 'active', '2026-11-04'], ['a3', 'active', '2026-11-03'], ['n1', 'next', '2026-11-02'], ['n2', 'next', '2026-11-01']].forEach(([id, section, day]) => {
+    write(root, `docs/state/root/${id}.md`, detail(id, { section, title: long, touched: `${day}T00:00`, fields: { goal: long, step: long, next_step: long, handoff } }))
+  })
+  commit(root, 'seed')
+
+  const text = focusReminder(root)
+  assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
+  assert.doesNotMatch(text, /�|잘림/)
+  const lines = text.split('\n')
+  assert.match(lines[0], HEADER_RE)
+  assert.equal(lines[1], INSTRUCTION)
+  const rest = lines.at(-1)
+  const m = /^외 (\d+)개: ((?:\[[a-z0-9-]+\] ?)+)$/.exec(rest)
+  assert.ok(m, `last line is the 외 N개 line: ${rest}`)
+  const shown = lines.filter((line) => /^\[[a-z0-9-]+\] /.test(line))
+  assert.equal(shown.length + Number(m[1]), 5, 'shown + hidden covers all five items')
+  assert.equal(m[2].trim().split(' ').length, Number(m[1]))
+  assert.ok(shown.length >= 1)
+  // 보이는 항목마다 제목 줄 → … → handoff 줄이 온전하고, 줄이 중간에서 잘리지 않았다.
+  for (const line of shown) assert.match(line, / — docs\/state\/root\/[a-z0-9]+\.md \(§[12] (활성|다음)\)$/, `title line cut: ${line}`)
+  assert.equal(lines.filter((line) => line === `- 절차(handoff): ${handoff} (파일 없음)`).length, shown.length, 'every shown item keeps its full handoff line')
+  assert.ok(shown.length < 3, 'the budget forced fewer items instead of cutting bytes')
+})
+
+test('M8: as a last resort only the item tail is clipped (with a marker); instruction and 외 N개 line stay, total stays within 3000B', (t) => {
+  const root = repo(t)
+  // 머리줄의 브랜치 이름은 200B 로 잘리므로, 안전망은 항목 1개의 고정 줄(긴 id·경로, 4바이트 문자 필드, 300자 직전 handoff)로 부른다.
+  const branch = 'feat/x'
+  const id = `a1${'x'.repeat(240)}`
+  const emoji = '😀'.repeat(200)
+  const handoff = `docs/plans/${'😀'.repeat(280)}.md#절`
+  write(root, `docs/state/root/${id}.md`, detail(id, { branch, title: emoji, fields: { goal: emoji, step: emoji, next_step: emoji, handoff } }))
+  write(root, 'docs/state/root/a2.md', detail('a2', { branch, touched: '2026-10-01T00:00' }))
+  commit(root, 'seed')
+  const text = buildReminder(root, branch, ownedItems(root, branch))
+  assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
+  assert.ok(text.includes(`\n${INSTRUCTION}\n`))
+  assert.doesNotMatch(text, /�/)
+  assert.ok(text.includes('…(잘림)'))
+  assert.match(text.trimEnd().split('\n').at(-1), /^외 1개: \[a2\]$/)
+})
+
+test('R2: the 3000B safety net is strict — oversized ids in the 외 N개 line shrink, the count stays exact, the result is valid UTF-8 with header and instruction intact', (t) => {
+  const root = repo(t)
+  const ids = Array.from({ length: 20 }, (_, i) => `${String.fromCharCode(97 + i)}${'x'.repeat(199)}`)
+  const handoff = `docs/plans/${'😀'.repeat(60)}.md#${'😀'.repeat(20)}`
+  ids.forEach((id, i) => {
+    write(root, `docs/state/root/${id}.md`, detail(id, { touched: `2026-11-0${(i % 9) + 1}T00:00`, fields: { goal: 'g', step: 's', next_step: 'n', handoff } }))
+  })
+  commit(root, 'seed')
+  const text = buildReminder(root, 'feat/x', ownedItems(root, 'feat/x'))
+  assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
+  assert.equal(Buffer.from(text, 'utf8').toString('utf8'), text)
+  assert.doesNotMatch(text, /�/)
+  const lines = text.split('\n')
+  assert.match(lines[0], HEADER_RE)
+  assert.equal(lines[1], INSTRUCTION)
+  assert.match(text, /\n외 \d+개: /, 'the 외 N개 line is present')
+  const m = /\n외 (\d+)개: /.exec(text)
+  const shown = lines.filter((line) => /^\[[a-z]x+\] /.test(line))
+  assert.equal(shown.length + Number(m[1]), 20, 'the hidden count stays exact')
+})
+
+test('a very long branch name is clipped in the header so the instruction and the 외 N개 line still fit', (t) => {
+  const root = repo(t)
+  for (let i = 0; i < 12; i += 1) {
+    write(root, `docs/state/root/item${i}.md`, detail(`item${i}`, { touched: `2026-11-0${(i % 9) + 1}T00:00`, fields: { goal: 'g'.repeat(300), step: 's'.repeat(300), next_step: 'n', handoff: 'docs/plans/p.md' } }))
+  }
+  commit(root, 'seed')
+  const text = buildReminder(root, `feat/${'가'.repeat(1500)}`, ownedItems(root, 'feat/x'))
+  assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
+  const lines = text.split('\n')
+  assert.ok(bytesOf(lines[0]) < 300, `header ${bytesOf(lines[0])}B`)
+  assert.match(lines[0], /…/)
+  assert.equal(lines[1], INSTRUCTION)
+  assert.match(text, /\[item\d+\]/)
+})
+
+test('instruction sits right after the header line, before any item', (t) => {
+  const root = repo(t)
+  seedHandoff(root)
+  write(root, 'docs/state/root/notes.md', detail('notes', { fields: FULL_FIELDS }))
+  commit(root, 'seed [id=notes]')
+  const lines = focusReminder(root).split('\n')
+  assert.match(lines[0], HEADER_RE)
+  assert.equal(lines[1], INSTRUCTION)
+  assert.ok(lines.findIndex((line) => line.startsWith('[notes]')) > 1)
+  const context = sessionContext(root, { source: 'startup' })
+  assert.ok(context.includes(`매 턴 다시 주입) ===\n${INSTRUCTION}\n`))
+})
+
+const PLACEHOLDERS = ['>', '|', '>-', '|-', '""', "''", 'null', '~']
+
+test('YAML placeholders (> | >- |- "" \'\' null ~) count as empty for the engine and wip-cap warns for goal/step/next_step/handoff', (t) => {
+  const root = repo(t)
+  PLACEHOLDERS.forEach((placeholder, i) => {
+    const id = `ph${i}`
+    write(root, `docs/state/root/${id}.md`, detail(id, { fields: { goal: placeholder, step: placeholder, next_step: placeholder, handoff: placeholder } }))
+    commit(root, `seed ${id}`)
+    const text = focusReminder(root)
+    assert.ok(text.includes(`[${id}]`), placeholder)
+    assert.doesNotMatch(text, /^- (목표·완성 기준|지금 단계|다음 단계):/m, `placeholder ${placeholder} printed as a field`)
+    assert.ok(!text.includes(`: ${placeholder}\n`) && !text.endsWith(`: ${placeholder}`), `placeholder ${placeholder} leaked`)
+    assert.match(text, new RegExp(`- 상태: ${id} 상태`), placeholder)
+    assert.match(text, /- 절차\(handoff\): 없음 — detail ## 현재 가 절차 정본/, placeholder)
+    assert.match(text, /detail ## 현재 앞부분/, `${placeholder}: all three empty falls back to the excerpt`)
+    const { out } = run(WIP_CHECK_SCRIPT, root)
+    for (const key of ['goal', 'step', 'next_step', 'handoff']) {
+      assert.match(out, new RegExp(`WARN: docs/state/root/${id}\\.md frontmatter ${key} 형식 — 한 줄 평문 값을 쓴다 \\(YAML 블록·null 표기 불가\\)`), `${placeholder} ${key}`)
+    }
+    rmSync(join(root, `docs/state/root/${id}.md`))
+    commit(root, `drop ${id}`)
+  })
+  // 정상 한 줄 값과 handoff '-' 는 경고가 없다.
+  write(root, 'docs/state/root/fine.md', detail('fine', { fields: { goal: '목표', step: '단계', next_step: '다음', handoff: '-' } }))
+  commit(root, 'fine')
+  assert.doesNotMatch(run(WIP_CHECK_SCRIPT, root).out, /fine\.md frontmatter/)
+})
+
+test('handoff outside the repository is flagged and never stat-ed: absolute path, .. escape, ~ path, symlink out', (t) => {
+  const root = repo(t)
+  seedHandoff(root)
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'state-focus-outside-')))
+  t.after(() => rmSync(outside, { recursive: true, force: true }))
+  write(outside, 'secret.md', '# 밖\n')
+  mkdirSync(join(root, 'docs/plans'), { recursive: true })
+  symlinkSync(join(outside, 'secret.md'), join(root, 'docs/plans/link.md'))
+  const cases = {
+    abs: '/etc/hosts',
+    up: '../../x',
+    home: '~/.ssh/id_rsa',
+    link: 'docs/plans/link.md#절',
+    absAnchor: `${outside}/secret.md#절`,
+  }
+  Object.entries(cases).forEach(([id, handoff], i) => {
+    write(root, `docs/state/root/${id.toLowerCase()}.md`, detail(id.toLowerCase(), { touched: `2026-11-0${i + 1}T00:00`, fields: { goal: 'g', step: 's', next_step: 'n', handoff } }))
+  })
+  // 안쪽의 정상 파일·없는 파일은 밖으로 오인하지 않는다.
+  write(root, 'docs/state/root/inside.md', detail('inside', { section: 'next', fields: { goal: 'g', step: 's', next_step: 'n', handoff: FULL_FIELDS.handoff } }))
+  write(root, 'docs/state/root/gone.md', detail('gone', { section: 'next', touched: '2026-10-01T00:00', fields: { goal: 'g', step: 's', next_step: 'n', handoff: 'docs/plans/gone.md' } }))
+  commit(root, 'seed')
+  const text = focusReminder(root)
+  // MAX_ITEMS(3) 제한이 있으므로 항목별로 buildReminder 를 따로 부른다.
+  const render = (id) => buildReminder(root, 'feat/x', ownedItems(root, 'feat/x').filter((item) => item.id === id))
+  for (const [id, handoff] of Object.entries(cases)) {
+    assert.ok(render(id.toLowerCase()).includes(`- 절차(handoff): ${handoff} (저장소 밖 경로 — 무시)`), `${id}: ${handoff}`)
+  }
+  assert.ok(render('inside').includes(`- 절차(handoff): ${FULL_FIELDS.handoff}\n`) || render('inside').trimEnd().endsWith(`- 절차(handoff): ${FULL_FIELDS.handoff}`))
+  assert.ok(render('gone').includes('- 절차(handoff): docs/plans/gone.md (파일 없음)'))
+  assert.doesNotMatch(render('gone'), /저장소 밖/)
+  assert.ok(text.length > 0)
+})
+
+test('Antigravity first invocation with an independent-verifier verdict block: reminder once, verdict once, session context kept', (t) => {
+  const root = repo(t)
+  seedHandoff(root)
+  write(root, 'docs/state/root/notes.md', detail('notes', { fields: FULL_FIELDS }))
+  commit(root, 'seed [id=notes]')
+
+  // turn-start 만 판정 블록을 덧붙이는 대역 dispatcher (실제 Antigravity 에서는 verify 가 no-op 이라 직접 재현할 수 없다).
+  const ledger = realpathSync(mkdtempSync(join(tmpdir(), 'state-focus-ledger-')))
+  t.after(() => rmSync(ledger, { recursive: true, force: true }))
+  mkdirSync(join(ledger, 'scripts/hooks'), { recursive: true })
+  const stub = join(ledger, 'scripts/hooks/global-state-hook.sh')
+  writeFileSync(stub, `#!/bin/bash
+mode="$1"
+input=$(cat)
+case "$mode" in
+  turn-start)
+    focus=$(HOOK_PROJECT_DIR="$HOOK_PROJECT_DIR" node ${JSON.stringify(FOCUS_SCRIPT)} reminder)
+    verdict=$'=== STATE 독립 검증 결과 (step, opus) ===\\n판정: drift/order — 대역 판정'
+    jq -n --arg ctx "$focus"$'\\n\\n'"$verdict" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:$ctx}}'
+    ;;
+  session-start)
+    printf '%s' "$input" | HOOK_PROJECT_DIR="$HOOK_PROJECT_DIR" bash ${JSON.stringify(SESSION_SCRIPT)}
+    ;;
+esac
+`)
+  chmodSync(stub, 0o755)
+  const sid = `focus-anti-verdict-${process.pid}-${Date.now()}`
+  t.after(() => {
+    rmSync(join(tmpdir(), `antigravity-session-inject-${sid}.flag`), { force: true })
+    rmSync(join(tmpdir(), `antigravity-state-stop-${sid}.flag`), { force: true })
+  })
+  const invoke = (invocationNum) => {
+    const out = run(ANTIGRAVITY_PRE_INVOCATION, root, { input: JSON.stringify({ conversationId: sid, invocationNum, workspacePaths: [root] }), env: { STATE_LEDGER_ROOT: ledger } })
+    assert.equal(out.status, 0, out.out)
+    return JSON.parse(out.stdout.trim()).injectSteps[0].ephemeralMessage
+  }
+  const count = (text, needle) => text.split(needle).length - 1
+
+  const first = invoke(1)
+  assert.equal(count(first, '=== STATE 현재 작업'), 1, `reminder duplicated:\n${first}`)
+  assert.equal(count(first, '=== STATE 독립 검증 결과'), 1)
+  assert.equal(count(first, INSTRUCTION), 1)
+  assert.ok(first.includes('=== STATE.md ==='), 'session-start context is still injected')
+
+  const second = invoke(2)
+  assert.equal(count(second, '=== STATE 현재 작업'), 1)
+  assert.equal(count(second, '=== STATE 독립 검증 결과'), 1)
+  assert.doesNotMatch(second, /=== STATE\.md ===/)
+})
+
+test('SessionStart: a long cleanup-request list is capped so the reminder stays inside the first 5000 bytes', async (t) => {
+  const root = repo(t, { staterc: `${FM_STATERC}STATE_CLEANUP_ENFORCE="1"\n` })
+  seedHandoff(root)
+  write(root, 'docs/state/root/notes.md', detail('notes', { fields: FULL_FIELDS }))
+  for (const id of ['kk1', 'kk2', 'kk3', 'kk4', 'kk5']) write(root, `docs/state/root/${id}.md`, detail(id, { branch: 'other' }))
+  commit(root, 'seed [id=notes]')
+  for (const id of ['kk1', 'kk2', 'kk3', 'kk4', 'kk5']) {
+    const request = await requestCleanup(root, { sessionId: 'focus-session', scope: 'explicit', targets: [`root/${id}`], instructionRef: 'chat:1', instruction: '정리해' })
+    await blockCleanup(root, { requestId: request.id, sessionId: 'focus-session', reason: '긴 사유 '.repeat(300) })
+  }
+  const context = sessionContext(root, { source: 'startup' })
+  const reminder = focusReminder(root)
+  const at = context.indexOf(reminder)
+  assert.ok(at >= 0, 'reminder present in full')
+  assert.ok(bytesOf(context.slice(0, at + reminder.length)) <= 5000, `reminder ends at ${bytesOf(context.slice(0, at + reminder.length))}B`)
+  assert.match(context, /…\(2개 더\)/)
+  assert.ok(context.indexOf('STATE 정리 미완료 요청') < at, 'cleanup list still comes first')
 })

@@ -5,7 +5,7 @@
 # - 인덱스 [id] ↔ docs/state/<area>/<id>.md 존재 (양방향 — lazy loading 라우팅 무결성) + id 자수·문자집합
 # - §1·§2·§4 id 필수 (id 없는 줄은 §3 placeholder 만 허용)
 # - detail frontmatter: 존재·id/area 경로 일치·필수 필드(owner·branch·touched)·hash(훅 우회 편집 감지)
-#   ·expires 경과·§1 owner·'## 현재' 필수·선택 goal/step/next_step(있으면 비어 있지 않은 ≤200자 한 줄)
+#   ·expires 경과·§1 owner·'## 현재' 필수·선택 goal/step/next_step(있으면 비어 있지 않은 ≤200자 한 줄 평문; YAML 블록·null 표기는 handoff 포함 경고)
 # - detail 크기: 파일 ≤8KB·'## 현재' ≤4KB. STATE는 공유 상태판이므로 완료 경과는 커밋 메시지로 보낸다.
 #   크기 경고는 구조 실패가 아니다 — STATE_CHECK_STRICT=1 에서도 실패로 세지 않는다
 #   (strict는 구조 결함만 실패로 센다. 큰 detail은 구조 결함이 아니라 바꿔 쓰기 대상이다).
@@ -181,6 +181,8 @@ today = os.environ["TODAY"]
 cap = int(os.environ["DETAIL_BYTE_CAP"])
 current_cap = int(os.environ["CURRENT_BYTE_CAP"])
 target_area = os.environ.get("TARGET_AREA", "")
+# state-focus.mjs YAML_PLACEHOLDERS 와 같은 목록 — 엔진은 이 값을 빈 값으로 본다.
+YAML_PLACEHOLDERS = {">", "|", ">-", "|-", ">+", "|+", '""', "''", "null", "Null", "NULL", "~"}
 
 def current_bytes(body):
     # '## 현재' 줄부터 다음 '## ' heading 직전까지.
@@ -235,8 +237,14 @@ for p in sorted(glob.glob("docs/state/*/*.md")):
             print(f"{p} frontmatter {k} 빈 값 — 지우거나 한 줄로 채운다")
         elif not raw.startswith(" "):
             print(f"{p} frontmatter {k} 형식 — '{k}: 값' (콜론 뒤 공백 하나)")
+        elif val in YAML_PLACEHOLDERS:
+            print(f"{p} frontmatter {k} 형식 — 한 줄 평문 값을 쓴다 (YAML 블록·null 표기 불가)")
         elif len(val) > 200:
             print(f"{p} frontmatter {k} {len(val)}자 (cap 200자 초과) — 한 줄 요약만, 상세는 ## 현재·handoff 로")
+    # handoff 도 YAML 블록·null 표기는 내용이 아니다 (비어 있거나 '-' 는 "없음"으로 허용).
+    hv = re.search(r"^handoff: (.*)$", fm, re.M)
+    if hv and hv.group(1).strip() in YAML_PLACEHOLDERS:
+        print(f"{p} frontmatter handoff 형식 — 한 줄 평문 값을 쓴다 (YAML 블록·null 표기 불가)")
     exp = re.search(r"^expires: (\S+)$", fm, re.M)
     if exp and exp.group(1) <= today:
         print(f"{p} expires={exp.group(1)} 경과 — 갱신 또는 archive")

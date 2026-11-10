@@ -229,45 +229,92 @@ export function checkFrontmatterIndex(root, { area: targetArea = '' } = {}, conf
   return warnings
 }
 
+// git 객체를 `git cat-file --batch` 한 번으로 읽는다. 입력은 `<sha>` 또는 `<rev>:<path>` 줄이고, 못 찾은 객체(`missing`·`ambiguous`)는 null 이다.
+// 반환: 입력 순서대로 {type, body: Buffer} | null.
+function readObjects(root, names) {
+  if (!names.length) return []
+  const out = execFileSync('git', ['cat-file', '--batch'], { cwd: root, input: `${names.join('\n')}\n`, maxBuffer: 512 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 })
+  const objects = []
+  let offset = 0
+  for (let index = 0; index < names.length; index += 1) {
+    const end = out.indexOf(10, offset)
+    if (end < 0) { objects.push(null); continue }
+    const match = /^[0-9a-f]+ (\w+) (\d+)$/.exec(out.subarray(offset, end).toString('utf8'))
+    offset = end + 1
+    if (!match) { objects.push(null); continue }
+    const size = Number(match[2])
+    objects.push({ type: match[1], body: out.subarray(offset, offset + size) })
+    offset += size + 1
+  }
+  return objects
+}
+
+// tree 객체 본문(`<mode> <name>\0<바이너리 sha>` 의 반복)을 {mode, name, sha} 목록으로 푼다. sha 길이는 호출자가 안다(sha1=20, sha256=32).
+function parseTree(body, shaBytes) {
+  const entries = []
+  let offset = 0
+  while (offset < body.length) {
+    const space = body.indexOf(32, offset)
+    const nul = space < 0 ? -1 : body.indexOf(0, space)
+    if (nul < 0 || nul + 1 + shaBytes > body.length) break
+    entries.push({ mode: body.subarray(offset, space).toString('utf8'), name: body.subarray(space + 1, nul).toString('utf8'), sha: body.subarray(nul + 1, nul + 1 + shaBytes).toString('hex') })
+    offset = nul + 1 + shaBytes
+  }
+  return entries
+}
+
 // 리비전별 "detail frontmatter `branch:` 가 가리키는 브랜치" 집합 — 유령 브랜치 검사(check-state-branch-sync.sh ②)용.
 // 병렬 브랜치는 자기 트리에만 자기를 등재하므로, 한 checkout 의 작업 트리만 보면 오탐한다.
-// 비용: 리비전마다 `git ls-tree` 1회 + 서로 다른 blob 전체를 `git cat-file --batch` 1회(같은 blob 은 한 번만 읽는다).
+// 비용: 리비전 수와 무관하게 git 프로세스 몇 개 — `<rev>:docs/state` 를 batch-check 한 번으로 풀고, 서로 다른 tree 만 한 층씩
+// `git cat-file --batch` 로 내려가며(같은 tree 는 한 번만 읽는다 — 브랜치 대부분은 같은 하위 tree 를 공유한다), 마지막에 서로 다른 blob 을 한 번에 읽는다.
 // docs/state 아래 .md 의 첫 `---` … `---` 블록만 인정한다 — 본문 서사의 언급은 등재가 아니다.
 export function frontmatterBranches(root, revisions) {
   root = realpathSync(root)
-  const shaByRev = new Map()
-  const shas = new Set()
-  for (const rev of revisions) {
-    const own = []
-    let listed = ''
-    try { listed = git(root, ['ls-tree', '-r', '-z', rev, '--', 'docs/state/']) } catch (error) { if (error.status !== 128) throw error }
-    for (const record of listed.split('\0')) {
-      const match = /^100\d{3} blob ([0-9a-f]+)\t(.+)$/.exec(record)
-      if (!match || !match[2].endsWith('.md')) continue
-      own.push(match[1])
-      shas.add(match[1])
-    }
-    shaByRev.set(rev, own)
+  const revList = [...revisions]
+  const rootTreeByRev = new Map()
+  if (revList.length) {
+    const out = execFileSync('git', ['cat-file', '--batch-check'], { cwd: root, input: `${revList.map((rev) => `${rev}:docs/state`).join('\n')}\n`, maxBuffer: 64 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 }).toString('utf8').split('\n')
+    revList.forEach((rev, index) => {
+      const match = /^([0-9a-f]+) tree \d+$/.exec(out[index] ?? '')
+      if (match) rootTreeByRev.set(rev, match[1])
+    })
   }
+  // tree sha → 그 아래(재귀) .md blob sha 목록. 층별로 아직 모르는 tree 만 읽는다.
+  const childrenByTree = new Map()
+  const markdownBlobs = new Map()
+  let pending = [...new Set(rootTreeByRev.values())]
+  while (pending.length) {
+    const objects = readObjects(root, pending)
+    const next = new Set()
+    pending.forEach((treeSha, index) => {
+      const object = objects[index]
+      const subtrees = []
+      const blobs = []
+      if (object?.type === 'tree') {
+        for (const entry of parseTree(object.body, treeSha.length / 2)) {
+          if (entry.mode === '40000') subtrees.push(entry.sha)
+          else if (/^100\d{3}$/.test(entry.mode) && entry.name.endsWith('.md')) blobs.push(entry.sha)
+        }
+      }
+      childrenByTree.set(treeSha, subtrees)
+      markdownBlobs.set(treeSha, blobs)
+      for (const sub of subtrees) if (!childrenByTree.has(sub)) next.add(sub)
+    })
+    pending = [...next]
+  }
+  const allBlobs = new Map()
+  const blobsOf = (treeSha) => {
+    if (!allBlobs.has(treeSha)) allBlobs.set(treeSha, [...(markdownBlobs.get(treeSha) ?? []), ...(childrenByTree.get(treeSha) ?? []).flatMap(blobsOf)])
+    return allBlobs.get(treeSha)
+  }
+  const shaByRev = new Map([...rootTreeByRev].map(([rev, treeSha]) => [rev, blobsOf(treeSha)]))
+  const shas = [...new Set([...shaByRev.values()].flat())]
   const branchesBySha = new Map()
-  const ordered = [...shas]
-  if (ordered.length) {
-    const out = execFileSync('git', ['cat-file', '--batch'], { cwd: root, input: `${ordered.join('\n')}\n`, maxBuffer: 512 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 })
-    let offset = 0
-    for (const sha of ordered) {
-      const end = out.indexOf(10, offset)
-      if (end < 0) break
-      const header = out.subarray(offset, end).toString('utf8')
-      offset = end + 1
-      const match = /^[0-9a-f]+ blob (\d+)$/.exec(header)
-      if (!match) continue
-      const size = Number(match[1])
-      const branch = parseFrontmatter(out.subarray(offset, offset + size).toString('utf8'))?.branch
-      if (branch) branchesBySha.set(sha, branch)
-      offset += size + 1
-    }
-  }
-  return new Map([...shaByRev].map(([rev, list]) => [rev, new Set(list.map((sha) => branchesBySha.get(sha)).filter(Boolean))]))
+  readObjects(root, shas).forEach((object, index) => {
+    const branch = object?.type === 'blob' ? parseFrontmatter(object.body.toString('utf8'))?.branch : null
+    if (branch) branchesBySha.set(shas[index], branch)
+  })
+  return new Map(revList.map((rev) => [rev, new Set((shaByRev.get(rev) ?? []).map((sha) => branchesBySha.get(sha)).filter(Boolean))]))
 }
 
 function main() {

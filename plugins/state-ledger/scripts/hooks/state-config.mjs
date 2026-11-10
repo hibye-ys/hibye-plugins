@@ -51,7 +51,7 @@ export function readStaterc(root, key) {
   }
 }
 
-function staysWithinRoot(root, absolute) {
+export function staysWithinRoot(root, absolute) {
   const rel = relative(root, absolute)
   return rel === '' || (!rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && rel !== '..' && !isAbsolute(rel))
 }

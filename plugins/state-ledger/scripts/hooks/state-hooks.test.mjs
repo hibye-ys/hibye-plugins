@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -2072,4 +2072,267 @@ test('a payload without a session id keeps working and writes no pin', (t) => {
   assertWorktreeStatus(read(fixture.worktree))
   assert.match(read(other), new RegExp(MAIN_STATUS), 'falls back to CLAUDE_PROJECT_DIR')
   assert.deepEqual(pinFiles(fixture), [])
+})
+
+// ── 0.10.1: primary 세션의 root·스탬프, CLAUDE_PROJECT_DIR 이 저장소 밖일 때, pin 폴더 검증 ────────────────
+const pinName = (sessionId) => `root-${execFileSync('git', ['hash-object', '--stdin'], { input: sessionId, encoding: 'utf8' }).trim()}.json`
+
+// 세션 id 의 pin 파일을 미리 심는다. 폴더는 0700 으로 만든다.
+function seedPin(dir, sessionId, root) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  writeFileSync(join(dir, pinName(sessionId)), `${JSON.stringify({ root })}\n`)
+}
+
+const turnStartPrimary = (fixture, sessionId) => runSessionDispatcher('turn-start', fixture, {
+  cwd: fixture.primary,
+  payload: { session_id: sessionId, hook_event_name: 'UserPromptSubmit', cwd: fixture.primary },
+})
+
+// 편집 결과를 만들고(본문 한 줄 추가) cwd/payload cwd 에서 stamp 를 돌린다.
+function editAndStamp(fixture, { detailPath, cwd, sessionId, env = {} }) {
+  const before = `${readFileSync(detailPath, 'utf8')}- 새 본문 한 줄\n`
+  writeFileSync(detailPath, before)
+  runSessionDispatcher('stamp', fixture, {
+    cwd,
+    payload: { session_id: sessionId, hook_event_name: 'PostToolUse', cwd, tool_input: { file_path: detailPath } },
+    env,
+  })
+  return { before, after: readFileSync(detailPath, 'utf8') }
+}
+
+test('a primary session that cds into a sibling worktree mid-turn keeps its baseline: Stop still judges the primary checkout', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'primary-cd-stop'
+  turnStartPrimary(fixture, sessionId)
+  const pin = join(fixture.dataDir, pinName(sessionId))
+  assert.equal(JSON.parse(readFileSync(pin, 'utf8')).root, fixture.primary)
+  const pinBefore = readFileSync(pin, 'utf8')
+
+  write(fixture.primary, 'src/app.ts', 'export const app = true\n')
+  commit(fixture.primary, ['src/app.ts'], 'add app without a tag')
+
+  const output = runSessionDispatcher('stop', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'Stop', stop_hook_active: false, cwd: fixture.worktree },
+  })
+  assert.notEqual(output, '', 'expected the untagged-commit reminder from the primary baseline')
+  assert.equal(JSON.parse(output).systemMessage, `STATE reminder: 이번 턴 커밋 중 STATE id 태그가 없는 커밋 — ${short(headSha(fixture.primary))} add app without a tag. ${UNTAGGED_GUIDANCE}`)
+  assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'Stop never rewrites the pin')
+})
+
+test('a mid-turn auto-compaction (SessionStart source=compact) in a sibling worktree does not move the pin: Stop keeps the primary baseline', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'primary-cd-compact'
+  turnStartPrimary(fixture, sessionId)
+  const pin = join(fixture.dataDir, pinName(sessionId))
+  assert.equal(JSON.parse(readFileSync(pin, 'utf8')).root, fixture.primary)
+  const pinBefore = readFileSync(pin, 'utf8')
+
+  // 턴 중간에 형제 worktree 로 cd 한 뒤 자동 압축 → SessionStart(source=compact, cwd=worktree).
+  const compacted = runSessionDispatcher('session-start', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'SessionStart', source: 'compact', cwd: fixture.worktree },
+  })
+  assert.match(JSON.parse(compacted).hookSpecificOutput.additionalContext, new RegExp(MAIN_STATUS), 'compact injects the pinned (primary) checkout')
+  assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'compact never rewrites the pin')
+
+  const output = runSessionDispatcher('stop', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'Stop', stop_hook_active: false, cwd: fixture.worktree },
+  })
+  assert.doesNotMatch(output, /missing-baseline|기준점이 정상 상태가 아닙니다/)
+  assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'Stop never rewrites the pin')
+
+  // 반대로 startup/resume/clear 은 여전히 턴 경계다: cwd 를 따라 고정을 옮긴다.
+  runSessionDispatcher('session-start', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'SessionStart', source: 'resume', cwd: fixture.worktree },
+  })
+  assert.equal(JSON.parse(readFileSync(pin, 'utf8')).root, fixture.worktree, 'resume is still a turn boundary')
+})
+
+test('stamp follows the edited file: a primary session edits a sibling worktree detail and the other way round', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'primary-cd-stamp'
+  turnStartPrimary(fixture, sessionId)
+  const pin = join(fixture.dataDir, pinName(sessionId))
+  const pinBefore = readFileSync(pin, 'utf8')
+  const primaryDetail = join(fixture.primary, 'docs/state/root/wtitem.md')
+  const worktreeDetail = join(fixture.worktree, 'docs/state/root/wtitem.md')
+
+  // cwd=worktree 에서 primary 파일을 고친다 → primary 가 스탬프된다 (root 는 세션의 primary 로 고정).
+  const worktreeBefore = readFileSync(worktreeDetail, 'utf8')
+  const primaryEdit = editAndStamp(fixture, { detailPath: primaryDetail, cwd: fixture.worktree, sessionId })
+  assert.notEqual(primaryEdit.after, primaryEdit.before, 'primary detail was stamped although the session cwd is the worktree')
+  assert.doesNotMatch(primaryEdit.after, /^touched: 2026-11-01T00:00$/m)
+  assert.equal(readFileSync(worktreeDetail, 'utf8'), worktreeBefore)
+
+  // cwd=primary 에서 worktree 파일을 고친다 → 그 파일이 있는 worktree checkout 기준으로 스탬프된다.
+  const primaryAfterFirst = readFileSync(primaryDetail, 'utf8')
+  const worktreeEdit = editAndStamp(fixture, { detailPath: worktreeDetail, cwd: fixture.primary, sessionId })
+  assert.notEqual(worktreeEdit.after, worktreeEdit.before, 'worktree detail was stamped although the session root is the primary checkout')
+  assert.doesNotMatch(worktreeEdit.after, /^touched: 2026-11-01T00:00$/m)
+  const body = worktreeEdit.after.slice(worktreeEdit.after.indexOf('\n---\n') + 5)
+  assert.match(worktreeEdit.after, new RegExp(`^hash: ${createHash('sha256').update(body).digest('hex').slice(0, 8)}$`, 'm'))
+  assert.equal(readFileSync(primaryDetail, 'utf8'), primaryAfterFirst, 'the primary detail is left alone')
+  // frontmatter 원천이면 스탬프한 checkout 의 로컬 생성 인덱스가 갱신된다.
+  assert.match(readFileSync(join(fixture.worktree, 'STATE.md'), 'utf8'), new RegExp(BRANCH_STATUS))
+  assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'stamp never rewrites the pin')
+})
+
+test('stamp without a pin follows the edited file into a sibling worktree but still skips another repository', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const other = otherRepository(fixture, { ledger: true })
+  const worktreeDetail = join(fixture.worktree, 'docs/state/root/wtitem.md')
+  const otherDetail = join(other, 'docs/state/root/wtitem.md')
+  // 세션 id 가 없어 pin 이 없다: root = cwd(primary). 파일이 형제 worktree 에 있으면 그쪽을 스탬프한다.
+  const edit = editAndStamp(fixture, { detailPath: worktreeDetail, cwd: fixture.primary, sessionId: undefined })
+  assert.notEqual(edit.after, edit.before)
+  assert.deepEqual(pinFiles(fixture), [])
+  // 다른 저장소의 파일은 그대로 건너뛴다.
+  const otherBefore = `${readFileSync(otherDetail, 'utf8')}- 새 본문 한 줄\n`
+  writeFileSync(otherDetail, otherBefore)
+  runSessionDispatcher('stamp', fixture, {
+    cwd: fixture.primary,
+    payload: { hook_event_name: 'PostToolUse', cwd: fixture.primary, tool_input: { file_path: otherDetail } },
+  })
+  assert.equal(readFileSync(otherDetail, 'utf8'), otherBefore)
+})
+
+test('existing worktree sessions still use their own checkout (pin written at turn start, reused by stamp and Stop)', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'worktree-own'
+  runSessionDispatcher('turn-start', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'UserPromptSubmit', cwd: fixture.worktree },
+  })
+  assert.equal(JSON.parse(readFileSync(join(fixture.dataDir, pinName(sessionId)), 'utf8')).root, fixture.worktree)
+  write(fixture.worktree, 'src/wt.ts', 'export const wt = true\n')
+  commit(fixture.worktree, ['src/wt.ts'], 'worktree work without a tag')
+  const output = runSessionDispatcher('stop', fixture, {
+    cwd: fixture.primary,
+    payload: { session_id: sessionId, hook_event_name: 'Stop', stop_hook_active: false, cwd: fixture.primary },
+  })
+  assert.match(JSON.parse(output).systemMessage, /worktree work without a tag/)
+})
+
+test('CLAUDE_PROJECT_DIR outside any repository: the root follows the cwd and no pin is read or written', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const other = otherRepository(fixture, { ledger: true })
+  const nogit = plainDirectory(fixture)
+  const env = { CLAUDE_PROJECT_DIR: nogit }
+  const start = (cwd) => JSON.parse(runSessionDispatcher('session-start', fixture, {
+    cwd,
+    payload: { session_id: 'launched-outside', hook_event_name: 'SessionStart', source: 'startup', cwd },
+    env,
+  })).hookSpecificOutput.additionalContext
+  assert.match(start(fixture.primary), new RegExp(MAIN_STATUS))
+  const second = start(other)
+  assert.match(second, new RegExp(OTHER_STATUS), 'the session moved on to the second repository')
+  assert.doesNotMatch(second, new RegExp(MAIN_STATUS))
+  runSessionDispatcher('turn-start', fixture, {
+    cwd: other,
+    payload: { session_id: 'launched-outside', hook_event_name: 'UserPromptSubmit', cwd: other },
+    env,
+  })
+  assert.deepEqual(pinFiles(fixture), [], 'no pin file is written')
+})
+
+test('a pin that points to another repository than CLAUDE_PROJECT_DIR is ignored', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const other = otherRepository(fixture, { ledger: true })
+  const away = plainDirectory(fixture)
+  seedPin(fixture.dataDir, 'foreign-pin', other)
+  const context = sessionContext(fixture, { cwd: away, payload: { cwd: away, session_id: 'foreign-pin' } })
+  assert.match(context, new RegExp(MAIN_STATUS), 'CLAUDE_PROJECT_DIR decides, not the foreign pin')
+  assert.doesNotMatch(context, new RegExp(OTHER_STATUS))
+  // 같은 저장소의 다른 worktree 를 가리키는 pin 은 계속 쓴다.
+  seedPin(fixture.dataDir, 'sibling-pin', fixture.worktree)
+  assertWorktreeStatus(sessionContext(fixture, { cwd: away, payload: { cwd: away, session_id: 'sibling-pin' } }))
+})
+
+test('a pin directory that is a symlink is neither read nor written', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const away = plainDirectory(fixture)
+  const realDirectory = `${fixture.dataDir}-real`
+  t.after(() => rmSync(realDirectory, { recursive: true, force: true }))
+  seedPin(realDirectory, 'linked-pin', fixture.worktree)
+  symlinkSync(realDirectory, fixture.dataDir)
+  const before = readdirSync(realDirectory).sort()
+  const context = sessionContext(fixture, { cwd: away, payload: { cwd: away, session_id: 'linked-pin' } })
+  assert.match(context, new RegExp(MAIN_STATUS), 'the pin behind the symlink was not used')
+  assert.doesNotMatch(context, new RegExp(BRANCH_STATUS))
+  // 쓰기도 막는다: 새 세션이 worktree 에서 시작해도 심링크 너머에 pin 이 생기지 않는다.
+  sessionContext(fixture, { cwd: fixture.worktree, payload: { cwd: fixture.worktree, session_id: 'linked-new' } })
+  assert.deepEqual(readdirSync(realDirectory).sort(), before)
+})
+
+test('a group/other-accessible pin directory is tightened to 0700 and still used', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  mkdirSync(fixture.dataDir, { mode: 0o700 })
+  chmodSync(fixture.dataDir, 0o777)
+  // stamp 는 root 선택만 하고 편집할 파일이 없어 곧바로 끝난다 — 폴더 권한은 root 선택 단계에서 좁혀진다.
+  runSessionDispatcher('stamp', fixture, {
+    cwd: fixture.primary,
+    payload: { session_id: 'loose-dir', hook_event_name: 'PostToolUse', cwd: fixture.primary, tool_input: {} },
+  })
+  assert.equal(statSync(fixture.dataDir).mode & 0o777, 0o700)
+  chmodSync(fixture.dataDir, 0o775)
+  assertWorktreeStatus(sessionContext(fixture, { cwd: fixture.worktree, payload: { cwd: fixture.worktree, session_id: 'loose-dir' } }))
+  assert.equal(statSync(fixture.dataDir).mode & 0o777, 0o700)
+  assert.equal(pinFiles(fixture).length, 1, 'the pin is written once the directory is private')
+})
+
+test('the pin directory defaults to a per-user path under TMPDIR, like the Node data directory', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const tmp = `${fixture.dataDir}-tmp`
+  mkdirSync(tmp)
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+  assertWorktreeStatus(sessionContext(fixture, {
+    cwd: fixture.worktree,
+    payload: { cwd: fixture.worktree, session_id: 'default-dir' },
+    env: { STATE_HOOK_DATA_DIR: undefined, TMPDIR: `${tmp}/` },
+  }))
+  const created = readdirSync(tmp).filter((name) => name.startsWith('state-ledger-hooks-'))
+  assert.deepEqual(created, [`state-ledger-hooks-${process.getuid()}`])
+  assert.equal(statSync(join(tmp, created[0])).mode & 0o777, 0o700)
+  assert.ok(readdirSync(join(tmp, created[0])).some((name) => /^root-[0-9a-f]+\.json$/.test(name)))
+})
+
+// ── 0.10.1 M9: frontmatter 만 고친 편집도 touched 를 갱신한다 ────────────────────────────────────
+test('stamp: a frontmatter-only edit refreshes touched and keeps hash; a no-op edit leaves the file untouched', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const detailPath = join(fixture.primary, 'docs/state/root/wtitem.md')
+  const stampOnly = (path = detailPath) => runSessionDispatcher('stamp', fixture, {
+    cwd: fixture.primary,
+    payload: { session_id: 'fm-only', hook_event_name: 'PostToolUse', cwd: fixture.primary, tool_input: { file_path: path } },
+  })
+  const committed = readFileSync(detailPath, 'utf8')
+  const committedHash = committed.match(/^hash: (\S+)$/m)[1]
+
+  // 1. 변경 없음: 커밋된 파일 그대로 → 다시 쓰지 않는다 (inode·mtime 그대로).
+  const before = statSync(detailPath)
+  stampOnly()
+  const unchanged = statSync(detailPath)
+  assert.equal(readFileSync(detailPath, 'utf8'), committed)
+  assert.equal(unchanged.ino, before.ino)
+  assert.equal(unchanged.mtimeMs, before.mtimeMs)
+
+  // 2. status 한 줄만 고친다 → touched 갱신, hash 유지.
+  writeFileSync(detailPath, committed.replace(`status: ${MAIN_STATUS}`, 'status: step 2 of 3 done'))
+  stampOnly()
+  const edited = readFileSync(detailPath, 'utf8')
+  assert.match(edited, /^status: step 2 of 3 done$/m)
+  assert.match(edited, /^touched: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/m)
+  assert.doesNotMatch(edited, /^touched: 2026-11-01T00:00$/m)
+  assert.match(edited, new RegExp(`^hash: ${committedHash}$`, 'm'))
+
+  // 3. 커밋되지 않은 새 detail(hash 는 이미 맞다)도 touched 를 갱신한다 — HEAD 에 없으니 바뀐 것으로 본다.
+  const newPath = join(fixture.primary, 'docs/state/root/newitem.md')
+  write(fixture.primary, 'docs/state/root/newitem.md', wtDetail('new status', 'main'))
+  stampOnly(newPath)
+  const created = readFileSync(newPath, 'utf8')
+  assert.doesNotMatch(created, /^touched: 2026-11-01T00:00$/m)
+  assert.match(created, /^touched: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/m)
+  assert.match(created, new RegExp(`^hash: ${committedHash}$`, 'm'))
 })

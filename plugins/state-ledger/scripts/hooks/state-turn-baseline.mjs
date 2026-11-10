@@ -3,20 +3,20 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
-  chmodSync,
   lstatSync,
-  mkdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   readdirSync,
   renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { projectRoot, readStaterc, stateConfig } from './state-config.mjs'
+import { dataDirectory, ensureOwnedPrivateDirectory } from './state-data-dir.mjs'
 import { detailEntries, indexSource } from './state-index.mjs'
 
 const SNAPSHOT_VERSION = 6
@@ -89,13 +89,15 @@ function sha(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
+// 호스트가 준 대화 기록 경로. 절대 경로 문자열일 때만 기록하고, 내용은 읽지 않는다(수정 시각만 본다).
+function transcriptPathOf(payload) {
+  const value = payload?.transcript_path
+  return typeof value === 'string' && value.length > 0 && value.length <= 4096 && !value.includes('\0') && isAbsolute(value) ? value : null
+}
+
 function sessionId(payload) {
   const value = payload.session_id ?? payload.sessionID ?? process.env.STATE_HOOK_SESSION_ID
   return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function dataDirectory() {
-  return resolve(process.env.STATE_HOOK_DATA_DIR ?? join(tmpdir(), 'state-ledger-hooks'))
 }
 
 function baselinePath(root, id) {
@@ -185,13 +187,14 @@ function head(root) {
   }
 }
 
-function snapshot(root, id, config) {
+function snapshot(root, id, config, transcriptPath = null) {
   return {
     version: SNAPSHOT_VERSION,
     root,
     sessionIdHash: sha(id).slice(0, 16),
     capturedAt: new Date().toISOString(),
     active: true,
+    transcriptPath,
     concurrentSessionsSeen: [],
     head: head(root),
     files: dirtyStateFiles(root, config),
@@ -201,8 +204,9 @@ function snapshot(root, id, config) {
 
 function writeSnapshot(root, id, value) {
   const directory = dataDirectory()
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
-  chmodSync(directory, 0o700)
+  if (!ensureOwnedPrivateDirectory(directory)) {
+    throw new Error(`hook data directory is not a private directory owned by this user: ${directory}`)
+  }
   cleanupOldBaselines(directory)
 
   const path = baselinePath(root, id)
@@ -227,7 +231,39 @@ function readSnapshot(root, id) {
   }
 }
 
+// 같은 root 의 다른 활성 세션(최근 30분 안에 턴 기준점을 남긴 세션) id 해시 목록. state-verify.mjs 가 단계 변경의 주체를 가릴 때 쓴다.
+export function otherActiveSessions(root, sessionId) {
+  return activeOtherSessions(root, sha(sessionId).slice(0, 16))
+}
+
+// 같은 목록을 활동 시각과 함께 돌려준다: [{ sessionIdHash, capturedAt, lastActiveAt }] (id 해시 순). 중단된 턴이 남긴 낡은 활성 기준점과
+// 긴 턴을 도는 살아 있는 세션을 가리려면 기준점 시각만으로는 모자라다 — 기준점에 기록한 대화 기록 파일의 수정 시각이 더 늦으면 그것이 마지막 활동이다.
+// lastActiveAt = max(capturedAt, 대화 기록 mtime) (ISO). 대화 기록 경로를 기록하지 않았으면(옛 기준점·기록이 없는 호스트) null — 알 수 없다.
+// 경로를 기록했는데 stat 이 실패하면 capturedAt 으로 본다.
+export function otherSessionActivity(root, sessionId) {
+  // 30분 창은 lastActiveAt 에 건다 — 기준점이 오래됐어도 대화 기록이 계속 쓰이는(30분 넘는 긴 턴) 살아 있는 세션을 놓치지 않는다. 대화 기록 경로가 없으면 capturedAt 창이 그대로다.
+  const cutoff = Date.now() - ACTIVE_SESSION_MS
+  return activeOtherSessionDetails(root, sha(sessionId).slice(0, 16), true).map(({ sessionIdHash, capturedAt, transcriptPath }) => {
+    let lastActiveAt = null
+    if (typeof transcriptPath === 'string' && transcriptPath) {
+      lastActiveAt = capturedAt
+      try {
+        const mtime = statSync(transcriptPath).mtimeMs
+        if (Number.isFinite(mtime) && mtime > Date.parse(capturedAt)) lastActiveAt = new Date(mtime).toISOString()
+      } catch {
+        // 대화 기록을 stat 할 수 없으면 기준점 시각만 쓴다.
+      }
+    }
+    return { sessionIdHash, capturedAt, lastActiveAt }
+  }).filter((entry) => Date.parse(entry.lastActiveAt ?? entry.capturedAt) >= cutoff)
+}
+
 function activeOtherSessions(root, ownSessionIdHash) {
+  return activeOtherSessionDetails(root, ownSessionIdHash).map((entry) => entry.sessionIdHash)
+}
+
+// byActivity: 대화 기록 경로를 기록한 세션은 capturedAt 창으로 거르지 않고 호출자가 lastActiveAt 으로 거른다.
+function activeOtherSessionDetails(root, ownSessionIdHash, byActivity = false) {
   const directory = dataDirectory()
   const cutoff = Date.now() - ACTIVE_SESSION_MS
   try {
@@ -243,26 +279,26 @@ function activeOtherSessions(root, ownSessionIdHash) {
             value?.active === true &&
             value?.sessionIdHash !== ownSessionIdHash &&
             Number.isFinite(capturedAt) &&
-            capturedAt >= cutoff
+            (capturedAt >= cutoff || (byActivity && typeof value.transcriptPath === 'string' && value.transcriptPath !== ''))
           ) {
-            return [value.sessionIdHash]
+            return [{ sessionIdHash: value.sessionIdHash, capturedAt: value.capturedAt, transcriptPath: typeof value.transcriptPath === 'string' ? value.transcriptPath : null }]
           }
         } catch {
           // 손상되었거나 동시에 교체된 다른 세션 파일은 건너뛴다.
         }
         return []
       })
-      .filter(Boolean)
-      .sort()
+      .filter((entry) => entry.sessionIdHash)
+      .sort((a, b) => (a.sessionIdHash < b.sessionIdHash ? -1 : a.sessionIdHash > b.sessionIdHash ? 1 : 0))
   } catch {
     return []
   }
 }
 
 // 턴 시작 기준점. 이전 턴의 판정 결과는 넘기지 않는다 — Stop은 이번 턴 것만 알린다.
-function saveSnapshot(root, id, config) {
+function saveSnapshot(root, id, config, payload = {}) {
   const concurrentSessions = activeOtherSessions(root, sha(id).slice(0, 16))
-  writeSnapshot(root, id, { ...snapshot(root, id, config), concurrentSessionsSeen: concurrentSessions })
+  writeSnapshot(root, id, { ...snapshot(root, id, config, transcriptPathOf(payload)), concurrentSessionsSeen: concurrentSessions })
   return { concurrentSessions }
 }
 
@@ -445,7 +481,7 @@ function main() {
 
   let result
   if (mode === 'snapshot') {
-    result = saveSnapshot(root, id, config)
+    result = saveSnapshot(root, id, config, payload)
   } else if (mode === 'sessions') {
     // SessionStart는 동시 세션을 읽기만 한다. 프롬프트 없이 열린 세션을 활성으로 잡지 않는다.
     result = { concurrentSessions: activeOtherSessions(root, sha(id).slice(0, 16)) }
@@ -459,4 +495,6 @@ function main() {
   process.stdout.write(`${JSON.stringify(result)}\n`)
 }
 
-main()
+// state-verify.mjs 가 otherActiveSessions 를 import 하므로, 직접 실행했을 때만 main 을 돈다.
+const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : null
+if (invokedPath === fileURLToPath(import.meta.url)) main()
