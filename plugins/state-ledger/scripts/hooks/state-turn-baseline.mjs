@@ -3,20 +3,20 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
-  chmodSync,
   lstatSync,
-  mkdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   readdirSync,
   renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { projectRoot, readStaterc, stateConfig } from './state-config.mjs'
+import { dataDirectory, ensureOwnedPrivateDirectory } from './state-data-dir.mjs'
 import { detailEntries, indexSource } from './state-index.mjs'
 
 const SNAPSHOT_VERSION = 6
@@ -92,10 +92,6 @@ function sha(value) {
 function sessionId(payload) {
   const value = payload.session_id ?? payload.sessionID ?? process.env.STATE_HOOK_SESSION_ID
   return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function dataDirectory() {
-  return resolve(process.env.STATE_HOOK_DATA_DIR ?? join(tmpdir(), 'state-ledger-hooks'))
 }
 
 function baselinePath(root, id) {
@@ -201,8 +197,9 @@ function snapshot(root, id, config) {
 
 function writeSnapshot(root, id, value) {
   const directory = dataDirectory()
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
-  chmodSync(directory, 0o700)
+  if (!ensureOwnedPrivateDirectory(directory)) {
+    throw new Error(`hook data directory is not a private directory owned by this user: ${directory}`)
+  }
   cleanupOldBaselines(directory)
 
   const path = baselinePath(root, id)
@@ -225,6 +222,11 @@ function readSnapshot(root, id) {
       error: error?.code === 'ENOENT' ? 'missing-baseline' : 'unreadable-baseline',
     }
   }
+}
+
+// 같은 root 의 다른 활성 세션(최근 30분 안에 턴 기준점을 남긴 세션) id 해시 목록. state-verify.mjs 가 단계 변경의 주체를 가릴 때 쓴다.
+export function otherActiveSessions(root, sessionId) {
+  return activeOtherSessions(root, sha(sessionId).slice(0, 16))
 }
 
 function activeOtherSessions(root, ownSessionIdHash) {
@@ -459,4 +461,6 @@ function main() {
   process.stdout.write(`${JSON.stringify(result)}\n`)
 }
 
-main()
+// state-verify.mjs 가 otherActiveSessions 를 import 하므로, 직접 실행했을 때만 main 을 돈다.
+const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : null
+if (invokedPath === fileURLToPath(import.meta.url)) main()
