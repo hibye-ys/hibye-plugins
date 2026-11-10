@@ -2120,6 +2120,37 @@ test('a primary session that cds into a sibling worktree mid-turn keeps its base
   assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'Stop never rewrites the pin')
 })
 
+test('a mid-turn auto-compaction (SessionStart source=compact) in a sibling worktree does not move the pin: Stop keeps the primary baseline', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'primary-cd-compact'
+  turnStartPrimary(fixture, sessionId)
+  const pin = join(fixture.dataDir, pinName(sessionId))
+  assert.equal(JSON.parse(readFileSync(pin, 'utf8')).root, fixture.primary)
+  const pinBefore = readFileSync(pin, 'utf8')
+
+  // 턴 중간에 형제 worktree 로 cd 한 뒤 자동 압축 → SessionStart(source=compact, cwd=worktree).
+  const compacted = runSessionDispatcher('session-start', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'SessionStart', source: 'compact', cwd: fixture.worktree },
+  })
+  assert.match(JSON.parse(compacted).hookSpecificOutput.additionalContext, new RegExp(MAIN_STATUS), 'compact injects the pinned (primary) checkout')
+  assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'compact never rewrites the pin')
+
+  const output = runSessionDispatcher('stop', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'Stop', stop_hook_active: false, cwd: fixture.worktree },
+  })
+  assert.doesNotMatch(output, /missing-baseline|기준점이 정상 상태가 아닙니다/)
+  assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'Stop never rewrites the pin')
+
+  // 반대로 startup/resume/clear 은 여전히 턴 경계다: cwd 를 따라 고정을 옮긴다.
+  runSessionDispatcher('session-start', fixture, {
+    cwd: fixture.worktree,
+    payload: { session_id: sessionId, hook_event_name: 'SessionStart', source: 'resume', cwd: fixture.worktree },
+  })
+  assert.equal(JSON.parse(readFileSync(pin, 'utf8')).root, fixture.worktree, 'resume is still a turn boundary')
+})
+
 test('stamp follows the edited file: a primary session edits a sibling worktree detail and the other way round', (t) => {
   const fixture = worktreeFixture(t, 'frontmatter')
   const sessionId = 'primary-cd-stamp'

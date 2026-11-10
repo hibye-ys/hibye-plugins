@@ -530,6 +530,27 @@ test('M8: as a last resort only the item tail is clipped (with a marker); instru
   assert.match(text.trimEnd().split('\n').at(-1), /^외 1개: \[a2\]$/)
 })
 
+test('R2: the 3000B safety net is strict — oversized ids in the 외 N개 line shrink, the count stays exact, the result is valid UTF-8 with header and instruction intact', (t) => {
+  const root = repo(t)
+  const ids = Array.from({ length: 20 }, (_, i) => `${String.fromCharCode(97 + i)}${'x'.repeat(199)}`)
+  const handoff = `docs/plans/${'😀'.repeat(60)}.md#${'😀'.repeat(20)}`
+  ids.forEach((id, i) => {
+    write(root, `docs/state/root/${id}.md`, detail(id, { touched: `2026-11-0${(i % 9) + 1}T00:00`, fields: { goal: 'g', step: 's', next_step: 'n', handoff } }))
+  })
+  commit(root, 'seed')
+  const text = buildReminder(root, 'feat/x', ownedItems(root, 'feat/x'))
+  assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
+  assert.equal(Buffer.from(text, 'utf8').toString('utf8'), text)
+  assert.doesNotMatch(text, /�/)
+  const lines = text.split('\n')
+  assert.match(lines[0], HEADER_RE)
+  assert.equal(lines[1], INSTRUCTION)
+  assert.match(text, /\n외 \d+개: /, 'the 외 N개 line is present')
+  const m = /\n외 (\d+)개: /.exec(text)
+  const shown = lines.filter((line) => /^\[[a-z]x+\] /.test(line))
+  assert.equal(shown.length + Number(m[1]), 20, 'the hidden count stays exact')
+})
+
 test('instruction sits right after the header line, before any item', (t) => {
   const root = repo(t)
   seedHandoff(root)

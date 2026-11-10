@@ -8,7 +8,7 @@
 //   node state-verify.mjs session-start SessionStart     — source=compact 면 compaction 점검을 예약 (출력 없음)
 //   node state-verify.mjs stop          Stop             — 완료된 검사 수거, 판정 반영(차단·보고), 계기가 있으면 검사 세션을 백그라운드로 시작 (stdout JSON)
 //   node state-verify.mjs run --job <f> 내부용 — 분리된 worker 가 검사 세션을 동기 실행하고 결과 파일을 쓴다
-//   node state-verify.mjs allow [--runner claude|codex] [--model M] [--step-model M] [--every N]   이 저장소를 사용자 설정에서 허용 (사용자 수준 파일만 쓴다)
+//   node state-verify.mjs allow [--runner claude|codex] [--model M] [--step-model M] [--every N] [--env NAME]...   이 저장소를 사용자 설정에서 허용 (사용자 수준 파일만 쓴다)
 //   node state-verify.mjs disallow | status
 // 입력 = hook payload JSON(stdin). 저장소는 projectRoot() (호출자가 HOOK_PROJECT_DIR 을 넘긴다).
 // 상태는 repo 밖 데이터 폴더(state-data-dir.mjs: STATE_HOOK_DATA_DIR 또는 사용자별 tmpdir/state-ledger-hooks-<uid>)의 verify-<root>-<session>.json.
@@ -48,7 +48,7 @@ import { fileURLToPath } from 'node:url'
 import { projectRoot, readStaterc, staysWithinRoot } from './state-config.mjs'
 import { dataDirectory, ensureOwnedPrivateDirectory, ensureOwnedPrivateSubdirectory } from './state-data-dir.mjs'
 import { currentOwned } from './state-focus.mjs'
-import { otherActiveSessions } from './state-turn-baseline.mjs'
+import { otherSessionActivity } from './state-turn-baseline.mjs'
 
 export const STATE_VERSION = 1
 export const DEFAULT_EVERY = 5
@@ -110,9 +110,16 @@ export const ENV_NETWORK = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'ALL_PROXY'
   'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR']
 export const ENV_CLAUDE = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION',
-  'AWS_PROFILE', 'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'GOOGLE_APPLICATION_CREDENTIALS']
+  'AWS_PROFILE', 'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'GOOGLE_APPLICATION_CREDENTIALS',
+  'ANTHROPIC_FOUNDRY_API_KEY', 'ANTHROPIC_FOUNDRY_RESOURCE', 'ANTHROPIC_FOUNDRY_BASE_URL', 'AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_BEDROCK_BASE_URL',
+  'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'ANTHROPIC_VERTEX_BASE_URL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_SKIP_BEDROCK_AUTH', 'CLAUDE_CODE_SKIP_VERTEX_AUTH']
+// claude 검사 세션이 받는 이름 규칙: VERTEX_REGION_<모델> 과 ANTHROPIC_DEFAULT_<등급>_MODEL.
+export const ENV_CLAUDE_PATTERNS = [/^VERTEX_REGION_[A-Z0-9_]+$/, /^ANTHROPIC_DEFAULT_[A-Z0-9_]*_MODEL$/]
 export const ENV_CODEX = ['CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORG_ID']
 const TEST_ENV_PREFIX = 'STATE_VERIFY_TEST_'
+// 허용 파일 항목의 env 목록(codex 사용자 지정 provider 의 env_key 등)에 쓸 수 있는 이름과 개수.
+const ENV_NAME_RE = /^[A-Z_][A-Z0-9_]*$/
+const MAX_EXTRA_ENV = 32
 // codex 검사 세션 하드닝(-c 덮어쓰기). 키는 설치된 codex(0.166.0)에서 확인했다:
 //   notify=[] / features.hooks=false / features.plugins=false / features.apps=false → 타입 오류 탐침과 `codex features list` 로 확인
 //   shell_environment_policy.inherit="core" → `codex sandbox env` 로 상속 환경이 줄어드는 것 확인(값 집합 core|all|none)
@@ -331,17 +338,48 @@ export function validateAllowEntry(entry) {
     if (!Number.isInteger(entry.every) || entry.every < 0 || entry.every > MAX_EVERY) return { ok: false, reason: `every=${clip(JSON.stringify(entry.every), 20)} 는 0..${MAX_EVERY} 의 정수여야 함` }
     every = entry.every
   }
-  return { ok: true, settings: { runner, model: models.model, stepModel: models.stepModel, every } }
+  let env = []
+  if (entry.env !== undefined && entry.env !== null) {
+    if (!Array.isArray(entry.env) || entry.env.length > MAX_EXTRA_ENV) return { ok: false, reason: `env 는 이름 ${MAX_EXTRA_ENV}개 이하의 배열이어야 함` }
+    const bad = entry.env.find((name) => typeof name !== 'string' || !ENV_NAME_RE.test(name))
+    if (bad !== undefined) return { ok: false, reason: `env 의 ${clip(JSON.stringify(bad) ?? String(bad), 40)} 는 환경변수 이름(대문자·숫자·_)이 아님` }
+    env = [...new Set(entry.env)]
+  }
+  return { ok: true, settings: { runner, model: models.model, stepModel: models.stepModel, every, env } }
 }
 
-// 이 저장소가 사용자 설정에서 허용됐는가. { key, path, file, settings } — settings 가 null 이면 허용 안 됨(invalid 면 이유가 있다).
+// 허용 키(git common dir)만으로는 부족하다: `.git` 파일이 허용된 저장소의 common dir 를 가리키기만 하는 폴더(자기 .staterc 를 가진 비-clone)가 그 허용을 빌릴 수 있다.
+// root 가 그 common dir 에 *등록된* checkout 일 때만 참이다 —
+//   · `.git` 이 디렉터리(심링크 아님)이고 realpath 가 common dir 와 같다, 또는
+//   · `.git` 이 파일(심링크 아님)이고 gitdir 가 `<common>/worktrees/<이름>` 이며, 그 안의 `gitdir` 파일이 이 root 의 `.git` 파일을 되가리킨다.
+export function isRegisteredCheckout(root, common) {
+  try {
+    const dotgit = join(root, '.git')
+    const info = lstatSync(dotgit)
+    if (info.isDirectory()) return realpathSync(dotgit) === common
+    if (!info.isFile() || info.size > 4096) return false
+    const pointer = readFileSync(dotgit, 'utf8').match(/^gitdir:[ \t]*(.+?)[ \t]*$/m)?.[1]
+    if (!pointer) return false
+    const gitdir = realpathSync(resolve(root, pointer))
+    if (basename(dirname(gitdir)) !== 'worktrees' || dirname(dirname(gitdir)) !== common) return false
+    const back = readFileSync(join(gitdir, 'gitdir'), 'utf8').trim()
+    return back !== '' && realpathSync(resolve(gitdir, back)) === realpathSync(dotgit)
+  } catch {
+    return false
+  }
+}
+
+export const NOT_CHECKOUT_REASON = '이 폴더는 허용된 저장소의 등록된 checkout(clone 또는 git worktree)이 아님 — .git 이 그 저장소를 가리키기만 함'
+
+// 이 저장소가 사용자 설정에서 허용됐는가. { key, path, file, settings } — settings 가 null 이면 허용 안 됨(invalid 면 이유가 있다, foreign 이면 등록되지 않은 checkout 이다).
 export function lookupAllowed(root) {
   const file = readAllowFile()
   const key = projectKey(root)
-  const result = { key, path: file.path, file, settings: null, invalid: null }
+  const result = { key, path: file.path, file, settings: null, invalid: null, foreign: false }
   if (file.status === 'invalid') return { ...result, invalid: file.reason }
   if (file.status !== 'ok' || !key) return result
   if (!Object.hasOwn(file.data.projects, key)) return result
+  if (!isRegisteredCheckout(root, key)) return { ...result, foreign: true }
   const checked = validateAllowEntry(file.data.projects[key])
   if (!checked.ok) return { ...result, invalid: `${key}: ${checked.reason}` }
   return { ...result, settings: checked.settings }
@@ -377,6 +415,7 @@ export function verifyConfig(root) {
   if (found.invalid) {
     warnings.push({ key: 'allow-invalid', text: `STATE 독립 검증: 사용자 설정 ${found.path} 를 쓸 수 없어 허용하지 않은 것으로 봅니다 — ${found.invalid}` })
   }
+  if (found.foreign) warnings.push({ key: 'foreign-checkout', text: `STATE 독립 검증: ${NOT_CHECKOUT_REASON} — 허용하지 않은 것으로 봅니다.` })
   if (!found.settings) return { allowed: false, warnings }
   return { allowed: true, ...found.settings, warnings }
 }
@@ -397,6 +436,8 @@ function emptyState(root, sessionId) {
     sessionIdHash: sha(sessionId).slice(0, 16),
     turnCount: 0, // 소유 항목이 있던 사용자 턴 수 — 주기 점검의 기준
     userTurn: 0, // 검증이 켜진 모든 사용자 턴 수 — 턴당 1회 차단·continuation 판단의 기준
+    stopTurn: null, // 엔진 Stop 이 끝까지 돈 마지막 userTurn — 다음 턴 시작이 "직전 턴의 Stop 이 돌았나"를 가린다
+    firstTurnAt: null, // 이 세션의 첫 검증 턴 시작 시각(ISO) — 이보다 늦은 기준점을 남긴 다른 세션만 동시 세션으로 본다
     turnStartHead: null,
     firstHead: null,
     baselined: false, // ownedAtTurnStart 가 실제 관찰값인가 (첫 접촉은 비교하지 않는다)
@@ -418,6 +459,8 @@ function emptyState(root, sessionId) {
 const FIELD_TYPES = {
   turnCount: (v) => Number.isInteger(v) && v >= 0,
   userTurn: (v) => Number.isInteger(v) && v >= 0,
+  stopTurn: (v) => v === null || (Number.isInteger(v) && v >= 0),
+  firstTurnAt: (v) => v === null || typeof v === 'string',
   turnStartHead: (v) => v === null || typeof v === 'string',
   firstHead: (v) => v === null || typeof v === 'string',
   baselined: (v) => typeof v === 'boolean',
@@ -905,10 +948,14 @@ export function claudeCommand(env = process.env) {
 }
 
 // 검사 세션(과 그것을 띄우는 worker)에 넘길 환경을 허용 목록으로 처음부터 만든다. command=true 는 테스트용 STATE_VERIFY_COMMAND 경로.
-export function runnerEnv({ runner, command = false, model = null } = {}, source = process.env) {
-  const names = [...ENV_BASE, ...ENV_NETWORK, ...(runner === 'codex' ? ENV_CODEX : ENV_CLAUDE)]
+// extra 는 사용자 허용 파일의 항목이 더한 변수 이름이다(이름 규칙을 다시 확인한다).
+export function runnerEnv({ runner, command = false, model = null, extra = [] } = {}, source = process.env) {
+  const names = [...ENV_BASE, ...ENV_NETWORK, ...(runner === 'codex' ? ENV_CODEX : ENV_CLAUDE), ...(Array.isArray(extra) ? extra.filter((name) => typeof name === 'string' && ENV_NAME_RE.test(name)) : [])]
   const env = {}
   for (const name of names) if (typeof source[name] === 'string') env[name] = source[name]
+  if (runner !== 'codex') {
+    for (const [name, value] of Object.entries(source)) if (typeof value === 'string' && ENV_CLAUDE_PATTERNS.some((pattern) => pattern.test(name))) env[name] = value
+  }
   if (command) for (const [name, value] of Object.entries(source)) if (name.startsWith(TEST_ENV_PREFIX) && typeof value === 'string') env[name] = value
   env.GIT_OPTIONAL_LOCKS = '0'
   env.STATE_LEDGER_VERIFY_CHILD = '1'
@@ -925,7 +972,16 @@ export function listCodexMcpServers(env, cwd) {
   let list
   try { list = JSON.parse(run.stdout) } catch { throw new Error('codex mcp list --json 출력을 해석하지 못해 MCP 서버를 끌 수 없음') }
   if (!Array.isArray(list)) throw new Error('codex mcp list --json 출력 형식이 달라 MCP 서버를 끌 수 없음')
-  return [...new Set(list.filter((entry) => entry && entry.enabled !== false).map((entry) => entry.name).filter((name) => typeof name === 'string' && name !== ''))]
+  // 켜진 서버 이름을 끄는 표(`mcp_servers={"이름"={enabled=false}}`)에 안전하게 적을 수 없으면 그 서버를 끌 수 없다 — 이름을 버리면 서버가 켜진 채 남으므로 세션을 띄우지 않는다.
+  const names = []
+  for (const entry of list) {
+    if (!entry || entry.enabled === false) continue
+    if (typeof entry.name !== 'string' || entry.name === '' || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(entry.name)) {
+      throw new Error('codex mcp list 에 이름이 비었거나 제어 문자가 든 켜진 MCP 서버가 있어 안전하게 끌 수 없음')
+    }
+    names.push(entry.name)
+  }
+  return [...new Set(names)]
 }
 
 // runner 별 명령줄. STATE_VERIFY_COMMAND 가 있으면 그 실행 파일이 prompt(stdin)를 받아 판정 JSON 을 stdout 으로 낸다.
@@ -940,7 +996,7 @@ export function listCodexMcpServers(env, cwd) {
 // codex 는 read-only 샌드박스(파일 쓰기·네트워크 없음)이고 승인 정책을 never 로 고정해 승인 대기로 멈추지 않는다. 거기에 CODEX_HARDENING 과 서버별 MCP 끄기를 더한다.
 // 환경은 허용 목록(runnerEnv)뿐이다. claude 실행 파일은 launch 때 정한 job.claudeBin(없으면 PATH 에서 찾거나 CLAUDE_CODE_EXECPATH)을 쓴다.
 export function buildRunnerCommand(job) {
-  const env = runnerEnv({ runner: job.runner, command: Boolean(job.command), model: job.model })
+  const env = runnerEnv({ runner: job.runner, command: Boolean(job.command), model: job.model, extra: job.envNames })
   if (job.command) {
     return { command: job.command, args: [], env, outputFile: null }
   }
@@ -1081,7 +1137,7 @@ async function runWorker(argv) {
   try {
     transcriptFile = writeTranscriptFile(job.transcriptSource, job.jobDir)
     const prompt = buildPrompt({ root: job.root, ...job.promptInput, transcriptFile })
-    const mcpServers = job.runner === 'codex' && !job.command ? listCodexMcpServers(runnerEnv({ runner: 'codex' }), job.root) : []
+    const mcpServers = job.runner === 'codex' && !job.command ? listCodexMcpServers(runnerEnv({ runner: 'codex', extra: job.envNames }), job.root) : []
     const runner = buildRunnerCommand({ ...job, mcpServers })
     outputFile = runner.outputFile
     const run = await runProcess(runner.command, runner.args, {
@@ -1450,6 +1506,7 @@ function launchCheck({ root, cfg, payload, state, owned, triggers, snapshot }) {
       runner: cfg.runner,
       model: selectModel(cfg, triggers.some((trigger) => trigger.type === 'step')),
       command,
+      envNames: cfg.env ?? [],
       claudeBin: cfg.runner === 'claude' && !command ? claudeCommand(process.env) : null,
       jobDir,
       resultFile: join(jobDir, 'result.json'),
@@ -1470,7 +1527,7 @@ function launchCheck({ root, cfg, payload, state, owned, triggers, snapshot }) {
     const jobFile = join(jobDir, 'job.json')
     writeFileSync(jobFile, `${JSON.stringify(job)}\n`, { mode: 0o600, flag: 'wx' })
 
-    const env = runnerEnv({ runner: cfg.runner, command: Boolean(command) })
+    const env = runnerEnv({ runner: cfg.runner, command: Boolean(command), extra: cfg.env })
     const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'run', '--job', jobFile], { detached: true, stdio: 'ignore', cwd: root, env })
     child.on('error', () => { /* pid 가 없으면 아래에서 실패로 처리한다 */ })
     child.unref()
@@ -1513,17 +1570,52 @@ function moveBaseline(state, owned, snapshot) {
 
 export const CONCURRENT_LINE = '같은 checkout 에 다른 활성 세션이 있어 이번 단계 변경 검사를 건너뜁니다 — 누가 바꿨는지 구분할 수 없음'
 
+// 이 세션이 시작한 뒤에 턴 기준점을 남긴 다른 활성 세션. 이 세션의 첫 검증 턴보다 앞선 기준점은 중단된 턴(/clear 전 세션 등)이 남긴 낡은 흔적일 수 있어 세지 않는다.
+// 첫 턴 시각을 모르면(옛 상태 파일) 활성 세션을 모두 센다.
+function concurrentSessions(root, sessionId, state) {
+  const first = Date.parse(state.firstTurnAt)
+  return otherSessionActivity(root, sessionId).filter((other) => !Number.isFinite(first) || Date.parse(other.capturedAt) > first)
+}
+
+// 가장 새 판정을 에이전트에게 전달할 텍스트로 만들고, 모든 판정을 전달됨으로 표시한다.
+function deliverLatest(state) {
+  let output = ''
+  const latest = state.verdicts.at(-1)
+  if (latest && !latest.delivered && latest.verdict !== 'on_track') output = deliveryBlock(latest)
+  for (const entry of state.verdicts) entry.delivered = true
+  return output
+}
+
+// 기본 브랜치·detached HEAD 에서는 소유 항목이 없다. 그래도 이 세션의 상태 파일이 이미 있으면 진행 중이던 검사를 거두고 판정을 전달한다 —
+// 기능 브랜치에서 띄운 검사의 판정이 `running` 에 영영 남지 않게. 새 검사는 시작하지 않고 기준점은 비교하지 않는다. 상태 파일이 없으면 조용하다.
+function turnStartWithoutOwner(path, root, sessionId) {
+  if (!existsSync(path)) return ''
+  const state = loadState(path, root, sessionId)
+  state.userTurn += 1
+  reap(state)
+  const output = deliverLatest(state)
+  saveState(path, state)
+  return output
+}
+
 function turnStart(root, payload) {
   const cfg = verifyConfig(root)
   const sessionId = sessionIdOf(payload)
-  if (!cfg || !cfg.allowed || !sessionId) return ''
+  if (!cfg || !sessionId) return ''
   if (!ensureOwnedPrivateDirectory(dataDirectory())) return ''
-  const owned = currentOwned(root)
-  if (!owned) return ''
   const path = statePath(root, sessionId)
+  if (!cfg.allowed) {
+    resetStaleBaseline(path, root, sessionId)
+    return ''
+  }
+  const owned = currentOwned(root)
+  if (!owned) return turnStartWithoutOwner(path, root, sessionId)
   const state = loadState(path, root, sessionId)
   const head = headOf(root)
+  // 직전 사용자 턴의 Stop 이 끝까지 돌았나는 userTurn 을 올리기 전에 정한다.
+  const previousStopRan = state.stopTurn === state.userTurn
   state.userTurn += 1
+  state.firstTurnAt ??= new Date().toISOString()
   state.turnStartHead = head
   if (owned.items.length > 0) {
     // 소유 항목이 없는 턴은 주기 점검 횟수에 세지 않는다. (userTurn 은 항상 센다.)
@@ -1532,17 +1624,15 @@ function turnStart(root, payload) {
   }
   const snapshot = ownedSnapshot(owned.items)
   // 직전 Stop 이 엔진을 돌리지 못한 턴(Esc 중단·API 오류·정리 요청으로 이른 exit)에 바뀐 단계도 놓치지 않는다 — 덮어쓰기 전에 비교해 계기로 쌓는다.
-  const found = baselineChanges(state, owned, snapshot, 'turn-start')
+  // Stop 이 돌았다면 그 뒤의 변경은 사용자의 손편집·git pull·번갈아 쓴 다른 세션의 것이라 에이전트 탓이 아니다 — 비교하지 않고 기준점만 옮긴다.
+  const found = previousStopRan ? [] : baselineChanges(state, owned, snapshot, 'turn-start')
   if (found.length > 0) {
-    if (otherActiveSessions(root, sessionId).length > 0) state.concurrentDropTurn = state.userTurn
+    if (concurrentSessions(root, sessionId, state).length > 0) state.concurrentDropTurn = state.userTurn
     else state.pendingTriggers = mergeTriggers(state.pendingTriggers, [{ type: 'step', changes: found }])
   }
   moveBaseline(state, owned, snapshot)
   reap(state)
-  let output = ''
-  const latest = state.verdicts.at(-1)
-  if (latest && !latest.delivered && latest.verdict !== 'on_track') output = deliveryBlock(latest)
-  for (const entry of state.verdicts) entry.delivered = true
+  const output = deliverLatest(state)
   saveState(path, state)
   return output
 }
@@ -1560,14 +1650,45 @@ function sessionStart(root, payload) {
   saveState(path, state)
 }
 
-// 저장소는 요청했지만 사용자가 허용하지 않았다: 아무것도 시작하지 않고 상태(턴 수·기준점)도 건드리지 않는다. 세션당 한 번 알리는 기록만 남긴다.
+// 허용이 없던 동안의 변경을 다시 허용했을 때 에이전트 탓으로 비교하지 않도록 기준점만 지운다(상태 파일이 있을 때만). 다른 필드는 건드리지 않는다.
+function resetStaleBaseline(path, root, sessionId, state = null) {
+  const target = state ?? (existsSync(path) ? loadState(path, root, sessionId) : null)
+  if (!target || (!target.baselined && target.ownedAtTurnStart.length === 0)) return false
+  target.baselined = false
+  target.ownedAtTurnStart = []
+  if (!state) saveState(path, target)
+  return true
+}
+
+// 저장소는 요청했지만 사용자가 허용하지 않았다: 아무것도 시작하지 않는다. 기준점은 지우고(허용 전의 변경을 나중에 비교하지 않게) 세션당 한 번 알리는 기록만 남긴다.
 function deniedStop(path, root, cfg, sessionId) {
   const state = loadState(path, root, sessionId)
+  const reset = resetStaleBaseline(path, root, sessionId, state)
   const messages = []
   warnOnce(state, [{ key: 'denied', text: deniedText() }, ...cfg.warnings], messages)
-  if (messages.length === 0) return null
+  if (messages.length === 0 && !reset) return null
   saveState(path, state)
-  return { systemMessage: messages.join('\n') }
+  return messages.length > 0 ? { systemMessage: messages.join('\n') } : null
+}
+
+// 기본 브랜치·detached HEAD 의 Stop. turnStartWithoutOwner 와 같은 이유로, 상태 파일이 이미 있으면 거둔 판정을 보고·전달하고(막는 규칙은 그대로) 새 검사는 시작하지 않는다.
+function stopWithoutOwner(path, root, cfg, sessionId, payload) {
+  if (!existsSync(path)) return null
+  const state = loadState(path, root, sessionId)
+  const messages = []
+  warnOnce(state, cfg.warnings, messages)
+  const now = Date.now()
+  reap(state, now)
+  const acted = actOnLatest(state, payload, ownedSnapshot([]), now)
+  messages.push(...acted.messages)
+  state.stopTurn = state.userTurn
+  saveState(path, state)
+  return stopResult(acted, messages)
+}
+
+function stopResult(acted, messages) {
+  if (acted.block) return { decision: 'block', reason: acted.block, systemMessage: messages.join('\n') }
+  return messages.length > 0 ? { systemMessage: messages.join('\n') } : null
 }
 
 function stop(root, payload) {
@@ -1579,7 +1700,7 @@ function stop(root, payload) {
   const path = statePath(root, sessionId)
   if (!cfg.allowed) return deniedStop(path, root, cfg, sessionId)
   const owned = currentOwned(root)
-  if (!owned) return null
+  if (!owned) return stopWithoutOwner(path, root, cfg, sessionId, payload)
   const state = loadState(path, root, sessionId)
   const messages = []
   warnOnce(state, cfg.warnings, messages)
@@ -1594,7 +1715,7 @@ function stop(root, payload) {
   const found = baselineChanges(state, owned, snapshot, null)
   const periodicDue = owned.items.length > 0 && cfg.every > 0 && state.turnCount > 0 && state.turnCount % cfg.every === 0 && state.periodicTurn !== state.turnCount
   // 같은 checkout 의 다른 활성 세션이 있으면 누가 바꿨는지 알 수 없다 — 지금 발견한 단계 변경(소유 해제 포함)은 버리고 주기 점검은 건너뛴다. 이미 쌓인 계기와 도는 검사는 그대로다.
-  const crowded = (found.length > 0 || periodicDue) && otherActiveSessions(root, sessionId).length > 0
+  const crowded = (found.length > 0 || periodicDue) && concurrentSessions(root, sessionId, state).length > 0
   const fresh = []
   if (crowded) {
     state.concurrentDropTurn = state.userTurn
@@ -1635,10 +1756,9 @@ function stop(root, payload) {
       }
     }
   }
+  state.stopTurn = state.userTurn // 이 턴의 Stop 이 끝까지 돌았다 — 다음 턴 시작은 이 뒤의 변경을 에이전트 탓으로 비교하지 않는다
   saveState(path, state)
-
-  if (acted.block) return { decision: 'block', reason: acted.block, systemMessage: messages.join('\n') }
-  return messages.length > 0 ? { systemMessage: messages.join('\n') } : null
+  return stopResult(acted, messages)
 }
 
 // ---------- 사용자 설정 명령 (allow · disallow · status) ----------
@@ -1649,9 +1769,9 @@ function cliRoot() {
   return realpathSync(resolve(top))
 }
 
-const ALLOW_FLAGS = { '--runner': 'runner', '--model': 'model', '--step-model': 'stepModel', '--every': 'every' }
+const ALLOW_FLAGS = { '--runner': 'runner', '--model': 'model', '--step-model': 'stepModel', '--every': 'every', '--env': 'env' }
 
-// ['--runner', 'codex', '--every=3'] → { runner: 'codex', every: 3 }. 잘못된 인자는 Error.
+// ['--runner', 'codex', '--every=3', '--env', 'A', '--env=B'] → { runner: 'codex', every: 3, env: ['A', 'B'] }. --env 는 반복할 수 있고 목록 전체를 바꾼다(빈 값 하나면 목록을 비운다). 잘못된 인자는 Error.
 function parseAllowArgs(args) {
   const flags = {}
   for (let i = 0; i < args.length; i += 1) {
@@ -1663,6 +1783,9 @@ function parseAllowArgs(args) {
     if (field === 'every') {
       if (!/^\d{1,6}$/.test(value)) throw new Error(`--every 는 0..${MAX_EVERY} 의 정수여야 합니다: ${clip(value, 20)}`)
       flags.every = Number(value)
+    } else if (field === 'env') {
+      flags.env ??= []
+      if (value !== '') flags.env.push(value)
     } else {
       flags[field] = value
     }
@@ -1684,7 +1807,7 @@ function writeAllowFile(data) {
 }
 
 function describeSettings(settings) {
-  return `runner=${settings.runner} model=${settings.model ?? `(기본 ${DEFAULT_MODEL})`} stepModel=${settings.stepModel ?? `(기본 ${DEFAULT_STEP_MODEL})`} every=${settings.every}`
+  return `runner=${settings.runner} model=${settings.model ?? `(기본 ${DEFAULT_MODEL})`} stepModel=${settings.stepModel ?? `(기본 ${DEFAULT_STEP_MODEL})`} every=${settings.every} env=${settings.env?.length > 0 ? settings.env.join(',') : '(없음)'}`
 }
 
 function manageCommand(command, args) {
@@ -1696,7 +1819,7 @@ function manageCommand(command, args) {
   let flags = {}
   if (command === 'allow') {
     try { flags = parseAllowArgs(args) } catch (error) {
-      process.stderr.write(`${error.message}\nusage: state-verify.mjs allow [--runner claude|codex] [--model M] [--step-model M] [--every N]\n`)
+      process.stderr.write(`${error.message}\nusage: state-verify.mjs allow [--runner claude|codex] [--model M] [--step-model M] [--every N] [--env NAME]...\n`)
       return 2
     }
   }
@@ -1717,7 +1840,7 @@ function manageCommand(command, args) {
     out(`허용 키(git common dir): ${key}`)
     out(`사용자 설정 파일: ${found.path} (${found.file.status === 'ok' ? '읽음' : found.file.status === 'missing' ? '없음' : `쓸 수 없음 — ${found.file.reason}`})`)
     out(`.staterc 요청(STATE_VERIFY="1"): ${requested ? '예' : '아니오'}`)
-    out(`사용자 허용: ${found.settings ? '예' : found.invalid ? `아니오 (항목 오류 — ${found.invalid})` : '아니오'}`)
+    out(`사용자 허용: ${found.settings ? '예' : found.invalid ? `아니오 (항목 오류 — ${found.invalid})` : found.foreign ? `아니오 (${NOT_CHECKOUT_REASON})` : '아니오'}`)
     out(`유효 설정: ${found.settings ? describeSettings(found.settings) : '(허용되지 않아 적용 안 됨)'}`)
     const legacy = LEGACY_STATERC_KEYS.filter((name) => { const value = readStaterc(root, name); return value !== null && value !== '' })
     if (legacy.length > 0) out(`무시되는 .staterc 키: ${legacy.join(', ')} (allow 의 인자로 옮기세요)`)
@@ -1729,6 +1852,10 @@ function manageCommand(command, args) {
     return 1
   }
   const data = found.file.status === 'ok' ? found.file.data : { version: 1, projects: {} }
+  if (command === 'allow' && !isRegisteredCheckout(root, key)) {
+    process.stderr.write(`허용하지 않았습니다 — ${NOT_CHECKOUT_REASON}: ${root}\n허용 키(${key})의 저장소 안 checkout 에서 실행하세요.\n`)
+    return 1
+  }
   if (command === 'disallow') {
     if (!Object.hasOwn(data.projects, key)) {
       out(`이미 허용되어 있지 않습니다: ${key}`)
@@ -1752,6 +1879,7 @@ function manageCommand(command, args) {
   const entry = { runner: checked.settings.runner, every: checked.settings.every }
   if (checked.settings.model) entry.model = checked.settings.model
   if (checked.settings.stepModel) entry.stepModel = checked.settings.stepModel
+  if (checked.settings.env.length > 0) entry.env = checked.settings.env
   data.projects[key] = entry
   try { writeAllowFile(data) } catch (error) {
     process.stderr.write(`${error.message}\n`)
@@ -1775,7 +1903,7 @@ async function main() {
     return
   }
   if (!['turn-start', 'session-start', 'stop'].includes(command)) {
-    process.stderr.write('usage: state-verify.mjs turn-start|session-start|stop|run --job <file>|allow [--runner R] [--model M] [--step-model M] [--every N]|disallow|status\n')
+    process.stderr.write('usage: state-verify.mjs turn-start|session-start|stop|run --job <file>|allow [--runner R] [--model M] [--step-model M] [--every N] [--env NAME]...|disallow|status\n')
     process.exitCode = 2
     return
   }

@@ -2197,3 +2197,362 @@ test('low: the runner is recorded with its start time; after the worker is SIGKI
   await sleep(300)
   assert.ok(alive(stranger.pid), 'a process with a different start time is not the recorded runner')
 })
+
+// ======================================================================
+// 0.10.1 2차 수정 — 턴 시작 비교의 귀속(C1)·기본 브랜치의 판정(H4-③)·허용 키 차용(C2)·codex MCP 이름(C3)·환경 허용(C4)·낡은 기준점(C5)·낡은 동시 세션(C6)
+// ======================================================================
+
+// 다른 폴더(같은 저장소의 worktree 나 .git 만 흉내 낸 폴더)에서 엔진을 돌린다.
+function engineAt(ctx, dir, command, payload = {}) {
+  const result = spawnSync(process.execPath, [VERIFY, command], { cwd: dir, encoding: 'utf8', input: JSON.stringify({ session_id: SESSION, ...payload }), env: { ...ctx.env, HOOK_PROJECT_DIR: dir } })
+  assert.equal(result.status, 0, result.stderr)
+  return result.stdout.trim()
+}
+
+test('C1: when the previous turn\'s Stop ran, a step the user edited by hand before the next turn is not blamed on the agent — the baseline just moves', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart() // 턴 1
+  assert.equal(ctx.state().stopTurn, null, 'no Stop has run yet')
+  assert.equal(ctx.stop(), '')
+  assert.equal(ctx.state().stopTurn, 1, 'the engine Stop records its user turn')
+  ctx.setFields(FIELDS_B) // 사용자가 턴 사이에 손으로 고쳤다 (git pull 도 같다)
+  assert.equal(ctx.turnStart(), '') // 턴 2
+  assert.deepEqual(ctx.state().pendingTriggers, [])
+  assert.equal(ctx.state().ownedAtTurnStart[0].step, FIELDS_B.step, 'the baseline moved to what is on disk now')
+  assert.equal(ctx.stop(), '')
+  await sleep(200)
+  assert.equal(ctx.stub.calls().length, 0, 'no check for a change the agent did not make')
+
+  // Stop 이 돌지 않은 턴 3 의 변경은 여전히 다음 턴 시작에 계기가 된다 — 옮겨진 기준점에서 비교한다.
+  ctx.turnStart() // 턴 3 (이 턴의 Stop 은 돌지 않는다)
+  ctx.setFields(FIELDS_C)
+  ctx.turnStart() // 턴 4
+  const queued = ctx.state().pendingTriggers
+  assert.equal(queued[0].changes[0].at, 'turn-start')
+  assert.equal(queued[0].changes[0].from.step, FIELDS_B.step)
+  assert.equal(queued[0].changes[0].to.step, FIELDS_C.step)
+})
+
+test('C1: sessions alternating on one checkout — S2 changes the step and its Stop runs; S1\'s next turn start does not read it as its own unfinished-turn change', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart() // S1 턴 1
+  assert.equal(ctx.stop(), '')
+  ctx.turnStart({ session_id: 'session-2' }) // S2 가 이어서 일한다 (S1 은 더는 활성이 아니다)
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop({ session_id: 'session-2' }), '') // S2 의 Stop 이 돌고 자기 검사를 시작한다
+  await ctx.waitCalls(1)
+  assert.equal(ctx.turnStart(), '') // S1 턴 2: 자기 Stop 이 돌았으므로 비교하지 않는다
+  assert.deepEqual(ctx.state().pendingTriggers, [])
+  assert.equal(ctx.state().ownedAtTurnStart[0].step, FIELDS_B.step)
+  await ctx.waitResult()
+  assert.equal(ctx.stop(), '', 'S1 still has nothing to check')
+  await sleep(200)
+  assert.equal(ctx.stub.calls().length, 1, 'only S2\'s own check ran')
+})
+
+test('coverage: Stop N launches a check, turn N+1 starts while it runs, it finishes mid-turn — Stop N+1 blocks once and the next Stop of that turn does not block again', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  ctx.stub.sleep(1500)
+  ctx.turnStart() // 턴 1
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '') // Stop N: 검사가 시작된다
+  await ctx.waitCalls(1)
+  assert.equal(ctx.turnStart(), '') // 턴 N+1: 검사는 아직 돌고 있다
+  assert.ok(ctx.state().running, 'still running at the turn start')
+  assert.equal(ctx.state().verdicts.length, 0)
+  await ctx.waitResult() // 턴 도중에 검사가 끝난다
+  const blocked = JSON.parse(ctx.stop()) // Stop N+1
+  assert.equal(blocked.decision, 'block')
+  assert.match(blocked.reason, /step_unmet/)
+  assert.equal(ctx.state().running, null)
+  assert.equal(ctx.state().blockedTurn, 2)
+  assert.equal(ctx.stop({ stop_hook_active: true }), '', 'the re-entry after the block does not block again')
+  assert.equal(ctx.stop(), '', 'nor does another Stop of the same user turn')
+  await sleep(250)
+  assert.equal(ctx.stub.calls().length, 1, 'the blocked turn launches nothing')
+})
+
+test('H4-③: a verdict that finishes after the checkout moved to the base branch is still reaped and reported at the next Stop, and the check is not left in running', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_SCOPE)
+  ctx.stub.sleep(300)
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(1)
+  git(ctx.root, 'checkout', '-q', 'main') // 검사가 끝나기 전에 기본 브랜치로 옮겼다
+  await ctx.waitResult()
+  const out = JSON.parse(ctx.stop())
+  assert.equal(out.decision, undefined)
+  assert.match(out.systemMessage, /STATE 독립 검증\(step, opus\): drift\/scope/)
+  const state = ctx.state()
+  assert.equal(state.running, null)
+  assert.equal(state.verdicts.length, 1)
+  assert.equal(ctx.stop(), '', 'reported once')
+  await sleep(150)
+  assert.equal(ctx.stub.calls().length, 1, 'no new check on the base branch')
+  assert.deepEqual(ctx.jobDirs(), [], 'the job folder was removed')
+})
+
+test('H4-③: the turn start on a detached HEAD delivers the finished verdict; a blocking kind is stale there (no owned items) and never blocks', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  ctx.stub.sleep(300)
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(1)
+  git(ctx.root, 'checkout', '-q', '--detach')
+  await ctx.waitResult()
+  const delivered = ctx.turnStart()
+  assert.ok(delivered.startsWith('=== STATE 독립 검증 결과 (step, opus) ==='), delivered)
+  assert.ok(delivered.includes('> 판정: drift/step_unmet'))
+  assert.equal(ctx.state().running, null)
+  assert.equal(ctx.state().userTurn, 2, 'the turn is still counted')
+  const out = JSON.parse(ctx.stop())
+  assert.equal(out.decision, undefined)
+  assert.ok(out.systemMessage.includes(DELIVERED_LINE), out.systemMessage)
+  await sleep(150)
+  assert.equal(ctx.stub.calls().length, 1)
+})
+
+test('C2: a folder whose .git file merely points at an allowed repository does not borrow its allowance; status says so and allow refuses; a real linked worktree is allowed', async (t) => {
+  const ctx = setup(t, { allow: { every: 0 } })
+  ctx.turnStart()
+  assert.equal(ctx.stop(), '')
+
+  // 공격 폴더: 자기 .staterc 와 STATE 항목을 가지고, .git 파일이 허용된 저장소의 .git 을 가리킨다 (git 에게는 그 저장소의 작업 트리로 보인다).
+  const evil = `${ctx.root}-evil`
+  t.after(() => rmSync(evil, { recursive: true, force: true }))
+  mkdirSync(evil)
+  writeFileSync(join(evil, '.git'), `gitdir: ${join(ctx.root, '.git')}\n`)
+  write(evil, '.staterc', FM_STATERC + 'STATE_VERIFY="1"\n')
+  write(evil, 'docs/state/root/notes.md', detail('notes'))
+  assert.equal(git(evil, 'rev-parse', '--git-common-dir'), join(ctx.root, '.git'), 'git itself is fooled')
+  assert.equal(engineAt(ctx, evil, 'turn-start', { prompt: 'x' }), '')
+  write(evil, 'docs/state/root/notes.md', detail('notes', { fields: FIELDS_B }))
+  const denied = JSON.parse(engineAt(ctx, evil, 'stop', { stop_hook_active: false }))
+  assert.ok(denied.systemMessage.startsWith(DENIED_PREFIX), denied.systemMessage)
+  assert.match(denied.systemMessage, /등록된 checkout/)
+  await sleep(250)
+  assert.equal(ctx.stub.calls().length, 0, 'nothing launched for the borrowed key')
+  const status = spawnSync(process.execPath, [VERIFY, 'status'], { cwd: evil, encoding: 'utf8', env: { ...ctx.env, HOOK_PROJECT_DIR: evil } })
+  assert.match(status.stdout, /사용자 허용: 아니오 \(.*등록된 checkout/)
+  assert.match(status.stdout, /동작: 꺼짐/)
+  const before = readFileSync(ctx.allowFile, 'utf8')
+  const refused = spawnSync(process.execPath, [VERIFY, 'allow', '--every', '9'], { cwd: evil, encoding: 'utf8', env: { ...ctx.env, HOOK_PROJECT_DIR: evil } })
+  assert.equal(refused.status, 1)
+  assert.match(refused.stderr, /등록된 checkout/)
+  assert.equal(readFileSync(ctx.allowFile, 'utf8'), before, 'allow wrote nothing')
+
+  // 진짜 연결된 worktree 는 허용된다 (.git 파일 → <common>/worktrees/<이름>, 그쪽 gitdir 파일이 되가리킨다).
+  const worktree = `${ctx.root}-wt`
+  t.after(() => rmSync(worktree, { recursive: true, force: true }))
+  git(ctx.root, 'worktree', 'add', '-q', '-b', 'wt-branch', worktree)
+  const wt = realpathSync(worktree)
+  write(wt, 'docs/state/root/notes.md', detail('notes', { branch: 'wt-branch' }))
+  assert.equal(engineAt(ctx, wt, 'turn-start', { prompt: 'x' }), '')
+  write(wt, 'docs/state/root/notes.md', detail('notes', { branch: 'wt-branch', fields: FIELDS_B }))
+  assert.equal(engineAt(ctx, wt, 'stop', { stop_hook_active: false }), '')
+  await ctx.waitCalls(1)
+  const wtStatus = spawnSync(process.execPath, [VERIFY, 'status'], { cwd: wt, encoding: 'utf8', env: { ...ctx.env, HOOK_PROJECT_DIR: wt } })
+  assert.match(wtStatus.stdout, /사용자 허용: 예/)
+})
+
+for (const [name, mcpName] of [['an empty name', ''], ['a control character', 'bad\nname']]) {
+  test(`C3: a codex MCP server with ${name} cannot be switched off safely — fail closed: no session, an unclear verdict says why`, async (t) => {
+    const ctx = setup(t, { allow: { runner: 'codex', every: 0 } })
+    const clis = fakeClis(t, ctx)
+    writeFileSync(join(`${ctx.root}-bin`, 'codex'), `#!${process.execPath}
+import { writeFileSync } from 'node:fs'
+if (process.argv.includes('mcp')) {
+  process.stdout.write(JSON.stringify([{ name: 'alpha', enabled: true }, { name: ${JSON.stringify(mcpName)}, enabled: true }]))
+  process.exit(0)
+}
+writeFileSync(${JSON.stringify(join(ctx.stubDir, 'cli-codex.json'))}, 'session-started')
+`)
+    Object.assign(ctx.env, clis)
+    delete ctx.env.STATE_VERIFY_COMMAND
+    await ctx.launchStepCheck({}, { expectCall: false })
+    assert.match(JSON.parse(ctx.stop()).systemMessage, /unclear\/other.*이름이 비었거나 제어 문자가 든 켜진 MCP 서버가 있어 안전하게 끌 수 없음/)
+    assert.equal(existsSync(join(ctx.stubDir, 'cli-codex.json')), false, 'no codex session was started')
+  })
+}
+
+test('C4: third-party auth variables reach a claude checker — fixed names, VERTEX_REGION_*, ANTHROPIC_DEFAULT_*_MODEL — and nothing else with those prefixes', () => {
+  const source = {
+    PATH: '/bin', ANTHROPIC_FOUNDRY_API_KEY: 'f1', ANTHROPIC_FOUNDRY_RESOURCE: 'f2', ANTHROPIC_FOUNDRY_BASE_URL: 'f3', AWS_BEARER_TOKEN_BEDROCK: 'b1', ANTHROPIC_BEDROCK_BASE_URL: 'b2',
+    AWS_CONFIG_FILE: '/aws/config', AWS_SHARED_CREDENTIALS_FILE: '/aws/credentials', ANTHROPIC_VERTEX_BASE_URL: 'v1', ANTHROPIC_SMALL_FAST_MODEL: 'haiku-x',
+    CLAUDE_CODE_SKIP_BEDROCK_AUTH: '1', CLAUDE_CODE_SKIP_VERTEX_AUTH: '1', VERTEX_REGION_CLAUDE_3_5_HAIKU: 'us-east5',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'o', ANTHROPIC_DEFAULT_SONNET_MODEL: 's', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'h',
+    ANTHROPIC_DEFAULT_SECRET: 'no', ANTHROPIC_DEFAULT_OPUS_MODEL_X: 'no', VERTEX_REGIONAL: 'no', ANTHROPIC_FOUNDRY_OTHER: 'no', AWS_SECRET_THING: 'no', MY_PROVIDER_KEY: 'p',
+  }
+  const claude = runnerEnv({ runner: 'claude' }, source)
+  for (const name of ['ANTHROPIC_FOUNDRY_API_KEY', 'ANTHROPIC_FOUNDRY_RESOURCE', 'ANTHROPIC_FOUNDRY_BASE_URL', 'AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_BEDROCK_BASE_URL', 'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE',
+    'ANTHROPIC_VERTEX_BASE_URL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_SKIP_BEDROCK_AUTH', 'CLAUDE_CODE_SKIP_VERTEX_AUTH', 'VERTEX_REGION_CLAUDE_3_5_HAIKU',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL']) {
+    assert.equal(claude[name], source[name], `${name} passes`)
+  }
+  for (const name of ['ANTHROPIC_DEFAULT_SECRET', 'ANTHROPIC_DEFAULT_OPUS_MODEL_X', 'VERTEX_REGIONAL', 'ANTHROPIC_FOUNDRY_OTHER', 'AWS_SECRET_THING', 'MY_PROVIDER_KEY']) {
+    assert.equal(claude[name], undefined, `${name} does not`)
+  }
+  const codex = runnerEnv({ runner: 'codex' }, source)
+  assert.equal(codex.ANTHROPIC_FOUNDRY_API_KEY, undefined, 'a codex checker gets no Anthropic/Bedrock/Vertex variables')
+  assert.equal(codex.VERTEX_REGION_CLAUDE_3_5_HAIKU, undefined)
+  assert.equal(codex.ANTHROPIC_DEFAULT_OPUS_MODEL, undefined)
+  // 프로젝트별 env 목록: 두 runner 모두에게 넘기되 이름 규칙에 안 맞는 항목과 고정 환경 변수는 덮어쓰지 못한다.
+  for (const runner of ['claude', 'codex']) {
+    const extra = runnerEnv({ runner, extra: ['MY_PROVIDER_KEY', 'lower', 'BAD=NAME', 'STATE_LEDGER_VERIFY_CHILD'] }, { ...source, lower: 'no', 'BAD=NAME': 'no', STATE_LEDGER_VERIFY_CHILD: '0' })
+    assert.equal(extra.MY_PROVIDER_KEY, 'p')
+    assert.equal(extra.lower, undefined)
+    assert.equal(extra['BAD=NAME'], undefined)
+    assert.equal(extra.STATE_LEDGER_VERIFY_CHILD, '1', 'the child guard cannot be overridden')
+  }
+})
+
+test('C4: a per-project env list in the user file passes those variables to the checker (claude and codex); other variables still do not', async (t) => {
+  const outside = { MY_PROVIDER_KEY: 'secret-provider', OTHER_SECRET: 'no', ANTHROPIC_FOUNDRY_API_KEY: 'foundry-key', ANTHROPIC_DEFAULT_OPUS_MODEL: 'my-opus' }
+  const claude = setup(t, { allow: { every: 0, env: ['MY_PROVIDER_KEY', 'MISSING_VAR'] }, env: outside })
+  claude.turnStart()
+  claude.setFields(FIELDS_B)
+  claude.stop()
+  const [seen] = await claude.waitCalls(1)
+  assert.equal(seen.env.MY_PROVIDER_KEY, 'secret-provider')
+  assert.equal(seen.env.OTHER_SECRET, undefined)
+  assert.equal(seen.env.MISSING_VAR, undefined)
+  assert.equal(seen.env.ANTHROPIC_FOUNDRY_API_KEY, 'foundry-key')
+  assert.equal(seen.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'my-opus')
+
+  const codex = setup(t, { allow: { runner: 'codex', every: 0, env: ['MY_PROVIDER_KEY'] }, env: outside })
+  codex.turnStart()
+  codex.setFields(FIELDS_B)
+  codex.stop()
+  const [codexSeen] = await codex.waitCalls(1)
+  assert.equal(codexSeen.env.MY_PROVIDER_KEY, 'secret-provider', 'a custom provider env_key reaches the codex checker')
+  assert.equal(codexSeen.env.ANTHROPIC_FOUNDRY_API_KEY, undefined)
+
+  // 목록 없이는 넘어가지 않는다.
+  const none = setup(t, { allow: { every: 0 }, env: outside })
+  none.turnStart()
+  none.setFields(FIELDS_B)
+  none.stop()
+  const [bare] = await none.waitCalls(1)
+  assert.equal(bare.env.MY_PROVIDER_KEY, undefined)
+})
+
+for (const [name, env] of [
+  ['a lowercase name', ['my_key']],
+  ['a name with =', ['A=B']],
+  ['a non-string entry', [1]],
+  ['a string instead of a list', 'MY_KEY'],
+  ['33 entries', Array.from({ length: 33 }, (_, i) => `VAR_${i}`)],
+]) {
+  test(`C4: an env list with ${name} makes the whole entry invalid — one warning, nothing launches`, async (t) => {
+    const ctx = setup(t, { allow: { every: 0, env } })
+    ctx.turnStart()
+    ctx.setFields(FIELDS_B)
+    const first = JSON.parse(ctx.stop())
+    assert.match(first.systemMessage, /허용하지 않은 것으로 봅니다 — .*env/)
+    await sleep(200)
+    assert.equal(ctx.stub.calls().length, 0)
+  })
+}
+
+test('C4: allow --env is repeatable and replaces the list, status shows it, an update without --env keeps it, an empty --env clears it, a bad name is rejected', async (t) => {
+  const ctx = setup(t, { allow: null })
+  const bad = cli(ctx, 'allow', '--env', 'lower-case')
+  assert.equal(bad.status, 2, bad.stdout + bad.stderr)
+  assert.equal(existsSync(ctx.allowFile), false)
+  assert.equal(cli(ctx, 'allow', '--env', 'A_KEY', '--env=B_KEY').status, 0)
+  assert.deepEqual(JSON.parse(readFileSync(ctx.allowFile, 'utf8')).projects[ctx.allowKey], { runner: 'claude', every: 5, env: ['A_KEY', 'B_KEY'] })
+  assert.match(cli(ctx, 'status').stdout, /env=A_KEY,B_KEY/)
+  assert.equal(cli(ctx, 'allow', '--every', '2').status, 0)
+  assert.deepEqual(JSON.parse(readFileSync(ctx.allowFile, 'utf8')).projects[ctx.allowKey].env, ['A_KEY', 'B_KEY'], 'kept')
+  assert.equal(cli(ctx, 'allow', '--env', 'C_KEY').status, 0)
+  assert.deepEqual(JSON.parse(readFileSync(ctx.allowFile, 'utf8')).projects[ctx.allowKey].env, ['C_KEY'], 'replaced, not appended')
+  assert.equal(cli(ctx, 'allow', '--env=').status, 0)
+  const cleared = JSON.parse(readFileSync(ctx.allowFile, 'utf8')).projects[ctx.allowKey]
+  assert.equal(Object.hasOwn(cleared, 'env'), false)
+  assert.match(cli(ctx, 'status').stdout, /env=\(없음\)/)
+})
+
+test('C5: re-allowing does not compare across the disabled period — no stale-baseline trigger at the first turn start (turn start and Stop both ran while denied)', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart() // 허용된 동안의 턴 (Stop 은 돌지 않았다 — 기준점이 A 로 남는다)
+  assert.equal(ctx.state().baselined, true)
+  ctx.allow(null)
+  ctx.turnStart() // 허용되지 않은 동안: 기준점을 지운다
+  ctx.setFields(FIELDS_B)
+  const denied = JSON.parse(ctx.stop())
+  assert.ok(denied.systemMessage.startsWith(DENIED_PREFIX))
+  const kept = ctx.state()
+  assert.equal(kept.baselined, false)
+  assert.deepEqual(kept.ownedAtTurnStart, [])
+  assert.equal(kept.userTurn, 1, 'nothing else was touched')
+  ctx.allow({ every: 0 })
+  assert.equal(ctx.turnStart(), '')
+  assert.deepEqual(ctx.state().pendingTriggers, [])
+  assert.equal(ctx.stop(), '')
+  await sleep(250)
+  assert.equal(ctx.stub.calls().length, 0, 'no opus check for the disabled period')
+})
+
+test('C5: the Stop alone also clears the baseline while denied (no turn start ran during the disabled period)', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart()
+  ctx.allow(null)
+  ctx.setFields(FIELDS_B)
+  const denied = JSON.parse(ctx.stop())
+  assert.ok(denied.systemMessage.startsWith(DENIED_PREFIX))
+  assert.equal(ctx.state().baselined, false)
+  ctx.allow({ every: 0 })
+  ctx.turnStart()
+  assert.deepEqual(ctx.state().pendingTriggers, [])
+  await sleep(150)
+  assert.equal(ctx.stub.calls().length, 0)
+})
+
+test('C6: an earlier session that left an active baseline before this session started (interrupted turn, /clear) is not a concurrent session; one that takes a turn after it started still is', async (t) => {
+  const ctx = setup(t)
+  startOtherSession(ctx, 'interrupted-session') // 이 세션이 시작하기 전에 중단된 세션: active:true 기준점이 30분 동안 남는다
+  await sleep(40)
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '', 'no concurrent-session notice')
+  await ctx.waitCalls(1)
+  assert.equal(ctx.state().concurrentDropTurn, null)
+  await ctx.waitResult()
+
+  startOtherSession(ctx, 'live-session') // 이 세션이 시작한 뒤에 턴을 가진 세션
+  ctx.turnStart()
+  ctx.setFields(FIELDS_C)
+  const crowded = JSON.parse(ctx.stop())
+  assert.ok(crowded.systemMessage.includes(CONCURRENT_LINE), crowded.systemMessage)
+  assert.equal(ctx.state().concurrentDropTurn, 2)
+  assert.equal(ctx.stub.calls().length, 1, 'the dropped change launched nothing')
+})
+
+test('C6: the turn-start comparison skips only for a live concurrent session, and state-turn-baseline exports capture times without changing otherActiveSessions', async (t) => {
+  const ctx = setup(t)
+  startOtherSession(ctx, 'interrupted-session')
+  await sleep(40)
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B) // Stop-less turn
+  ctx.turnStart()
+  assert.equal(ctx.state().pendingTriggers[0].changes[0].at, 'turn-start', 'the dead earlier session does not hide the change')
+  assert.equal(ctx.state().concurrentDropTurn, null)
+
+  startOtherSession(ctx, 'live-session')
+  const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `import { otherActiveSessions, otherSessionActivity } from ${JSON.stringify(BASELINE)}
+process.stdout.write(JSON.stringify({ hashes: otherActiveSessions(${JSON.stringify(ctx.root)}, ${JSON.stringify(SESSION)}), activity: otherSessionActivity(${JSON.stringify(ctx.root)}, ${JSON.stringify(SESSION)}) }))`], { encoding: 'utf8', env: ctx.env })
+  assert.equal(probe.status, 0, probe.stderr)
+  const { hashes, activity } = JSON.parse(probe.stdout)
+  assert.deepEqual(hashes, activity.map((entry) => entry.sessionIdHash))
+  assert.deepEqual(hashes, [sha('interrupted-session').slice(0, 16), sha('live-session').slice(0, 16)].sort())
+  for (const entry of activity) assert.ok(Number.isFinite(Date.parse(entry.capturedAt)))
+  const live = activity.find((entry) => entry.sessionIdHash === sha('live-session').slice(0, 16))
+  const dead = activity.find((entry) => entry.sessionIdHash === sha('interrupted-session').slice(0, 16))
+  assert.ok(Date.parse(live.capturedAt) > Date.parse(dead.capturedAt))
+  assert.ok(Date.parse(live.capturedAt) > Date.parse(ctx.state().firstTurnAt))
+})

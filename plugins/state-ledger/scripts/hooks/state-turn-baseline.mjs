@@ -229,7 +229,17 @@ export function otherActiveSessions(root, sessionId) {
   return activeOtherSessions(root, sha(sessionId).slice(0, 16))
 }
 
+// 같은 목록을 기준점을 남긴 시각과 함께 돌려준다: [{ sessionIdHash, capturedAt }] (id 해시 순). 인터럽트된 턴이 남긴 낡은 활성 기준점과
+// 지금 실제로 도는 세션을 가리려면 마지막 기준점 시각이 필요하다.
+export function otherSessionActivity(root, sessionId) {
+  return activeOtherSessionDetails(root, sha(sessionId).slice(0, 16))
+}
+
 function activeOtherSessions(root, ownSessionIdHash) {
+  return activeOtherSessionDetails(root, ownSessionIdHash).map((entry) => entry.sessionIdHash)
+}
+
+function activeOtherSessionDetails(root, ownSessionIdHash) {
   const directory = dataDirectory()
   const cutoff = Date.now() - ACTIVE_SESSION_MS
   try {
@@ -247,15 +257,15 @@ function activeOtherSessions(root, ownSessionIdHash) {
             Number.isFinite(capturedAt) &&
             capturedAt >= cutoff
           ) {
-            return [value.sessionIdHash]
+            return [{ sessionIdHash: value.sessionIdHash, capturedAt: value.capturedAt }]
           }
         } catch {
           // 손상되었거나 동시에 교체된 다른 세션 파일은 건너뛴다.
         }
         return []
       })
-      .filter(Boolean)
-      .sort()
+      .filter((entry) => entry.sessionIdHash)
+      .sort((a, b) => (a.sessionIdHash < b.sessionIdHash ? -1 : a.sessionIdHash > b.sessionIdHash ? 1 : 0))
   } catch {
     return []
   }

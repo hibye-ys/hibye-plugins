@@ -226,10 +226,35 @@ function renderItem(root, item, tier) {
 // 항목 count 개를 tier 로 그린 본문. 숨긴 항목은 `외 N개` 줄에 id 로 남긴다 (id 목록은 길이를 제한하고 N 은 정확히 쓴다).
 function renderBody(root, items, count, tier) {
   const itemsText = items.slice(0, count).map((item) => renderItem(root, item, tier)).join('\n')
-  if (items.length <= count) return { itemsText, restLine: '' }
+  if (items.length <= count) return { itemsText, restLine: '', rest: [] }
   const rest = items.slice(count)
   const listed = rest.slice(0, MAX_LISTED_REST_IDS).map((item) => `[${item.id}]`).join(' ')
-  return { itemsText, restLine: `외 ${rest.length}개: ${listed}${rest.length > MAX_LISTED_REST_IDS ? ' …' : ''}` }
+  return { itemsText, restLine: `외 ${rest.length}개: ${listed}${rest.length > MAX_LISTED_REST_IDS ? ' …' : ''}`, rest }
+}
+
+// `외 N개` 줄이 maxBytes 를 넘으면 N 은 그대로 두고 나열 id 를 줄여(끝은 ` …`) 맞춘다. id 하나도 못 싣는 예산이면 `외 N개: …`.
+function fitRestLine(rest, line, maxBytes) {
+  if (bytes(line) <= maxBytes) return line
+  const head = `외 ${rest.length}개: `
+  for (let n = Math.min(rest.length, MAX_LISTED_REST_IDS) - 1; n >= 1; n -= 1) {
+    const candidate = `${head}${rest.slice(0, n).map((item) => `[${item.id}]`).join(' ')} …`
+    if (bytes(candidate) <= maxBytes) return candidate
+  }
+  return `${head}…`
+}
+
+// 바이트 한도 안으로 코드 포인트 단위로 자른다 (표지 없음, 항상 유효한 UTF-8).
+function clipBytesPlain(text, max) {
+  if (bytes(text) <= max) return text
+  const chars = [...text]
+  let lo = 0
+  let hi = chars.length
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (bytes(chars.slice(0, mid).join('')) <= max) lo = mid
+    else hi = mid - 1
+  }
+  return chars.slice(0, lo).join('')
 }
 
 const joinBody = ({ itemsText, restLine }) => (restLine ? `${itemsText}\n${restLine}` : itemsText)
@@ -248,10 +273,13 @@ export function buildReminder(root, branch, items) {
     body = renderBody(root, items, count, tier)
     if (bytes(joinBody(body)) <= budget) return `${head}\n\n${joinBody(body)}`
   }
-  // 마지막 안전망: 항목 1개의 고정 줄(handoff 등)만으로도 넘치는 경우. 지시문과 `외 N개` 줄은 두고 항목 꼬리만 자른다.
-  const room = budget - (body.restLine ? bytes(body.restLine) + 1 : 0)
-  const itemsText = clipBytesWith(body.itemsText, Math.max(room, 0), TRUNCATED)
-  return `${head}\n\n${joinBody({ itemsText, restLine: body.restLine })}`
+  // 마지막 안전망: 항목 1개의 고정 줄(handoff 등)만으로도 넘치는 경우. 지시문은 두고, `외 N개` 줄은 N 을 유지한 채 나열 id 를 줄여
+  // 남은 예산에 맞추고, 항목 꼬리를 자른다. 마지막으로 전체를 한 번 더 바이트 단위로 잘라 3000B 를 절대 넘기지 않는다.
+  const restBudget = body.restLine ? Math.max(Math.floor(budget / 2), budget - 1 - bytes(body.itemsText)) : 0
+  const restLine = body.restLine ? fitRestLine(body.rest, body.restLine, restBudget) : ''
+  const room = budget - (restLine ? bytes(restLine) + 1 : 0)
+  const itemsText = room >= bytes(TRUNCATED) ? clipBytesWith(body.itemsText, room, TRUNCATED) : clipBytesPlain(body.itemsText, Math.max(room, 0))
+  return clipBytesPlain(`${head}\n\n${joinBody({ itemsText, restLine })}`, MAX_REMINDER_BYTES)
 }
 
 // 기본 브랜치 판정. BASE 가 `origin/main` 같은 원격 ref 로 주어질 수 있다 — refs/remotes/<BASE> 가 실제로 있을 때만

@@ -36,7 +36,7 @@ fi
 # 턴 경계 이벤트(session-start·turn-start): here 가 있고 anchor 가 없거나 here 와 같은 저장소(git common dir 동일,
 #   worktree 는 달라도 됨)이면 here 를 쓰고 고정한다. 그렇지 않으면 pinned → project → here 순서 — cwd 가 다른 저장소로
 #   나가도 세션의 checkout 에 머문다.
-# 그 밖의 이벤트(stamp·stop): 고정이 유효하면 그 root 를 쓴다(다시 쓰지 않는다). 없으면 위 규칙을 고정 없이 적용한다.
+# 그 밖의 이벤트(stamp·stop, 그리고 유효한 고정이 있을 때의 session-start source=compact): 고정이 유효하면 그 root 를 쓴다(다시 쓰지 않는다). 없으면 위 규칙을 고정 없이 적용한다.
 #   → root 는 턴 경계에서 세션의 cwd 를 따라가고, 한 턴 안에서는 움직이지 않는다. Stop 이 turn-start 가 기준점을 저장한
 #   checkout 을 그대로 판정하고, primary 세션이 턴 중간에 형제 worktree 로 cd 해도 기준점을 잃지 않는다. 편집 파일이 다른
 #   checkout 에 있으면 스탬프가 그 checkout 기준으로 돈다(post-edit-state-stamp.sh).
@@ -92,9 +92,11 @@ if [ -n "${HOOK_PROJECT_DIR:-}" ]; then
 else
   input_cwd=""
   session_id=""
+  event_source=""
   if [ -n "$input" ] && command -v jq >/dev/null 2>&1; then
     input_cwd=$(printf '%s' "$input" | jq -r 'if type == "object" and (.cwd | type) == "string" then .cwd else empty end' 2>/dev/null || true)
     session_id=$(printf '%s' "$input" | jq -r 'if type == "object" then (.session_id // .sessionID // .sessionId) else empty end | if type == "string" then . else empty end' 2>/dev/null || true)
+    event_source=$(printf '%s' "$input" | jq -r 'if type == "object" and (.source | type) == "string" then .source else empty end' 2>/dev/null || true)
   fi
   here=""
   for candidate in "$input_cwd" "$PWD"; do
@@ -130,6 +132,9 @@ else
 
   turn_boundary=0
   case "$mode" in session-start|turn-start) turn_boundary=1 ;; esac
+  # 자동 압축(SessionStart source=compact)은 턴 경계가 아니다 — 턴 중간에 형제 worktree 로 cd 한 뒤 압축되어도 고정을 옮기지 않는다.
+  # (유효한 고정이 있을 때만. 없으면 평소처럼 here 로 고른다.)
+  if [ "$mode" = "session-start" ] && [ "$event_source" = "compact" ] && [ -n "$pinned" ]; then turn_boundary=0; fi
   if [ "$turn_boundary" -eq 0 ] && [ -n "$pinned" ]; then
     root="$pinned"
   else
