@@ -630,6 +630,25 @@ test('loop guard: a block ends the turn\'s launches, the continuation edits the 
   assert.equal(ctx.stub.calls().length, 2)
 })
 
+test('stop_hook_active alone suppresses launching even when our verifier did not block the turn; the trigger launches at the next normal Stop', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart()
+  assert.equal(ctx.state().blockedTurn, null, 'no block from our verifier')
+  ctx.setFields(FIELDS_B)
+  // 다른 훅이 이 턴을 막아 재진입한 Stop: 우리 검사는 막지 않았지만 stop_hook_active 가 true 다.
+  assert.equal(ctx.stop({ stop_hook_active: true }), '')
+  await sleep(300)
+  assert.equal(ctx.stub.calls().length, 0, 'no launch in a stop_hook_active continuation')
+  const queued = ctx.state()
+  assert.equal(queued.running, null)
+  assert.notEqual(queued.blockedTurn, queued.turnCount)
+  assert.equal(queued.pendingTriggers[0].type, 'step')
+  ctx.turnStart()
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(1)
+  assert.equal(ctx.stub.calls().length, 1)
+})
+
 test('a second block in the same user turn is report-only', async (t) => {
   const ctx = setup(t)
   ctx.stub.output(DRIFT_STEP)
@@ -1009,6 +1028,32 @@ test('prompt cap holds when every fixed and variable section is oversized; fixed
   assert.ok(Buffer.byteLength(section('## 직전 판정')) <= 3 * 1024 + 200)
 })
 
+test('the remaining budget is accounted in bytes: with multibyte fixed and variable sections the prompt lands exactly on the cap', () => {
+  const huge = '긴'.repeat(40000)
+  const change = (i) => ({ area: 'root', id: `n${i}`, from: { step: huge, next_step: huge }, to: { step: huge, next_step: huge } })
+  const evidence = {
+    label: 'aaaaaaaa..bbbbbbbb',
+    log: Array.from({ length: 50 }, (_, i) => `${i}abcdef ${'로'.repeat(180)}`).join('\n'),
+    stat: Array.from({ length: 60 }, (_, i) => ` 파일${i}.js | ${'+'.repeat(100)}`).join('\n'),
+    diff: '+한글 줄 내용입니다 \n'.repeat(20000),
+    diffOverflow: true,
+    status: Array.from({ length: 40 }, (_, i) => ` M ${'경로/'.repeat(30)}${i}.js`).join('\n'),
+  }
+  const prompt = buildPrompt({
+    branch: 'feat/x',
+    items: [capItem(huge, huge), capItem(huge, huge), capItem(huge, huge)],
+    triggers: [{ type: 'step', changes: Array.from({ length: 5 }, (_, i) => change(i)) }, { type: 'periodic', turn: 5, every: 5 }],
+    transcriptFile: '/tmp/state-ledger-hooks/verify-jobs/job/transcript.txt',
+    previous: { verdict: 'drift', kind: 'scope', summary: huge, missing: Array.from({ length: 8 }, () => huge) },
+    evidence,
+  })
+  const size = Buffer.byteLength(prompt)
+  assert.ok(size <= PROMPT_MAX_BYTES, `${size} bytes`)
+  // 가변 절이 예산을 다 쓸 만큼 크므로 상한에 거의 닿는다 (글자 수로 세면 훨씬 넘는다).
+  assert.ok(size > PROMPT_MAX_BYTES - 2048, `${size} bytes: the cap binds`)
+  assert.ok(prompt.includes('## 출력'))
+})
+
 test('a diff larger than its budget is truncated with a note and the prompt stays within the cap (real git, real worker)', async (t) => {
   const ctx = setup(t)
   ctx.turnStart()
@@ -1023,6 +1068,33 @@ test('a diff larger than its budget is truncated with a note and the prompt stay
   assert.doesNotMatch(call.prompt, /\+line 4999 /, 'the tail of the diff is cut')
   assert.match(call.prompt, /src\/big\.txt/, 'the stat still lists the file')
 })
+
+// git 근거는 저장소가 정한 외부 diff/textconv 드라이버를 부르지 않는다 (--no-ext-diff --no-textconv).
+for (const kind of ['diff.external', 'textconv']) {
+  test(`git evidence never runs a repo-configured ${kind} driver: the prompt carries the plain diff and the driver leaves no marker`, async (t) => {
+    const ctx = setup(t)
+    const marker = join(ctx.stubDir, `${kind}-ran`)
+    const driver = join(ctx.stubDir, 'driver.sh')
+    // diff.external 은 인자 7개(path old-file ... )를 받는다; textconv 는 파일 하나를 받는다. 둘 다 흔적을 남기고 눈에 띄는 출력을 낸다.
+    writeFileSync(driver, `#!/bin/sh\necho ran >> '${marker}'\necho DRIVER-OUTPUT-SHOULD-NOT-APPEAR\n`)
+    chmodSync(driver, 0o755)
+    ctx.turnStart()
+    write(ctx.root, 'src/driven.txt', 'plain-line-one\n')
+    commit(ctx.root, 'add driven file [id=notes]')
+    if (kind === 'diff.external') {
+      git(ctx.root, 'config', 'diff.external', driver)
+    } else {
+      write(ctx.root, '.gitattributes', '*.txt diff=loud\n')
+      git(ctx.root, 'config', 'diff.loud.textconv', driver)
+    }
+    ctx.setFields(FIELDS_B)
+    assert.equal(ctx.stop(), '')
+    const [call] = await ctx.waitCalls(1)
+    assert.match(call.prompt, /\+plain-line-one/, 'the plain diff is pre-rendered')
+    assert.equal(call.prompt.includes('DRIVER-OUTPUT-SHOULD-NOT-APPEAR'), false, 'driver output is not in the prompt')
+    assert.equal(existsSync(marker), false, 'the driver was never executed')
+  })
+}
 
 test('each job gets its own 0700 directory with its job, transcript and result; reaping removes it and old leftovers age out', async (t) => {
   const ctx = setup(t)
@@ -1159,6 +1231,35 @@ test('reaping a stale check kills its live worker group; a live pid that is not 
   ctx.writeState(other)
   assert.match(JSON.parse(ctx.stop()).systemMessage, /검사 세션이 결과 없이 끝남/)
   assert.ok(alive(process.pid))
+})
+
+test('stale reap leaves alone a live detached process-group leader that is not our worker (pid reuse guard)', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart()
+  mkdirSync(ctx.jobsDir, { recursive: true })
+  const stranger = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+  t.after(() => { try { process.kill(-stranger.pid, 'SIGKILL') } catch { /* 이미 없다 */ } })
+  await waitFor(() => alive(stranger.pid), { what: 'the stranger process' })
+  mkdirSync(join(ctx.jobsDir, 'reused-job'))
+  writeFileSync(join(ctx.jobsDir, 'reused-job', 'job.json'), '{}')
+  const state = ctx.state()
+  state.running = {
+    jobId: 'reused-job',
+    pid: stranger.pid,
+    startedAt: new Date(Date.now() - 21 * 60 * 1000).toISOString(),
+    triggers: [{ type: 'periodic', turn: 1, every: 5 }],
+    model: 'sonnet',
+    head: null,
+    snapshot: null,
+    jobDir: join(ctx.jobsDir, 'reused-job'),
+    jobFile: join(ctx.jobsDir, 'reused-job', 'job.json'),
+    resultFile: join(ctx.jobsDir, 'reused-job', 'result.json'),
+  }
+  ctx.writeState(state)
+  assert.match(JSON.parse(ctx.stop()).systemMessage, /검사 세션이 결과 없이 끝남/)
+  assert.equal(ctx.state().running, null, 'the stale record is reaped')
+  await sleep(300)
+  assert.ok(alive(stranger.pid), 'a process that is not our worker is not killed')
 })
 
 const runAsync = (ctx, command, payload) => new Promise((resolve, reject) => {
