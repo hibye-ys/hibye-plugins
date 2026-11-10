@@ -144,6 +144,10 @@ SessionStart는 미완료 요청을 다시 주입한다. 삭제/요청 제거의
 
 `referencesTo`가 index·커밋 스냅샷에서 후보 파일마다 `git show`를 띄워, markdown 이 많은 저장소(EUNHA 약 17초/스냅샷)에서 정리 검사·`validate-staged`가 runner timeout(30초)을 넘었다. 후보 파일을 `git cat-file --batch` 한 번으로 읽는다(같은 결과, 1초 미만).
 
+### 0.8.2 Linux·macOS 정리 잠금
+
+정리 요청 쓰기는 Linux의 util-linux `flock`, macOS의 BSD `lockf`를 사용한다. 설치 호스트에 해당 명령이 필요하며, 없거나 잠금을 얻지 못하면 STATE를 쓰지 않고 실패한다. 두 경로 모두 같은 빈 잠금 파일을 보존하고 비차단 배타 잠금·프로세스 종료 시 해제·기존 내용 대조 후 원자 교체를 유지한다. Linux는 `flock -F`로 writer를 직접 실행해 writer의 종료와 잠금 수명을 맞춘다. macOS 실행 검증은 macOS에서 별도로 수행해야 한다.
+
 ### 0.9.0 세션 자기 checkout (git worktree 세션)
 
 Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 primary checkout 으로 넘긴다. 0.8.x dispatcher 는 그것을 `$PWD`보다 먼저 써서 worktree 세션이 primary(보통 `main`)의 STATE 를 주입받았다 — 브랜치에서 바꾼 `status`가 아니라 main 의 옛 상태가 compaction 마다 들어가 에이전트가 계획을 잃었다(EUNHA `[testmod]` 실측). 같은 원인으로 detail 스탬프는 worktree 경로를 프로젝트 밖으로 보고 건너뛰었고(나중에 hash 불일치), 턴 기준점은 모든 worktree 세션을 "같은 worktree 의 동시 세션"으로 묶어 Stop 판정을 보류시킬 수 있었다.

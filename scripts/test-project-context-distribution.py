@@ -349,6 +349,72 @@ class SetupTests(unittest.TestCase):
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_native_shallow_clone_retains_exact_payload_and_rejects_git_or_runtime_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            source = root / 'source'
+            (source / '.codex-plugin').mkdir(parents=True)
+            manifest = {'name': 'fixture', 'version': '1.0.0'}
+            (source / '.codex-plugin/plugin.json').write_text(json.dumps(manifest))
+            (source / 'runtime.cjs').write_text('original')
+            payload = sync.publication.capture_payload(source)
+            published = sync.publication.publish('fixture', payload, root / 'publications')
+            cache = root / 'cache'
+            subprocess.run(['git', 'clone', '--quiet', '--depth=1', published.as_uri(), str(cache)], check=True, capture_output=True)
+            marker = cache / '.in_use/12345'
+            marker.parent.mkdir()
+            marker.write_text('')
+            expected = sync.tree_hashes(source)
+            self.assertTrue((cache / '.git/shallow').is_file())
+            sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            with self.assertRaisesRegex(RuntimeError, 'must not contain .git'):
+                sync.tree_hashes(cache)
+            with self.assertRaisesRegex(RuntimeError, 'writable|self-contained'):
+                sync.publication.verify_publication(cache, payload)
+            (cache / 'runtime.cjs').write_text('tampered runtime')
+            with self.assertRaisesRegex(RuntimeError, 'committed bytes/modes|Payload drift'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            (cache / 'runtime.cjs').write_text('original')
+            (cache / '.git/objects/info/alternates').write_text(str(root / 'foreign') + '\n')
+            with self.assertRaisesRegex(RuntimeError, 'self-contained'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            (cache / '.git/objects/info/alternates').unlink()
+            sync.publication.git(cache, 'config', 'core.fsmonitor', '!must-not-execute')
+            with self.assertRaisesRegex(RuntimeError, 'Git configuration'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            sync.publication.git(cache, 'config', '--unset', 'core.fsmonitor')
+            active_hook = cache / '.git/hooks/post-checkout'
+            active_hook.write_text('#!/bin/sh\nexit 1\n')
+            with self.assertRaisesRegex(RuntimeError, 'active Git hooks'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            active_hook.unlink()
+            (cache / '.git/foreign-link').symlink_to(source / 'runtime.cjs')
+            with self.assertRaisesRegex(RuntimeError, 'source link'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+            (cache / '.git/foreign-link').unlink()
+            marker.unlink()
+            marker.parent.rmdir()
+            record = {'version': '1.0.0', 'active': True, 'cache': cache,
+                      'scope': 'user', 'projectPath': None,
+                      'git_commit': sync.publication.git(published, 'rev-parse', 'HEAD')}
+            with patch.object(sync, 'manifests', return_value=(source, '1.0.0', {'codex': manifest})), \
+                 patch.object(sync, 'verify_claude_catalog'), \
+                 patch.object(sync, 'inspect_host', return_value=record), \
+                 patch.object(sync, 'publication_for', return_value=(published, payload)):
+                sync.publication.git(cache, 'config', 'remote.origin.url', 'https://foreign.invalid/plugin.git')
+                with self.assertRaisesRegex(RuntimeError, 'origin differs'):
+                    sync.check_plugin('fixture', ['claude'])
+                sync.publication.git(cache, 'config', 'remote.origin.url', published.as_uri())
+                sync.publication.git(cache, 'commit', '--quiet', '--allow-empty', '-m', 'different commit, same payload')
+                with self.assertRaisesRegex(RuntimeError, 'HEAD differs'):
+                    sync.check_plugin('fixture', ['claude'])
+            (cache / 'runtime.cjs').write_text('changed commit')
+            sync.publication.git(cache, 'add', 'runtime.cjs')
+            sync.publication.git(cache, 'commit', '--quiet', '-m', 'tampered commit')
+            (cache / 'runtime.cjs').write_text('original')
+            with self.assertRaisesRegex(RuntimeError, 'committed bytes/modes'):
+                sync.verify_snapshot(cache, manifest, expected, native_host='claude')
+
     def test_claude_runtime_markers_do_not_hide_payload_drift_or_unsafe_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             cache = Path(temporary).resolve() / 'cache'
@@ -584,13 +650,19 @@ class FakeNativeHosts:
                     result.append(item)
             return json.dumps(result)
         if args[:4] == ('claude', 'plugin', 'marketplace', 'add'):
+            if '--json' in args:
+                raise RuntimeError('native marketplace add does not support --json')
             self.write_known(Path(args[4]))
             # Deliberately keep the old native listing until explicit refresh.
             return '{}'
         if args[:4] == ('claude', 'plugin', 'marketplace', 'update'):
+            if '--json' in args:
+                raise RuntimeError('native marketplace update does not support --json')
             self.listing = json.loads((self.catalog_root / '.claude-plugin/marketplace.json').read_text())
             return '{}'
         if args[:3] in (('claude', 'plugin', 'update'), ('claude', 'plugin', 'install')):
+            if '--json' in args or '-y' in args:
+                raise RuntimeError('native plugin mutation received unsupported flags')
             name = args[3].split('@')[0]
             scope = args[args.index('--scope') + 1]
             project = str(cwd) if scope != 'user' else None
@@ -605,12 +677,8 @@ class FakeNativeHosts:
             cache = self.home / 'plugins/cache/hibye-plugins' / name / version
             # Like a native cache, an existing same-version snapshot is reused.
             if not cache.exists():
-                cache.mkdir(parents=True)
-                for source in publication_root.iterdir():
-                    if source.name == '.git':
-                        continue
-                    target = cache / source.name
-                    shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                subprocess.run(['git', 'clone', '--quiet', '--depth=1', publication_root.as_uri(), str(cache)], check=True, capture_output=True)
             records = self.registry['plugins'].setdefault(name + '@hibye-plugins', [])
             item = next((record for record in records if record['scope'] == scope and record.get('projectPath') == project), None)
             if item is None:

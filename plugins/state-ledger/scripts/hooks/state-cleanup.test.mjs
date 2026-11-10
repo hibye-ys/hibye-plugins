@@ -18,7 +18,7 @@ import {
   stopCleanup,
   validateCleanupCommit,
 } from './state-cleanup.mjs'
-import { cleanupLockPath, storeRequests } from './state-cleanup-store.mjs'
+import { cleanupLockCommand, cleanupLockPath, storeRequests } from './state-cleanup-store.mjs'
 
 const SESSION = 'cleanup-session'
 const OTHER_SESSION = 'other-session'
@@ -159,27 +159,36 @@ function rewriteRequest(root, id, mutate) {
 
 async function holdCleanupLock(t, root) {
   const lock = cleanupLockPath(root)
-  const program = 'process.stdout.write("LOCK_HELD\\n"); process.stdin.resume(); process.stdin.on("end", () => process.exit(0))'
-  const child = spawn('lockf', ['-k', '-t0', lock, process.execPath, '-e', program], {
+  const program = 'process.stdout.write(`LOCK_HELD ${process.pid}\\n`); process.stdin.resume(); process.stdin.on("end", () => process.exit(0))'
+  // An independent native holder must contend with the production writer.
+  const command = process.platform === 'linux' ? 'flock' : 'lockf'
+  const args = process.platform === 'linux' ? ['-x', '-n', '-F', lock] : ['-k', '-t0', lock]
+  const child = spawn(command, [...args, process.execPath, '-e', program], {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
-  t.after(() => { if (child.exitCode === null) child.stdin.end() })
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.stdin.end() })
+  let ownerPid
   let stderr = ''
   child.stderr.on('data', (chunk) => { stderr += chunk })
   const exited = once(child, 'exit')
   await new Promise((resolve, reject) => {
     let output = ''
-    const deadline = setTimeout(() => reject(new Error(`lockf holder did not acquire the lock: ${stderr}`)), 3000)
+    const deadline = setTimeout(() => reject(new Error(`${command} holder did not acquire the lock: ${stderr}`)), 3000)
     child.stdout.on('data', (chunk) => {
       output += chunk
-      if (output.includes('LOCK_HELD\n')) { clearTimeout(deadline); resolve() }
+      const marker = /LOCK_HELD (\d+)\n/.exec(output)
+      if (marker) { ownerPid = Number(marker[1]); clearTimeout(deadline); resolve() }
     })
     child.once('error', (error) => { clearTimeout(deadline); reject(error) })
-    child.once('exit', (code) => { clearTimeout(deadline); reject(new Error(`lockf holder exited ${code}: ${stderr}`)) })
+    child.once('exit', (code) => { clearTimeout(deadline); reject(new Error(`${command} holder exited ${code}: ${stderr}`)) })
   })
   return {
     lock,
     pid: child.pid,
+    crash: async () => {
+      process.kill(ownerPid, 'SIGKILL')
+      await exited
+    },
     release: async () => {
       child.stdin.end()
       const [code] = await exited
@@ -187,6 +196,26 @@ async function holdCleanupLock(t, root) {
     },
   }
 }
+
+test('storage uses nonblocking native OS locks on Linux and macOS, refusing unsupported hosts', () => {
+  const lock = '/tmp/fixture-state.lock', child = ['/trusted/node', '/trusted/writer.mjs', '--write-locked']
+  assert.deepEqual(cleanupLockCommand(lock, child, 'linux'), { command: 'flock', args: ['-x', '-n', '-F', lock, ...child] })
+  assert.deepEqual(cleanupLockCommand(lock, child, 'darwin'), { command: 'lockf', args: ['-k', '-t', '0', lock, ...child] })
+  assert.throws(() => cleanupLockCommand(lock, child, 'win32'), /unsupported/)
+})
+
+test('storage regression: SIGKILL releases the OS lock without deleting or replacing its inode', { timeout: 10_000 }, async (t) => {
+  const root = await fixture(t)
+  const pending = await request(root)
+  const holder = await holdCleanupLock(t, root)
+  const inode = statSync(holder.lock).ino
+  await holder.crash()
+  const reason = 'The previous lock owner died; the next writer must retain custody.'
+  await blockCleanup(root, { requestId: pending.id, sessionId: SESSION, reason })
+  assert.equal(readAfterRestart(root).find(entry => entry.id === pending.id).blocked_reason, reason)
+  assert.equal(statSync(holder.lock).ino, inode)
+  assert.equal(statSync(holder.lock).size, 0)
+})
 
 test('storage regression: a live OS lock rejects writes without changing STATE or replacing the lock file', { timeout: 10_000 }, async (t) => {
   const root = await fixture(t)
