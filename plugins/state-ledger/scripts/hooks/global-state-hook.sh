@@ -4,6 +4,10 @@
 
 set -u
 
+# 독립 검증 세션(state-verify.mjs 가 띄운 중첩 claude/codex) 안에서는 어떤 STATE 훅도 돌지 않는다 —
+# 주입·기준점·Stop 판정도, 검사의 재귀적 시작도 없다.
+[ -n "${STATE_LEDGER_VERIFY_CHILD:-}" ] && exit 0
+
 mode="${1:-}"
 case "$mode" in
   session-start) hook_script="session-start-state-inject.sh" ;;

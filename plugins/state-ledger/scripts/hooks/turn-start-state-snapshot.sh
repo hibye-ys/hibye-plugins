@@ -19,6 +19,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 error=""
 focus_reminder=""
+verify_context=""
 if ! command -v node >/dev/null 2>&1; then
   error="node가 PATH에 없어 STATE 턴 기준점을 저장하지 못했습니다."
 else
@@ -41,6 +42,25 @@ else
     focus_reminder=""
   fi
   [ -n "$focus_err_file" ] && rm -f "$focus_err_file"
+
+  # 독립 검증(opt-in, state-verify.mjs): 턴 카운트·단계 기준점을 저장하고, 아직 전달하지 않은 판정이 있으면 알림 뒤에 붙인다.
+  # .staterc 에 STATE_VERIFY="1" 이 없으면 node 를 띄우지 않는다. 실패는 기준점·알림과 섞지 않고 경고만 덧붙인다.
+  if [ -f "$root/.staterc" ] && grep -Eq '^STATE_VERIFY="1"[[:space:]]*$' "$root/.staterc" 2>/dev/null; then
+    verify_err_file=$(mktemp "${TMPDIR:-/tmp}/state-ledger-verify.XXXXXX" 2>/dev/null) || verify_err_file=""
+    if verify_context=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-verify.mjs" turn-start 2>"${verify_err_file:-/dev/null}"); then
+      if [ -n "$verify_context" ]; then
+        focus_reminder="${focus_reminder}${focus_reminder:+
+
+}${verify_context}"
+      fi
+    else
+      verify_err=""
+      [ -n "$verify_err_file" ] && verify_err=$(cat "$verify_err_file" 2>/dev/null)
+      error="${error}${error:+
+}STATE 독립 검증 실패: ${verify_err:0:400}"
+    fi
+    [ -n "$verify_err_file" ] && rm -f "$verify_err_file"
+  fi
 fi
 
 if [ -n "$error" ] || [ -n "$focus_reminder" ]; then

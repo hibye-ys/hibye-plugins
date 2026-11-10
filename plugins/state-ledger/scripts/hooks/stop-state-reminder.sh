@@ -42,7 +42,27 @@ if ! command -v jq >/dev/null 2>&1; then
   printf '%s\n' '{"systemMessage":"jq가 PATH에 없어 STATE Stop 검사를 실행하지 못했습니다."}'
   exit 0
 fi
-if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then exit 0; fi
+
+# 독립 검증(opt-in, state-verify.mjs): 끝난 검사 판정을 반영하고 계기가 있으면 검사 세션을 백그라운드로 시작한다.
+# stop_hook_active 조기 종료보다 앞에서 돌지만, 엔진 스스로 stop_hook_active 면 막지 않는다. 단계 끝 미충족·순서 위반 판정은
+# 여기서 decision:block 을 내고 끝낸다(정리 요청 차단이 있으면 위에서 이미 끝났다). 보고뿐이면 systemMessage 만 이후 알림에 합친다.
+# .staterc 에 STATE_VERIFY="1" 이 없으면 node 를 띄우지 않는다. 엔진 오류는 엔진이 systemMessage 로 낸다.
+verify_msg=""
+if command -v node >/dev/null 2>&1 && [ -f "$root/.staterc" ] && grep -Eq '^STATE_VERIFY="1"[[:space:]]*$' "$root/.staterc" 2>/dev/null; then
+  verify_out=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-verify.mjs" stop 2>/dev/null || true)
+  if [ -n "$verify_out" ]; then
+    if [ "$(printf '%s' "$verify_out" | jq -r '.decision // empty' 2>/dev/null)" = "block" ]; then
+      printf '%s\n' "$verify_out"
+      exit 0
+    fi
+    verify_msg=$(printf '%s' "$verify_out" | jq -r '.systemMessage // empty' 2>/dev/null || true)
+  fi
+fi
+
+if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then
+  if [ -n "$verify_msg" ]; then jq -n --arg msg "$verify_msg" '{systemMessage: $msg}'; fi
+  exit 0
+fi
 
 # 판정·계산은 node 엔진이 하고 이 스크립트는 표시만 한다. 엔진은 Stop 시점을 새 기준점으로 저장한다.
 # 엔진 stdout(JSON)과 stderr(오류)는 섞지 않는다. 기준점 부재·저장 실패는 정상으로 숨기지 않고 경고한다.
@@ -139,6 +159,8 @@ EOF
     fi
   fi
 fi
+
+if [ -n "$verify_msg" ]; then add "$verify_msg"; fi
 
 if [ -n "$msg" ]; then
   if [ "${STATE_LEDGER_HOST:-}" = "antigravity" ]; then

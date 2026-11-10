@@ -37,6 +37,7 @@ EUNHA 에서 실운영으로 검증된 시스템의 일반화판 — EUNHA 는 �
 | `scripts/hooks/state-config.mjs` | `.staterc` 공통 파서 — 인덱스 상대경로·정규화·repo 경계·symlink·개수와 설정 크기를 읽기 전에 검증 |
 | `scripts/hooks/turn-start-state-snapshot.sh` | UserPromptSubmit/chat.message — repo 밖 세션별 턴 기준점(HEAD·dirty STATE hash·detail 본문 크기) 저장, 이어서 `state-focus.mjs` 알림을 `additionalContext` 로 주입. 현재 브랜치 소유 항목이 없으면 오류만 출력 |
 | `scripts/hooks/state-focus.mjs` | 현재 작업 재주입 엔진 — 현재 브랜치가 `branch:` 로 소유한 §1·§2 항목(최대 3개)의 `goal`·`step`·`next_step`·`handoff` 를 약 3KB 이내 텍스트로 만든다. 기본 브랜치·detached HEAD 는 출력 없음. `reminder` 서브커맨드 |
+| `scripts/hooks/state-verify.mjs` | 여러 턴 독립 검증 엔진(opt-in, 0.10.0) — `turn-start`(턴 카운트·단계 기준점, 미전달 판정 주입)·`session-start`(compaction 예약)·`stop`(판정 수거·차단/보고, 계기가 있으면 검사 세션 시작)·`run`(분리된 worker 가 headless `claude -p`/`codex exec` 를 실행). `.staterc` `STATE_VERIFY="1"` 이 아니면 아무것도 하지 않는다 |
 | `scripts/hooks/state-turn-baseline.mjs` | 판정 엔진 — 이번 턴 커밋의 `[id=]` 태그, detail 본문 덧붙임, 동시 세션 보류. 턴을 넘는 상태는 저장하지 않는다. git plumbing(rev-list·diff-tree --stdin --cc·cat-file)만 쓴다 |
 | `scripts/hooks/post-edit-state-stamp.sh` | PostToolUse — detail 본문 hash 변경 시 touched·hash 스탬프 (다중 파일 apply_patch 지원, owner·branch 불변, 프로젝트 밖 경로 거부) |
 | `scripts/hooks/stop-state-reminder.sh` | Stop — 엔진 결과를 표시만 한다: 이번 턴의 태그 없는 커밋·인덱스에 없는 id 커밋, detail 본문 덧붙임, 동시 세션 보류, 이번 턴에 바뀐 STATE 경로의 구조 재검 |
@@ -58,6 +59,11 @@ STATE_WORK_INCLUDE_RE="(^|/)\.staterc$|(^|/)Dockerfile$|\.(ts|tsx|js|jsx|mjs|cjs
 STATE_WORK_EXCLUDE_RE="(^|/)(node_modules|dist|build|coverage|vendor)/"
 STATE_BRANCH_EXCLUDE="task-loop/*"  # 유령 검사 제외 glob (공백 구분)
 STATE_INDEX_SOURCE="manual"         # manual(기본) | frontmatter — 아래 0.8.0
+STATE_VERIFY="1"                    # 독립 검증 켜기 (기본 꺼짐) — 아래 0.10.0
+STATE_VERIFY_EVERY="5"              # 주기 점검: 소유 항목이 있는 사용자 턴 N번마다 (0=끔)
+STATE_VERIFY_RUNNER="claude"        # claude(기본) | codex
+STATE_VERIFY_MODEL="sonnet"         # 주기·compaction 점검 모델 (codex 는 명시했을 때만 전달)
+STATE_VERIFY_STEP_MODEL="opus"      # 단계 변경 점검 모델
 ```
 
 area 는 경로에서 유도한다: 루트 `STATE.md` → `root`, 그 외 → 부모 디렉토리 이름 (`apps/api/STATE.md` → `api`). detail 은 항상 `docs/state/<area>/<id>.md`.
@@ -89,7 +95,7 @@ Codex 업데이트는 `.codex-plugin/plugin.json` cachebuster를 갱신한 뒤 `
 
 `commit-msg`는 agent lifecycle이 아니라 Git hook이므로 기존 hook manager에서 `if [ ! -f scripts/hooks/state-ledger-runner.mjs ]; then :; elif command -v node >/dev/null 2>&1; then node scripts/hooks/state-ledger-runner.mjs commit-msg "$1"; else echo "WARN: node가 PATH에 없어 STATE commit-msg 검사를 건너뜁니다." >&2; fi`를 호출한다. shared Git hooks를 쓰는 이전 checkout에 runner가 없거나 Git GUI PATH에 node가 없어도 commit을 막지 않기 위한 guard다. lint-staged에서 구조 검사를 유지하려면 `node scripts/hooks/state-ledger-runner.mjs check-wip`을 사용한다. opencode는 runner와 `templates/wiring/opencode-harness.ts`를 함께 복사하고 `opencode.json` instructions에 인덱스를 지정한다. 기존 `.codex/hooks.json`·`.codex/config.toml`·`.claude/settings*.json`에 복사형 STATE lifecycle이 남아 있으면 제거한다. 이행 중인 브랜치에서는 전역 dispatcher가 JSON/TOML의 실제 로컬 command를 감지해 중복 실행을 피하며, 주석이나 단순 문자열은 로컬 훅으로 취급하지 않는다.
 
-정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs scripts/hooks/state-frontmatter.test.mjs scripts/hooks/state-focus.test.mjs scripts/hooks/state-cleanup.test.mjs scripts/hooks/rules-skill.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
+정본 회귀 검사는 `node --test scripts/hooks/state-hooks.test.mjs scripts/hooks/state-frontmatter.test.mjs scripts/hooks/state-focus.test.mjs scripts/hooks/state-cleanup.test.mjs scripts/hooks/state-verify.test.mjs scripts/hooks/rules-skill.test.mjs templates/wiring/state-ledger-runner.test.mjs`로 실행한다.
 
 ## 검증된 설계 근거 (2026-07-28 교차 리뷰 라운드)
 
@@ -161,3 +167,17 @@ Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 pri
 - **조용한 경우**: 현재 브랜치가 `STATE_DEFAULT_BRANCH`(기본 `main`; `origin/main` 처럼 원격 ref 로 주어도 `refs/remotes/<값>` 이 있으면 `main` 으로 본다)이거나 detached HEAD 이면 아무것도 싣지 않는다. 기본 브랜치를 가리키는 항목은 많아 소유가 모호하다. 소유 항목이 없거나 §3·§4 에만 있어도 출력이 없다.
 - **주입 시점**: UserPromptSubmit 마다 `additionalContext` 로, SessionStart(startup/resume/clear/compact)에서는 `additionalContext` 에 정리 요청 → 초기화·설정 경고 → 현재 작업 알림 → 정합·예산 요약 → 규칙 스킬 알림 → 원칙 → 인덱스 순으로 싣는다. Claude 의 SessionStart `additionalContextLimit: 5000` 절단에서 알림이 요약·인덱스보다 오래 살아남되 초기화 오류는 그보다 먼저 전달되게 하기 위해서다. 엔진 실패는 경고로만 표시하고 주입·기준점 저장은 막지 않는다.
 - **호스트**: Claude Code·Codex(같은 `hooks.json`), Muse(`muse-turn-start.sh` 가 dispatcher 출력을 그대로 전달, 15KB 이내), Antigravity(`antigravity-pre-invocation.mjs` 가 turn-start 알림을 매 호출 `injectSteps` 에 싣고 첫 호출의 session-start 와 중복되면 한 번만). opencode 는 훅이 아니라 instructions 주입이라 현재 작업 알림을 연결하지 않았다 — `templates/wiring/opencode-harness.ts` 의 `chat.message` 는 turn-start 의 오류(`systemMessage`)만 로그에 남기고 알림(`additionalContext`)은 주입도 로그도 하지 않는다.
+
+### 0.10.0 여러 턴 독립 검증 (opt-in)
+
+0.9.0 은 목표·단계를 매 턴 다시 보여 주지만, 에이전트가 그것을 보고도 순서를 벗어나거나 끝 조건을 채우지 않고 단계를 "끝"으로 적을 수 있다. 에이전트의 자기 점검은 같은 착각을 공유하므로 검증이 아니다. 그래서 **작업 에이전트와 별개인 로컬 headless 에이전트 세션**(모델 API 직접 호출이 아니다)이 목표와 계획 순서를 지키는지 여러 턴에 걸쳐 확인하고, 훅이 그 판정에 따라 움직인다. 토큰 비용은 검사를 생략할 이유가 아니라는 것이 사용자 결정이다. `.staterc` 에 `STATE_VERIFY="1"` 이 없으면 훅은 node 도 띄우지 않고 아무것도 하지 않는다.
+
+- **언제 도는가**: ① 이번 턴에 소유 항목의 `step`/`next_step` 이 바뀌었거나 새로 소유한 항목에 step 이 있을 때(= "이 단계 끝" 주장, 필수 계기) ② compaction 직후 첫 Stop(SessionStart `source=compact` 가 예약) ③ 소유 항목이 있는 사용자 턴 `STATE_VERIFY_EVERY`(기본 5)번마다(`0` 이면 끔; 0 이상의 정수가 아니면 5 로 보고 Stop `systemMessage` 로 한 번 알림). 계기는 Stop 에서 모아 검사 하나로 묶는다. 검사가 진행 중이면 계기를 대기열에 넣고 판정을 거둔 뒤 시작한다(검사는 한 번에 하나).
+- **누가 검사하는가**: Stop 훅이 분리된(detached) worker 를 띄우고, worker 가 새 세션으로 `claude -p --model <m> --output-format json --no-session-persistence --allowedTools "Read,Grep,Glob,Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git status:*)" --disallowedTools "Edit,Write,NotebookEdit" --add-dir <작업 파일 폴더>`(기본) 또는 `codex exec --sandbox read-only --ephemeral -C <root> [-m <m>] -o <file> -`(`STATE_VERIFY_RUNNER="codex"`)를 돌린다. 프롬프트는 stdin 으로 넘긴다. PATH 에 `claude` 가 없으면 부모 세션이 알려 주는 `CLAUDE_CODE_EXECPATH` 를 쓴다. 모델은 주기·compaction 점검이 `STATE_VERIFY_MODEL`(기본 `sonnet`), 단계 변경 점검이 `STATE_VERIFY_STEP_MODEL`(기본 `opus`)이다. codex 는 변수를 명시했을 때만 `-m` 을 넘긴다. 검사 세션은 읽기만 하고 매번 새로 시작하며(직전 판정만 프롬프트에 요약해 넣어 지난 지적이 고쳐졌는지 보게 한다), 15분 제한이 있다. `--bare` 는 쓰지 않는다(OAuth 구독을 건너뛴다).
+- **무엇을 읽는가**: 소유 항목(최대 3개)의 detail 경로·`goal`·`step`·`next_step`·`status`·`handoff`와, 검사 세션이 직접 읽을 detail·handoff 계획 문서(`path#절`)의 **끝 조건**, 마지막 검사(없으면 세션 첫 소유 턴) 이후 `git log --oneline`(최대 50줄)과 `git diff --stat`, 그리고 hook 입력 `transcript_path` 의 **대화 기록 끝부분**(파일 끝 512KB 에서 사용자·에이전트 텍스트만 최근 약 20KB; 도구 결과·생각·도구 호출은 제외, 0600 임시 파일에 써서 검사 세션이 읽게 하고 끝나면 지운다). 대화 기록이 필요한 이유는 실제 사고가 "계획 밖 작업 제안"이었기 때문이다. 모두 로컬 안에서만 읽는다. 질문은 ① 단계 변경 시 끝 조건이 근거와 함께 충족됐는가 ② 지금 작업·제안이 계획의 단계 순서를 따르는가(사용자의 명시 지시는 계획보다 우선) ③ 범위가 목표에서 벗어나는가.
+- **판정**: JSON 하나 `{"verdict":"on_track|drift|unclear","kind":"step_unmet|order|scope|other|none","summary":"…","evidence":[…],"missing":[…]}` (summary ≤800자, evidence·missing 각 ≤8개×300자, 형식이 틀리면 `unclear`). 러너 실패·형식 오류·결과 없이 끝난 세션(pid 소멸 또는 20분 경과)도 `unclear`(`검사 세션 실패: …`/`검사 세션이 결과 없이 끝남`)로 기록하며 차단하지 않는다. 최근 10개 판정을 repo 밖 `STATE_HOOK_DATA_DIR`(없으면 tmpdir `state-ledger-hooks`)의 `verify-<root>-<session>.json`(0600)에 두고, 작업 파일(`verify-jobs/`)은 7일 뒤 정리한다.
+- **벗어남이 발견되면**: 가장 새 판정만 본다. `drift` 이고 `kind` 가 `step_unmet`·`order` 면 **다음 Stop 을 1회 막는다**(`decision:"block"` + 판정 요약·미충족 끝 조건·"handoff 의 해당 단계 절과 끝 조건을 다시 읽고 바로잡거나, 계획을 바꿔야 하면 사용자에게 묻고 끝낸다") — 같은 판정으로는 한 번만, `stop_hook_active` 면 막지 않는다. 그 밖의 `drift`·`unclear` 는 Stop `systemMessage` 한 줄(사용자에게만 보임)로 보고하고, `on_track` 은 조용히 기록한다. 에이전트는 Stop 사유 외에도 **다음 UserPromptSubmit 의 `additionalContext`** 에 `=== STATE 독립 검증 결과 (<계기>, <모델>) ===` 블록(판정·미충족·근거·"맞으면 바로잡고 틀렸다고 보면 근거를 들어 사용자에게 알린다")으로 `on_track` 이 아닌 미전달 판정을 한 번 받는다. 검사 세션이 틀릴 수 있으므로 에이전트는 근거를 들어 사용자에게 반박해도 된다 — 판정을 피하려고 `step` 갱신을 미루는 것은 규칙 위반이다(rules 템플릿 v5).
+- **재귀 방지**: worker 는 검사 세션 환경에 `STATE_LEDGER_VERIFY_CHILD=1` 을 넣고 `CLAUDECODE`·`CLAUDE_CODE_ENTRYPOINT`·`CLAUDE_CODE_SSE_PORT`·`CLAUDE_PROJECT_DIR` 을 지운다. `global-state-hook.sh` 맨 앞이 이 변수가 있으면 즉시 종료하므로 검사 세션 안에서는 주입·기준점·Stop 판정·추가 검사가 모두 없다(중첩 세션이 이 가드를 가진 플러그인 버전을 읽어야 한다 — 0.10.0 이전 버전이 설치돼 있으면 그 훅은 검사 세션에서도 돈다).
+- **호스트**: Claude Code·Codex(`STATE_LEDGER_HOST` 비어 있음/`claude`/`codex`). Muse·Antigravity·opencode 는 Stop 계약이 달라 켜져 있어도 no-op. 소유 항목이 없거나 기본 브랜치·detached HEAD 인 세션도 no-op(0.9.0 과 같은 소유 판정을 `state-focus.mjs` 의 `currentOwned` 로 재사용).
+- **테스트·고급**: 환경변수 `STATE_VERIFY_COMMAND` 에 실행 파일을 주면 `claude`/`codex` 대신 그것이 prompt(stdin)를 받아 cwd=저장소 루트, 환경 `STATE_VERIFY_MODEL_SELECTED` 로 실행되고 판정 JSON(또는 그것을 담은 텍스트)을 stdout 으로 낸다. `.staterc` 가 아니라 환경변수로만 받으므로 저장소 내용만으로 임의 명령이 실행되지 않는다.
+- **알려진 한계**: 검사는 비동기라(1회 수 분) 판정이 **다음 Stop 또는 다음 사용자 턴**에야 반영되고, 그 사이에 에이전트가 이미 바로잡았어도 막힐 수 있다. 실제 `claude`/`codex` 호출이라 시간·토큰이 든다. 검사 세션도 틀릴 수 있다. 차단된 턴은 기존 Stop 검사(태그 없는 커밋 등)를 건너뛴다(정리 요청 차단과 같다). 사용자 홈의 다른 훅·플러그인은 중첩 세션에서도 돈다. 검사 세션 인증은 부모와 같은 로컬 CLI 로그인을 쓴다.
