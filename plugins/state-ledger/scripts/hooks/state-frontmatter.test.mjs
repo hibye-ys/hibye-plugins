@@ -398,3 +398,109 @@ test('state-index branches lists frontmatter branch values per revision, ignorin
     'refs/heads/main\tmain',
   ].sort())
 })
+
+// ── 0.10.1: 브랜치 이름 해석(M1)·원격 기본 브랜치(M7)·유령 검사 비용(M10) ───────────────────────────
+function branchOnMain(root, name, files) {
+  git(root, 'checkout', '-q', '-b', name, 'main')
+  for (const [path, text] of Object.entries(files)) write(root, path, text)
+  commit(root, `${name} work [id=-]`)
+  git(root, 'checkout', '-q', 'main')
+}
+
+test('ghost branch check: a registered branch whose name is also a tag is not a ghost, and an unregistered one is reported by its own name', (t) => {
+  const root = repo(t)
+  write(root, 'README.md', 'x\n')
+  write(root, 'docs/state/root/v2reg.md', detail('v2reg', { branch: 'v2' }))
+  commit(root, 'seed [id=-]')
+  branchOnMain(root, 'v2', { 'a.txt': 'a\n' })
+  branchOnMain(root, 'v3', { 'b.txt': 'b\n' })
+  git(root, 'tag', 'v2', 'main')
+  git(root, 'tag', 'v3', 'main')
+  const { out } = run(BRANCH_SYNC_SCRIPT, root)
+  // v2 는 등재돼 있다 — `%(refname:short)` 였다면 `heads/v2` 로 읽혀 유령으로 보고된다. v3 는 미등재라 자기 이름으로 보고된다.
+  assert.deepEqual(ghostLines(out), [ghostLine('v3')])
+  assert.doesNotMatch(out, /heads\/v/)
+  assert.doesNotMatch(out, /브랜치 소멸/)
+})
+
+test('ghost branch check with STATE_DEFAULT_BRANCH=origin/main: an unpushed local main is the base branch, not a ghost', (t) => {
+  const root = repo(t, { staterc: STATERC.replace('STATE_DEFAULT_BRANCH="main"', 'STATE_DEFAULT_BRANCH="origin/main"') })
+  write(root, 'README.md', 'x\n')
+  commit(root, 'seed [id=-]')
+  git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+  write(root, 'unpushed.txt', 'u\n')
+  commit(root, 'unpushed work [id=-]')
+  branchOnMain(root, 'feat/real-ghost', { 'g.txt': 'g\n' })
+  const { out } = run(BRANCH_SYNC_SCRIPT, root)
+  assert.deepEqual(ghostLines(out), ['WARN: 유령 브랜치 feat/real-ghost — origin/main 에 없는 커밋 2개, STATE 미등재 (등재 또는 폐기 결정 필요)'])
+})
+
+test('ghost branch check: a local base branch behind origin/main is not reported as merged (STATE_DEFAULT_BRANCH=origin/main)', (t) => {
+  const root = repo(t, { staterc: STATERC.replace('STATE_DEFAULT_BRANCH="main"', 'STATE_DEFAULT_BRANCH="origin/main"') })
+  write(root, 'README.md', 'x\n')
+  write(root, 'docs/state/root/baseitem.md', detail('baseitem', { branch: 'main' }))
+  commit(root, 'seed [id=-]')
+  write(root, 'next.txt', 'n\n')
+  commit(root, 'next [id=-]')
+  git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+  git(root, 'reset', '-q', '--hard', 'HEAD~1')
+  const { out } = run(BRANCH_SYNC_SCRIPT, root)
+  assert.doesNotMatch(out, /이미 origin\/main 에 머지됨/)
+  assert.deepEqual(ghostLines(out), [])
+})
+
+// git 래퍼: 호출 첫 인자를 로그에 남긴다. 옵션으로 ahead-behind 형식을 지원하지 않는 git 도 흉내 낸다.
+function gitShim(t, root, { noAheadBehind = false } = {}) {
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+  const shimDir = `${root}-shim-${noAheadBehind ? 'old' : 'log'}`
+  const log = join(shimDir, 'calls.log')
+  mkdirSync(shimDir, { recursive: true })
+  t.after(() => rmSync(shimDir, { recursive: true, force: true }))
+  const refuse = noAheadBehind ? `case "$*" in *ahead-behind*) echo 'fatal: unknown field name: ahead-behind' >&2; exit 128 ;; esac\n` : ''
+  writeFileSync(join(shimDir, 'git'), `#!/bin/sh\necho "$1" >> "${log}"\n${refuse}exec "${realGit}" "$@"\n`, { mode: 0o755 })
+  return { env: { PATH: `${shimDir}:${process.env.PATH}` }, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) }
+}
+
+test('ghost branch check does not spawn git per branch when ahead-behind is available', (t) => {
+  const root = ghostFixture(t)
+  const shim = gitShim(t, root)
+  const { out } = run(BRANCH_SYNC_SCRIPT, root, { env: shim.env })
+  assert.deepEqual(ghostLines(out), [ghostLine('feat/body-only'), ghostLine('feat/body-own'), ghostLine('feat/unreg')])
+  const calls = shim.calls()
+  assert.equal(calls.filter((name) => name === 'rev-list').length, 0, 'commits ahead of the base are counted in one for-each-ref pass')
+  assert.equal(calls.filter((name) => name === 'ls-tree').length, 0, 'revision trees are read through cat-file --batch')
+  assert.ok(calls.filter((name) => name === 'cat-file').length <= 4, `cat-file calls: ${calls.filter((name) => name === 'cat-file').length}`)
+})
+
+test('ghost branch check falls back to per-branch counting on a git without ahead-behind, with identical output', (t) => {
+  const root = ghostFixture(t)
+  const shim = gitShim(t, root, { noAheadBehind: true })
+  const { out } = run(BRANCH_SYNC_SCRIPT, root, { env: shim.env })
+  assert.deepEqual(ghostLines(out), [ghostLine('feat/body-only'), ghostLine('feat/body-own'), ghostLine('feat/unreg')])
+  assert.ok(shim.calls().filter((name) => name === 'rev-list').length > 0, 'the fallback counts with rev-list')
+})
+
+test('state-index branches reads nested detail directories and shares unchanged subtrees across revisions', (t) => {
+  const root = repo(t)
+  write(root, 'docs/state/root/a.md', detail('a', { branch: 'branch-a' }))
+  write(root, 'docs/state/root/notes.txt', 'branch: not-markdown\n')
+  write(root, 'docs/state/deep/er/b.md', detail('b', { branch: 'branch-b' }))
+  write(root, 'README.md', 'x\n')
+  commit(root, 'seed [id=-]')
+  branchOnMain(root, 'feat/plain', { 'c.txt': 'c\n' })
+  branchOnMain(root, 'feat/own', { 'docs/state/root/own.md': detail('own', { branch: 'feat/own' }) })
+  const revs = ['refs/heads/main', 'refs/heads/feat/plain', 'refs/heads/feat/own', 'refs/heads/main', 'refs/tags/none']
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./state-index.mjs', import.meta.url)), 'branches', ...revs.flatMap((rev) => ['--rev', rev])], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, HOOK_PROJECT_DIR: root },
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(result.stdout.trim().split('\n').sort(), [
+    'refs/heads/feat/own\tbranch-a',
+    'refs/heads/feat/own\tbranch-b',
+    'refs/heads/feat/own\tfeat/own',
+    'refs/heads/feat/plain\tbranch-a',
+    'refs/heads/feat/plain\tbranch-b',
+    'refs/heads/main\tbranch-a',
+    'refs/heads/main\tbranch-b',
+  ].sort())
+})
