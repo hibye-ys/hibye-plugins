@@ -1,20 +1,25 @@
 // 여러 턴 독립 검증 (opt-in) — 별도 로컬 검사 세션이 목표·계획 순서를 지키는지 보고 훅이 판정에 따라 움직인다.
 // 검사 세션은 STATE_VERIFY_COMMAND 스텁으로 대체한다(실제 claude/codex 는 부르지 않는다).
 import assert from 'node:assert/strict'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
+  PROMPT_MAX_BYTES,
+  STALE_VERDICT_LINE,
+  buildPrompt,
   buildRunnerCommand,
   claudeCommand,
+  cutBytes,
   extractVerdict,
   mergeTriggers,
   normalizeVerdict,
   selectModel,
+  snapshotsEqual,
   stepChanges,
   transcriptTail,
 } from './state-verify.mjs'
@@ -74,20 +79,33 @@ function detail(id, { branch = 'feat/x', fields = FIELDS_A } = {}) {
 }
 
 // 검사 세션 스텁: prompt(stdin)·모델·환경을 call-N.json 으로 남기고 설정된 출력을 낸다.
-const STUB_SOURCE = `import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+const STUB_SOURCE = `import { spawn } from 'node:child_process'
+import { existsSync, linkSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 const dir = process.env.STUB_DIR
 const prompt = readFileSync(0, 'utf8')
-const n = readdirSync(dir).filter((f) => /^call-\\d+\\.json$/.test(f)).length + 1
-const found = prompt.match(/(\\/[^\\s]+\\.transcript\\.txt)/)
+const found = prompt.match(/(\\/[^\\s]+\\/transcript\\.txt)/)
 const transcript = found && existsSync(found[1]) ? readFileSync(found[1], 'utf8') : null
 const read = (name, fallback) => (existsSync(join(dir, name)) ? readFileSync(join(dir, name), 'utf8') : fallback)
-writeFileSync(join(dir, 'call-' + n + '.json'), JSON.stringify({
+// 동시에 도는 스텁끼리 부딪치지 않게, 임시 파일을 만든 뒤 비어 있는 call-N.json 에 원자적으로 링크한다.
+const tmp = join(dir, '.rec-' + process.pid)
+writeFileSync(tmp, JSON.stringify({
   prompt, transcript, model: process.env.STATE_VERIFY_MODEL_SELECTED, child: process.env.STATE_LEDGER_VERIFY_CHILD ?? null,
   cwd: process.cwd(), claudecode: process.env.CLAUDECODE ?? null, claudeProjectDir: process.env.CLAUDE_PROJECT_DIR ?? null,
 }))
+for (let n = 1; ; n += 1) {
+  try { linkSync(tmp, join(dir, 'call-' + n + '.json')); break } catch (e) { if (e.code !== 'EEXIST') throw e }
+}
+unlinkSync(tmp)
 const ms = Number(read('sleep', '0'))
 if (ms > 0) await new Promise((r) => setTimeout(r, ms))
+if (existsSync(join(dir, 'grandchild'))) {
+  // 프로세스 위생 시험: stdout 파이프를 쥔 채 SIGTERM 을 무시하는 손자를 둔다. 'linger' 면 판정을 내고 바로 끝나고, 아니면 오래 잔다.
+  const gc = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: ['ignore', 'inherit', 'inherit'] })
+  gc.unref() // 손자가 살아 있어도 스텁 자신은 끝날 수 있게
+  writeFileSync(join(dir, 'pids.json'), JSON.stringify({ stub: process.pid, grandchild: gc.pid }))
+  if (read('grandchild', '') !== 'linger') await new Promise((r) => setTimeout(r, 300000))
+}
 if (existsSync(join(dir, 'exit'))) {
   process.stderr.write(read('stderr', ''))
   process.exit(Number(read('exit', '1')))
@@ -102,8 +120,12 @@ function setup(t, { staterc = 'STATE_VERIFY="1"\nSTATE_VERIFY_EVERY="0"\n', bran
   const stubDir = `${root}-stub`
   const jobsDir = join(dataDir, 'verify-jobs')
   t.after(async () => {
-    // 분리된 worker 는 job 파일을 마지막에 지운다 — 끝나기 전에 임시 디렉터리를 지우지 않는다.
-    await waitFor(() => !existsSync(jobsDir) || readdirSync(jobsDir).every((name) => !name.endsWith('.job.json')), { timeout: 8000 }).catch(() => {})
+    // 분리된 worker 는 job.json 을 마지막에 지운다 — 끝나기 전에 임시 디렉터리를 지우지 않는다.
+    await waitFor(() => !existsSync(jobsDir) || readdirSync(jobsDir).every((name) => !existsSync(join(jobsDir, name, 'job.json'))), { timeout: 8000 }).catch(() => {})
+    try { // 제한 시간 시험이 남긴 프로세스
+      const pids = JSON.parse(readFileSync(join(stubDir, 'pids.json'), 'utf8'))
+      for (const pid of Object.values(pids)) try { process.kill(pid, 'SIGKILL') } catch { /* 이미 없다 */ }
+    } catch { /* 해당 없음 */ }
     for (const dir of [root, dataDir, stubDir]) rmSync(dir, { recursive: true, force: true })
   })
   git(root, 'init', '-q', '-b', 'main')
@@ -155,10 +177,13 @@ function setup(t, { staterc = 'STATE_VERIFY="1"\nSTATE_VERIFY_EVERY="0"\n', bran
   ctx.turnStart = (payload = {}) => ctx.engine('turn-start', { prompt: 'x', ...payload })
   ctx.stop = (payload = {}) => ctx.engine('stop', { hook_event_name: 'Stop', stop_hook_active: false, ...payload })
   ctx.setFields = (fields, opts = {}) => write(root, 'docs/state/root/notes.md', detail('notes', { fields, ...opts }))
-  ctx.statePath = () => join(dataDir, `verify-${sha(root).slice(0, 16)}-${sha(SESSION).slice(0, 24)}.json`)
-  ctx.state = () => JSON.parse(readFileSync(ctx.statePath(), 'utf8'))
+  ctx.statePathFor = (sessionId) => join(dataDir, `verify-${sha(root).slice(0, 16)}-${sha(sessionId).slice(0, 24)}.json`)
+  ctx.statePath = () => ctx.statePathFor(SESSION)
+  ctx.state = (sessionId = SESSION) => JSON.parse(readFileSync(ctx.statePathFor(sessionId), 'utf8'))
   ctx.writeState = (state) => writeFileSync(ctx.statePath(), JSON.stringify(state))
-  ctx.results = () => (existsSync(jobsDir) ? readdirSync(jobsDir).filter((name) => name.endsWith('.result.json')) : [])
+  // job 폴더(verify-jobs/<jobId>/) 목록과, 그중 결과 파일이 있는 것.
+  ctx.jobDirs = () => (existsSync(jobsDir) ? readdirSync(jobsDir).filter((name) => !name.startsWith('.')) : [])
+  ctx.results = () => ctx.jobDirs().filter((name) => existsSync(join(jobsDir, name, 'result.json')))
   ctx.verifyFiles = () => (existsSync(dataDir) ? readdirSync(dataDir).filter((name) => name.startsWith('verify-')) : [])
   ctx.waitCalls = (count) => waitFor(() => ctx.stub.calls().length >= count && ctx.stub.calls(), { what: `${count} stub call(s)` })
   ctx.waitResult = () => waitFor(() => ctx.results().length > 0, { what: 'a result file' })
@@ -284,6 +309,9 @@ test('step change at Stop launches one check with the STEP model and a complete 
   assert.match(call.prompt, /finish step 3 \[id=notes\]/, 'commit log')
   assert.match(call.prompt, /git diff --stat/)
   assert.match(call.prompt, /src\/step3\.js/)
+  assert.match(call.prompt, /## 변경 내용 \(git diff [0-9a-f]{8}\.\.[0-9a-f]{8}/, 'the diff is pre-rendered for the checker')
+  assert.match(call.prompt, /\+export const done = true/)
+  assert.match(call.prompt, /Read·Grep·Glob\)뿐이고 명령은 실행할 수 없다/)
   assert.match(call.prompt, /"verdict":"on_track\|drift\|unclear"/)
   assert.equal(call.prompt.includes('/transcript.jsonl'), false, 'the original transcript path is not handed over')
   // 대화 기록 끝부분: 사용자·에이전트 텍스트만
@@ -507,7 +535,7 @@ test('on_track stays silent everywhere and is never delivered', async (t) => {
   assert.equal(ctx.state().verdicts[0].verdict, 'on_track')
 })
 
-test('a newer verdict replaces an unhandled older one; the next check sees the previous verdict and a fresh commit range', async (t) => {
+test('a verdict made stale by a step change is reported, not blocked; the new step launches the next check with the previous verdict and a fresh commit range', async (t) => {
   const ctx = setup(t)
   ctx.stub.output(DRIFT_STEP)
   write(ctx.root, 'src/first.js', '1\n')
@@ -517,22 +545,134 @@ test('a newer verdict replaces an unhandled older one; the next check sees the p
   assert.equal(ctx.stop(), '')
   await ctx.waitCalls(1)
   await ctx.waitResult()
-  // 아직 거두지 않은 채 다음 계기 → Stop 이 먼저 거두고 차단한다. 그다음 두 번째 검사가 on_track 이면 조용하다.
+  // 에이전트가 다음 단계로 넘어갔다: 판정은 낡았으니 막지 않고 보고만 한다. 새 step 이 다음 검사를 시작한다.
   ctx.stub.output(ON_TRACK)
   ctx.turnStart()
   write(ctx.root, 'src/second.js', '2\n')
   commit(ctx.root, 'second range commit [id=notes]')
   ctx.setFields(FIELDS_C)
-  assert.equal(JSON.parse(ctx.stop()).decision, 'block')
+  const reported = JSON.parse(ctx.stop())
+  assert.equal(reported.decision, undefined, 'a stale verdict never blocks')
+  assert.match(reported.systemMessage, /drift\/step_unmet/)
+  assert.ok(reported.systemMessage.includes(STALE_VERDICT_LINE), reported.systemMessage)
+  assert.equal(ctx.state().verdicts.at(-1).blocked, false)
+  assert.equal(ctx.state().blockedTurn, null)
   const [first, second] = await ctx.waitCalls(2)
   assert.match(first.prompt, /first range commit/)
   assert.doesNotMatch(first.prompt, /직전 판정/)
   assert.match(second.prompt, /직전 판정\ndrift\/step_unmet — 3단계 끝 조건/)
   assert.match(second.prompt, /second range commit/)
   assert.doesNotMatch(second.prompt, /first range commit/, 'the range restarts at the previous launch')
+  assert.match(second.prompt, /5단계 배포/, 'the new check sees the new step')
   await ctx.waitResult()
   assert.equal(ctx.stop(), '')
   assert.equal(ctx.turnStart(), '', 'the latest verdict is on_track: nothing to deliver')
+})
+
+test('snapshotsEqual: stale unless every owned item has the same step and next_step', () => {
+  const a = [{ area: 'root', id: 'a', step: 's1', next_step: 'n1' }, { area: 'root', id: 'b', step: '', next_step: '' }]
+  assert.equal(snapshotsEqual(a, structuredClone(a)), true)
+  assert.equal(snapshotsEqual(a, [{ ...a[0], step: 's2' }, a[1]]), false)
+  assert.equal(snapshotsEqual(a, [a[0]]), false, 'an item that is no longer owned')
+  assert.equal(snapshotsEqual(a, [...a, { area: 'root', id: 'c', step: 'x', next_step: '' }]), false, 'a newly owned item')
+  assert.equal(snapshotsEqual(null, a), false, 'a verdict without a snapshot cannot be shown fresh')
+})
+
+test('a next_step-only change after the check started also makes its verdict stale', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  await ctx.launchStepCheck()
+  assert.equal(ctx.state().running.snapshot[0].step, FIELDS_B.step, 'the job carries the step snapshot it was launched with')
+  ctx.setFields({ ...FIELDS_B, next_step: '5단계 배포(끝 조건 바뀜)' }) // next_step 만 바뀌어도 낡았다
+  const reported = JSON.parse(ctx.stop())
+  assert.equal(reported.decision, undefined)
+  assert.ok(reported.systemMessage.includes(STALE_VERDICT_LINE))
+})
+
+// check → block → 단계 수정 → check 루프: 막힌 턴의 재진입에서는 검사를 시작하지 않고, 한 사용자 턴에 한 번만 막는다.
+test('loop guard: a block ends the turn\'s launches, the continuation edits the step without a new check, and every block is in its own turn', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP) // 검사는 항상 step_unmet 을 낸다
+  // 턴 1: 단계를 "끝"으로 적는다 → 검사 1 시작.
+  await ctx.launchStepCheck()
+  assert.equal(ctx.stub.calls().length, 1)
+  // 턴 2: 검사 1 이 거둬져 막는다.
+  ctx.turnStart()
+  const blocked = JSON.parse(ctx.stop())
+  assert.equal(blocked.decision, 'block')
+  assert.equal(ctx.state().blockedTurn, 2)
+  // 막힌 뒤의 재진입(stop_hook_active): 에이전트가 단계를 고쳐 쓴다. 검사를 시작하지 않고 계기만 쌓는다.
+  ctx.setFields(FIELDS_C)
+  assert.equal(ctx.stop({ stop_hook_active: true }), '')
+  await sleep(250)
+  assert.equal(ctx.stub.calls().length, 1, 'no launch inside the continuation')
+  const queued = ctx.state()
+  assert.equal(queued.running, null)
+  assert.equal(queued.pendingTriggers[0].type, 'step')
+  assert.equal(queued.pendingTriggers[0].changes[0].to.step, FIELDS_C.step)
+  assert.deepEqual(queued.ownedAtTurnStart.map((entry) => entry.step), [FIELDS_C.step], 'the step baseline advanced')
+  // stop_hook_active 를 안 주는 호스트(Codex)도 같은 턴이면 시작도 재차단도 없다.
+  assert.equal(ctx.stop(), '')
+  await sleep(250)
+  assert.equal(ctx.stub.calls().length, 1, 'still the same turn: no launch')
+  assert.equal(ctx.state().verdicts.filter((entry) => entry.blocked).length, 1)
+  // 턴 3: 다음 정상 Stop 이 쌓인 계기로 검사 2 를 시작한다.
+  ctx.turnStart()
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(2)
+  await ctx.waitResult()
+  // 턴 4: 검사 2 도 step_unmet → 이 턴에서 한 번 막고, 같은 턴의 두 번째 Stop 은 막지 않는다.
+  ctx.turnStart()
+  assert.equal(JSON.parse(ctx.stop()).decision, 'block')
+  assert.equal(ctx.stop(), '')
+  assert.equal(ctx.stop({ stop_hook_active: true }), '')
+  assert.equal(ctx.state().blockedTurn, 4)
+  assert.equal(ctx.stub.calls().length, 2)
+})
+
+test('a second block in the same user turn is report-only', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  await ctx.launchStepCheck()
+  ctx.turnStart()
+  assert.equal(JSON.parse(ctx.stop()).decision, 'block')
+  // 같은 턴에 또 하나의 막을 만한 판정이 거둬지는 경우(예: 앞선 검사가 이제야 끝남)를 상태로 재현한다.
+  const state = ctx.state()
+  state.verdicts.push({ ...state.verdicts.at(-1), id: 'second', blocked: false, stopHandled: false, delivered: false })
+  ctx.writeState(state)
+  const out = JSON.parse(ctx.stop())
+  assert.equal(out.decision, undefined, 'one block per turn')
+  assert.match(out.systemMessage, /drift\/step_unmet/)
+  assert.match(out.systemMessage, /이번 턴에 이미 한 번 막아 다시 막지 않음/)
+  assert.equal(ctx.state().verdicts.at(-1).blocked, false)
+})
+
+test('Codex-shaped payload (sessionID key, no stop_hook_active) blocks at most once per turn and never launches in the blocked turn', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  const run = (command, payload) => {
+    const result = spawnSync(process.execPath, [VERIFY, command], { cwd: ctx.root, encoding: 'utf8', input: JSON.stringify({ sessionID: 'codex-session', hook_event_name: command, ...payload }), env: ctx.env })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  run('turn-start', { prompt: 'x' })
+  ctx.setFields(FIELDS_B)
+  assert.equal(run('stop', {}), '')
+  await ctx.waitCalls(1)
+  await ctx.waitResult()
+  run('turn-start', { prompt: 'again' }) // 턴 2
+  assert.equal(JSON.parse(run('stop', {})).decision, 'block')
+  ctx.setFields(FIELDS_C) // 막힌 뒤 에이전트가 단계를 고친다 (재진입 Stop, stop_hook_active 없음)
+  assert.equal(run('stop', {}), '', 'no second block in the same turn')
+  assert.equal(run('stop', {}), '')
+  await sleep(250)
+  assert.equal(ctx.stub.calls().length, 1, 'no new check in the blocked turn')
+  const state = ctx.state('codex-session')
+  assert.equal(state.verdicts.filter((entry) => entry.blocked).length, 1)
+  assert.equal(state.pendingTriggers[0].type, 'step')
+  run('turn-start', { prompt: 'next' }) // 턴 3
+  assert.equal(run('stop', {}), '')
+  await ctx.waitCalls(2)
 })
 
 // ---------- 실패·정리 ----------
@@ -658,16 +798,30 @@ test('Stop returns quickly while the detached check keeps running for seconds', 
   await ctx.waitResult()
 })
 
-test('dispatcher Stop prints the block JSON alone when a verdict blocks', async (t) => {
+test('dispatcher Stop with a blocking verdict prints ONE block JSON that still carries the tag reminder in systemMessage', async (t) => {
   const ctx = setup(t)
   ctx.stub.output(DRIFT_STEP)
   await ctx.launchStepCheck()
+  assert.doesNotMatch(ctx.dispatch('turn-start', { prompt: 'turn two' }), /^$/)
   write(ctx.root, 'src/untagged.js', 'x\n')
   commit(ctx.root, 'untagged work')
-  const out = JSON.parse(ctx.dispatch('stop', { hook_event_name: 'Stop', stop_hook_active: false }))
+  const raw = ctx.dispatch('stop', { hook_event_name: 'Stop', stop_hook_active: false })
+  const out = JSON.parse(raw) // 한 개의 JSON 객체여야 한다
   assert.equal(out.decision, 'block')
   assert.ok(out.reason.includes(DRIFT_STEP.summary))
-  assert.doesNotMatch(out.systemMessage, /STATE reminder/, 'the existing reminders are not merged into the block')
+  assert.doesNotMatch(out.reason, /STATE reminder/, 'the reminders go to systemMessage, the reason stays the verdict')
+  assert.match(out.systemMessage, /STATE reminder: 이번 턴 커밋 중 STATE id 태그가 없는 커밋 — [0-9a-f]{7} untagged work/)
+  assert.match(out.systemMessage, /STATE 독립 검증\(step, opus\): drift\/step_unmet.*막았습니다/)
+  assert.ok(out.systemMessage.indexOf('STATE 독립 검증') < out.systemMessage.indexOf('STATE reminder'), 'the verify line comes first')
+})
+
+test('dispatcher Stop with a blocking verdict and no other reminder prints just the verify line in systemMessage', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_ORDER)
+  await ctx.launchStepCheck()
+  const out = JSON.parse(ctx.dispatch('stop', { hook_event_name: 'Stop', stop_hook_active: false }))
+  assert.equal(out.decision, 'block')
+  assert.match(out.systemMessage, /^STATE 독립 검증\(step, opus\): drift\/order/)
 })
 
 test('dispatcher Stop keeps the existing tag and append reminders next to a verify report', async (t) => {
@@ -704,7 +858,7 @@ function fakeClis(t, ctx) {
 const args = process.argv.slice(2)
 const prompt = readFileSync(0, 'utf8')
 const verdict = ${JSON.stringify(DRIFT_SCOPE)}
-const record = (name) => writeFileSync(process.env.STUB_DIR + '/cli-' + name + '.json', JSON.stringify({ args, prompt, cwd: process.cwd(), child: process.env.STATE_LEDGER_VERIFY_CHILD ?? null, claudecode: process.env.CLAUDECODE ?? null }))
+const record = (name) => writeFileSync(process.env.STUB_DIR + '/cli-' + name + '.json', JSON.stringify({ args, prompt, cwd: process.cwd(), child: process.env.STATE_LEDGER_VERIFY_CHILD ?? null, claudecode: process.env.CLAUDECODE ?? null, optionalLocks: process.env.GIT_OPTIONAL_LOCKS ?? null }))
 `
   const scripts = {
     claude: `${common}record('claude')
@@ -724,18 +878,37 @@ process.stdout.write('codex progress noise without any json\\n')
 
 const readCli = (ctx, name) => JSON.parse(readFileSync(join(ctx.stubDir, `cli-${name}.json`), 'utf8'))
 
-test('default runner invokes claude -p with read-only tools in the repository and parses its JSON wrapper', async (t) => {
+// claude 검사 세션의 정확한 명령줄: Bash 없음, 제한 모드, MCP 없음, 묻지 않고 거부, 훅 끔, 이 job 폴더만 추가 허용.
+const CLAUDE_ARGV_HEAD = ['-p', '--restricted', '--strict-mcp-config', '--tools', 'Read,Grep,Glob', '--allowedTools', 'Read,Grep,Glob',
+  '--permission-mode', 'dontAsk', '--settings', '{"disableAllHooks":true}', '--no-session-persistence', '--output-format', 'json']
+
+test('default runner invokes an isolated claude -p (no Bash) in the repository with pre-rendered git evidence and parses its JSON wrapper', async (t) => {
   const ctx = setup(t, { env: { CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_PROJECT_DIR: '/elsewhere' } })
   Object.assign(ctx.env, fakeClis(t, ctx))
   delete ctx.env.STATE_VERIFY_COMMAND
-  await ctx.launchStepCheck({}, { expectCall: false })
+  ctx.turnStart()
+  write(ctx.root, 'src/step3.js', 'export const done = true\n')
+  commit(ctx.root, 'finish step 3 [id=notes]')
+  write(ctx.root, 'src/uncommitted.js', 'wip\n')
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  await ctx.waitResult()
   const call = readCli(ctx, 'claude')
+  const jobId = ctx.state().running.jobId
   assert.equal(call.cwd, ctx.root)
   assert.equal(call.child, '1')
   assert.equal(call.claudecode, null)
-  assert.deepEqual(call.args.slice(0, 6), ['-p', '--model', 'opus', '--output-format', 'json', '--no-session-persistence'])
-  assert.equal(call.args[call.args.indexOf('--add-dir') + 1], realpathSync(ctx.jobsDir))
+  assert.deepEqual(call.args, [...CLAUDE_ARGV_HEAD, '--model', 'opus', '--add-dir', join(realpathSync(ctx.jobsDir), jobId)])
+  assert.equal(call.args.some((arg) => /Bash/.test(arg)), false, 'the checker has no Bash at all')
+  assert.equal(call.args.includes('--bare'), false)
+  assert.equal(call.optionalLocks, '0')
   assert.match(call.prompt, /^너는 독립 검증자다\./)
+  // 검사 세션이 git 을 못 부르므로 로그·요약·diff·작업 트리 상태가 프롬프트에 들어 있다.
+  assert.match(call.prompt, /## 이번 구간의 커밋 \(git log --oneline [0-9a-f]{8}\.\.[0-9a-f]{8}/)
+  assert.match(call.prompt, /[0-9a-f]{7} finish step 3 \[id=notes\]/)
+  assert.match(call.prompt, /## 변경 요약 \(git diff --stat\)\n[\s\S]*src\/step3\.js/)
+  assert.match(call.prompt, /## 변경 내용 \(git diff[\s\S]*\+export const done = true/)
+  assert.match(call.prompt, /## 아직 커밋하지 않은 변경 \(git status --short\)\n[\s\S]*src\/uncommitted\.js/)
   assert.match(JSON.parse(ctx.stop()).systemMessage, /STATE 독립 검증\(step, opus\): drift\/scope/)
 })
 
@@ -745,7 +918,7 @@ test('codex runner uses a read-only ephemeral sandbox, reads the last-message fi
   delete withoutModel.env.STATE_VERIFY_COMMAND
   await withoutModel.launchStepCheck({}, { expectCall: false })
   const plain = readCli(withoutModel, 'codex')
-  assert.deepEqual(plain.args.slice(0, 6), ['exec', '--sandbox', 'read-only', '--ephemeral', '-C', withoutModel.root])
+  assert.deepEqual(plain.args.slice(0, 8), ['exec', '--sandbox', 'read-only', '--ephemeral', '-C', withoutModel.root, '-c', 'approval_policy="never"'])
   assert.equal(plain.args.includes('-m'), false, 'no model configured => codex default')
   assert.equal(plain.args.at(-1), '-')
   assert.equal(plain.cwd, withoutModel.root)
@@ -759,22 +932,303 @@ test('codex runner uses a read-only ephemeral sandbox, reads the last-message fi
   assert.equal(configured.args[configured.args.indexOf('-m') + 1], 'gpt-x')
 })
 
+// ---------- 프롬프트 상한·작업 폴더·프로세스 ----------
+
+const EMPTY_EVIDENCE = { label: '', log: '(커밋 없음)', stat: '', diff: '', diffOverflow: false, status: '' }
+const capItem = (goal, extra = 'ok') => ({
+  id: 'notes',
+  path: 'docs/state/root/notes.md',
+  section: 'active',
+  title: '제목',
+  meta: { title: '제목', goal, step: extra, next_step: extra, status: extra, handoff: HANDOFF },
+})
+const capTriggers = (long = 'ok') => [
+  { type: 'step', changes: [{ area: 'root', id: 'notes', from: { step: long, next_step: long }, to: { step: long, next_step: long } }] },
+  { type: 'periodic', turn: 5, every: 5 },
+]
+
+test('cutBytes cuts by UTF-8 bytes on character boundaries and the note fits inside the budget', () => {
+  assert.equal(cutBytes('짧음', 100), '짧음')
+  const ascii = cutBytes('a'.repeat(5000), 1000)
+  assert.ok(Buffer.byteLength(ascii) <= 1000)
+  assert.match(ascii, /\n…\(\d+ bytes truncated\)$/)
+  const korean = cutBytes('가나다라마바사'.repeat(1000), 1001)
+  assert.ok(Buffer.byteLength(korean) <= 1001)
+  assert.doesNotMatch(korean, /\uFFFD/, 'never splits a character')
+  assert.match(korean, /^가나다/)
+  assert.match(cutBytes('x'.repeat(3000), 500, { atLeast: true }), /\(≥\d+ bytes truncated\)$/)
+  assert.equal(cutBytes('x'.repeat(100), 10), '', 'a budget smaller than the note drops the body')
+  const emoji = cutBytes('😀'.repeat(2000), 777)
+  assert.ok(Buffer.byteLength(emoji) <= 777)
+  assert.doesNotMatch(emoji, /\uFFFD/)
+})
+
+test('prompt cap is in bytes: a 45 KB ASCII goal and a 47 KB Korean goal keep the schema and triggers within the cap', () => {
+  const korean = '가'.repeat(Math.ceil((47 * 1024) / 3))
+  assert.ok(Buffer.byteLength(korean) >= 47 * 1024)
+  for (const goal of ['g'.repeat(45 * 1024), korean]) {
+    const prompt = buildPrompt({ branch: 'feat/x', items: [capItem(goal)], triggers: capTriggers(), transcriptFile: null, previous: null, evidence: EMPTY_EVIDENCE })
+    assert.ok(Buffer.byteLength(prompt) <= PROMPT_MAX_BYTES, `${Buffer.byteLength(prompt)} bytes`)
+    assert.ok(prompt.includes('"verdict":"on_track|drift|unclear"'), 'output schema')
+    assert.ok(prompt.includes('## 출력'))
+    assert.ok(prompt.includes('주기 점검: 사용자 턴 5번째 (5턴마다).'), 'periodic trigger')
+    assert.ok(prompt.includes('단계 변경 [notes]'), 'step trigger')
+    const goalLine = prompt.split('\n').find((line) => line.startsWith('- 목표·완성 기준: '))
+    assert.ok([...goalLine.slice('- 목표·완성 기준: '.length)].length <= 300, 'each meta field is clipped to 300 characters')
+  }
+})
+
+test('prompt cap holds when every fixed and variable section is oversized; fixed sections survive and cuts keep whole characters', () => {
+  const huge = '긴'.repeat(40000)
+  const evidence = {
+    label: 'aaaaaaaa..bbbbbbbb',
+    log: Array.from({ length: 50 }, (_, i) => `${i}abcdef ${'로'.repeat(180)}`).join('\n'),
+    stat: Array.from({ length: 60 }, (_, i) => ` 파일${i}.js | ${'+'.repeat(100)}`).join('\n'),
+    diff: `${'+한글 줄 내용입니다 \n'.repeat(20000)}`,
+    diffOverflow: true,
+    status: Array.from({ length: 40 }, (_, i) => ` M ${'경로/'.repeat(30)}${i}.js`).join('\n'),
+  }
+  const prompt = buildPrompt({
+    branch: 'feat/x',
+    items: [capItem(huge, huge), capItem(huge, huge), capItem(huge, huge)],
+    triggers: capTriggers(huge),
+    transcriptFile: '/tmp/state-ledger-hooks/verify-jobs/job/transcript.txt',
+    previous: { verdict: 'drift', kind: 'scope', summary: huge, missing: Array.from({ length: 8 }, () => huge) },
+    evidence,
+  })
+  assert.ok(Buffer.byteLength(prompt) <= PROMPT_MAX_BYTES, `${Buffer.byteLength(prompt)} bytes`)
+  assert.doesNotMatch(prompt, /\uFFFD/)
+  for (const fixed of ['"verdict":"on_track|drift|unclear"', '## 판단할 것', '## 출력', '주기 점검: 사용자 턴 5번째', '단계 변경 [notes]', '### [notes]', '/transcript.txt 를 읽어라']) {
+    assert.ok(prompt.includes(fixed), fixed)
+  }
+  assert.match(prompt, /\(≥\d+ bytes truncated\)/, 'an overflowed diff says how little we know about its size')
+  assert.match(prompt, /bytes truncated\)/)
+  // 가변 절은 각자 예산 안이다.
+  const section = (title) => prompt.slice(prompt.indexOf(title), prompt.indexOf('\n## ', prompt.indexOf(title) + 1))
+  assert.ok(Buffer.byteLength(section('## 변경 요약')) <= 6 * 1024 + 200)
+  assert.ok(Buffer.byteLength(section('## 직전 판정')) <= 3 * 1024 + 200)
+})
+
+test('a diff larger than its budget is truncated with a note and the prompt stays within the cap (real git, real worker)', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart()
+  write(ctx.root, 'src/big.txt', Array.from({ length: 5000 }, (_, i) => `line ${i} ${'x'.repeat(40)}`).join('\n'))
+  commit(ctx.root, 'big change [id=notes]')
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  const [call] = await ctx.waitCalls(1)
+  assert.ok(Buffer.byteLength(call.prompt) <= PROMPT_MAX_BYTES)
+  assert.match(call.prompt, /\+line 0 x{40}/, 'the start of the diff is kept')
+  assert.match(call.prompt, /\n…\(\d+ bytes truncated\)\n/, 'the diff is cut with a note')
+  assert.doesNotMatch(call.prompt, /\+line 4999 /, 'the tail of the diff is cut')
+  assert.match(call.prompt, /src\/big\.txt/, 'the stat still lists the file')
+})
+
+test('each job gets its own 0700 directory with its job, transcript and result; reaping removes it and old leftovers age out', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.sleep(1200)
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop({ transcript_path: transcriptFile(ctx.root) }), '')
+  const [call] = await ctx.waitCalls(1)
+  assert.equal(statSync(ctx.jobsDir).mode & 0o777, 0o700)
+  const [jobId] = ctx.jobDirs()
+  assert.equal(ctx.jobDirs().length, 1)
+  const dir = join(ctx.jobsDir, jobId)
+  assert.equal(ctx.state().running.jobId, jobId)
+  assert.equal(statSync(dir).mode & 0o777, 0o700)
+  assert.deepEqual(readdirSync(dir).sort(), ['job.json', 'transcript.txt', 'worker.pid'])
+  assert.equal(statSync(join(dir, 'transcript.txt')).mode & 0o777, 0o600)
+  assert.ok(call.prompt.includes(join(realpathSync(ctx.jobsDir), jobId, 'transcript.txt')), 'the prompt points at the file inside the job directory')
+  await ctx.waitResult()
+  assert.deepEqual(readdirSync(dir).sort(), ['result.json', 'worker.pid'], 'the worker removes everything but the result')
+  assert.equal(ctx.stop(), '')
+  assert.deepEqual(ctx.jobDirs(), [], 'the directory is removed once the result is reaped')
+
+  // 7일이 지난 폴더·파일은 다음 시작 때 지우고, 최근 것은 둔다.
+  const past = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+  for (const name of ['old-job', 'fresh-job']) {
+    mkdirSync(join(ctx.jobsDir, name))
+    writeFileSync(join(ctx.jobsDir, name, 'result.json'), '{}')
+  }
+  writeFileSync(join(ctx.jobsDir, 'stray.txt'), 'x')
+  for (const path of [join(ctx.jobsDir, 'old-job', 'result.json'), join(ctx.jobsDir, 'old-job'), join(ctx.jobsDir, 'stray.txt')]) utimesSync(path, past, past)
+  ctx.stub.sleep(0)
+  ctx.turnStart()
+  ctx.setFields(FIELDS_C)
+  assert.equal(ctx.stop(), '')
+  await ctx.waitCalls(2)
+  assert.equal(existsSync(join(ctx.jobsDir, 'old-job')), false)
+  assert.equal(existsSync(join(ctx.jobsDir, 'stray.txt')), false)
+  assert.equal(existsSync(join(ctx.jobsDir, 'fresh-job')), true)
+})
+
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+test('a check past STATE_VERIFY_TIMEOUT_MS is killed with its whole process group, even a grandchild that ignores SIGTERM', async (t) => {
+  const ctx = setup(t, { env: { STATE_VERIFY_TIMEOUT_MS: '1000' } })
+  writeFileSync(join(ctx.stubDir, 'grandchild'), '1')
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  const pids = await waitFor(() => {
+    try { return JSON.parse(readFileSync(join(ctx.stubDir, 'pids.json'), 'utf8')) } catch { return null }
+  }, { what: 'the stub and its grandchild' })
+  assert.ok(alive(pids.stub) && alive(pids.grandchild))
+  await waitFor(() => ctx.results().length > 0, { timeout: 20000, what: 'the timeout result' })
+  await waitFor(() => !alive(pids.stub) && !alive(pids.grandchild), { timeout: 8000, what: 'the process group to be gone' })
+  const out = JSON.parse(ctx.stop())
+  assert.equal(out.decision, undefined)
+  assert.match(out.systemMessage, /unclear\/other.*검사 세션 실패: 1초 제한 시간 초과/)
+})
+
+test('reaping a stale real check: the worker is terminated and takes the runner group (with a SIGTERM-proof grandchild) down with it', async (t) => {
+  const ctx = setup(t)
+  writeFileSync(join(ctx.stubDir, 'grandchild'), '1')
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  const pids = await waitFor(() => {
+    try { return JSON.parse(readFileSync(join(ctx.stubDir, 'pids.json'), 'utf8')) } catch { return null }
+  }, { what: 'the stub and its grandchild' })
+  const state = ctx.state()
+  const workerPid = state.running.pid
+  assert.ok(alive(workerPid) && alive(pids.stub) && alive(pids.grandchild))
+  state.running.startedAt = new Date(Date.now() - 21 * 60 * 1000).toISOString()
+  ctx.writeState(state)
+  assert.match(JSON.parse(ctx.stop()).systemMessage, /검사 세션이 결과 없이 끝남/)
+  await waitFor(() => !alive(workerPid) && !alive(pids.stub) && !alive(pids.grandchild), { timeout: 8000, what: 'worker, runner and grandchild to be gone' })
+  assert.deepEqual(ctx.jobDirs(), [])
+})
+
+test('a runner that exits while a grandchild still holds its stdout is not waited for: the verdict is read after a short grace and the grandchild is cleaned up', async (t) => {
+  const ctx = setup(t)
+  writeFileSync(join(ctx.stubDir, 'grandchild'), 'linger')
+  ctx.stub.output(DRIFT_SCOPE)
+  const started = Date.now()
+  ctx.turnStart()
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.stop(), '')
+  await waitFor(() => ctx.results().length > 0, { timeout: 15000, what: 'the result' })
+  assert.ok(Date.now() - started < 12000, 'did not wait for the pipe to close')
+  const pids = JSON.parse(readFileSync(join(ctx.stubDir, 'pids.json'), 'utf8'))
+  await waitFor(() => !alive(pids.grandchild), { timeout: 8000, what: 'the lingering grandchild to be killed' })
+  assert.match(JSON.parse(ctx.stop()).systemMessage, /drift\/scope/, 'the verdict printed before exit is still used')
+})
+
+test('reaping a stale check kills its live worker group; a live pid that is not our worker is left alone', async (t) => {
+  const ctx = setup(t)
+  ctx.turnStart()
+  mkdirSync(ctx.jobsDir, { recursive: true })
+  const staleRunning = (pid, jobId) => ({
+    jobId,
+    pid,
+    startedAt: new Date(Date.now() - 21 * 60 * 1000).toISOString(),
+    triggers: [{ type: 'periodic', turn: 1, every: 5 }],
+    model: 'sonnet',
+    head: null,
+    snapshot: null,
+    jobDir: join(ctx.jobsDir, jobId),
+    jobFile: join(ctx.jobsDir, jobId, 'job.json'),
+    resultFile: join(ctx.jobsDir, jobId, 'result.json'),
+  })
+  // 명령줄에 state-verify.mjs 가 든 장수 프로세스 = worker 흉내 (분리해 띄워 자기 그룹을 가진다).
+  const worker = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', 'state-verify.mjs', 'run'], { detached: true, stdio: 'ignore' })
+  t.after(() => { try { process.kill(-worker.pid, 'SIGKILL') } catch { /* 이미 없다 */ } })
+  mkdirSync(join(ctx.jobsDir, 'stale-job'))
+  writeFileSync(join(ctx.jobsDir, 'stale-job', 'job.json'), '{}')
+  const state = ctx.state()
+  state.running = staleRunning(worker.pid, 'stale-job')
+  ctx.writeState(state)
+  assert.match(JSON.parse(ctx.stop()).systemMessage, /검사 세션이 결과 없이 끝남/)
+  await waitFor(() => !alive(worker.pid), { what: 'the stale worker to be killed' })
+  assert.deepEqual(ctx.jobDirs(), [], 'the stale job directory is deleted')
+  assert.equal(ctx.state().running, null)
+
+  // 이 테스트 프로세스(pid 는 살아 있지만 worker 가 아니다)는 건드리지 않는다.
+  ctx.turnStart()
+  const other = ctx.state()
+  other.running = staleRunning(process.pid, 'other-job')
+  ctx.writeState(other)
+  assert.match(JSON.parse(ctx.stop()).systemMessage, /검사 세션이 결과 없이 끝남/)
+  assert.ok(alive(process.pid))
+})
+
+const runAsync = (ctx, command, payload) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, [VERIFY, command], { cwd: ctx.root, env: ctx.env })
+  let out = ''
+  child.stdout.on('data', (chunk) => { out += chunk })
+  child.on('error', reject)
+  child.on('close', (code) => resolve({ code, out: out.trim() }))
+  child.stdin.end(JSON.stringify(payload))
+})
+
+test('at most two checks run at once across sessions, even when their Stops race; the third waits silently and launches later', async (t) => {
+  const ctx = setup(t, { staterc: 'STATE_VERIFY="1"\nSTATE_VERIFY_EVERY="1"\n' })
+  ctx.stub.sleep(2000)
+  const sessions = ['s-a', 's-b', 's-c']
+  for (const id of sessions) ctx.engine('turn-start', { session_id: id, prompt: 'x' })
+  const stops = await Promise.all(sessions.map((id) => runAsync(ctx, 'stop', { session_id: id, hook_event_name: 'Stop', stop_hook_active: false })))
+  for (const stop of stops) assert.deepEqual(stop, { code: 0, out: '' }, 'the capped session says nothing')
+  await ctx.waitCalls(2)
+  await sleep(400)
+  assert.equal(ctx.stub.calls().length, 2, 'only two checks started')
+  const states = sessions.map((id) => ctx.state(id))
+  assert.equal(states.filter((state) => state.running).length, 2)
+  const waiting = states.find((state) => !state.running)
+  assert.equal(waiting.pendingTriggers[0].type, 'periodic', 'the trigger is kept for later')
+
+  const waitingId = sessions[states.indexOf(waiting)]
+  const finished = sessions.filter((id) => id !== waitingId)
+  await waitFor(() => ctx.results().length >= 2, { timeout: 15000, what: 'both checks to finish' })
+  ctx.stub.sleep(0)
+  for (const id of finished) assert.equal(ctx.engine('stop', { session_id: id, hook_event_name: 'Stop', stop_hook_active: false }), '')
+  assert.equal(ctx.engine('stop', { session_id: waitingId, hook_event_name: 'Stop', stop_hook_active: false }), '')
+  await ctx.waitCalls(3)
+  assert.ok(ctx.state(waitingId).running, 'the waiting session launched once a slot was free')
+  assert.deepEqual(ctx.state(waitingId).pendingTriggers, [])
+})
+
 // ---------- 단위 ----------
 
-test('runner command lines: claude read-only tools, codex read-only sandbox, command override', () => {
-  const base = { jobId: 'j1', root: '/repo', jobsDir: '/data/verify-jobs', model: 'sonnet', runner: 'claude', command: null }
+test('runner command lines: isolated claude without Bash, codex read-only sandbox, command override', () => {
+  const base = { jobId: 'j1', root: '/repo', jobDir: '/data/verify-jobs/j1', model: 'sonnet', runner: 'claude', command: null }
   const claude = buildRunnerCommand(base)
   assert.equal(claude.command, claudeCommand())
-  assert.deepEqual(claude.args.slice(0, 7), ['-p', '--model', 'sonnet', '--output-format', 'json', '--no-session-persistence', '--add-dir'])
-  assert.equal(claude.args.includes('--bare'), false)
-  const allowed = claude.args[claude.args.indexOf('--allowedTools') + 1]
-  for (const tool of ['Read', 'Grep', 'Glob', 'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git show:*)', 'Bash(git status:*)']) assert.ok(allowed.split(',').includes(tool), tool)
-  assert.deepEqual(claude.args[claude.args.indexOf('--disallowedTools') + 1].split(','), ['Edit', 'Write', 'NotebookEdit'])
+  assert.deepEqual(claude.args, [...CLAUDE_ARGV_HEAD, '--model', 'sonnet', '--add-dir', '/data/verify-jobs/j1'])
+  for (const flag of ['--restricted', '--strict-mcp-config']) assert.ok(claude.args.includes(flag), flag)
+  assert.equal(claude.args[claude.args.indexOf('--permission-mode') + 1], 'dontAsk')
+  assert.deepEqual(JSON.parse(claude.args[claude.args.indexOf('--settings') + 1]), { disableAllHooks: true })
+  assert.equal(claude.args[claude.args.indexOf('--tools') + 1], 'Read,Grep,Glob')
+  assert.equal(claude.args[claude.args.indexOf('--allowedTools') + 1], 'Read,Grep,Glob')
+  assert.equal(claude.args.some((arg) => /Bash|git |--disallowedTools|--bare|dangerously/.test(arg)), false)
+  assert.equal(claude.args.filter((arg) => arg === '--add-dir').length, 1, 'only the per-job directory, never the shared parent')
   assert.equal(claude.env.STATE_LEDGER_VERIFY_CHILD, '1')
+  assert.equal(claude.env.GIT_OPTIONAL_LOCKS, '0')
+  const saved = { dir: process.env.GIT_DIR, tree: process.env.GIT_WORK_TREE }
+  process.env.GIT_DIR = '/elsewhere/.git'
+  process.env.GIT_WORK_TREE = '/elsewhere'
+  try {
+    const stripped = buildRunnerCommand(base).env
+    assert.equal(stripped.GIT_DIR, undefined, 'GIT_DIR style variables are stripped for the checker')
+    assert.equal(stripped.GIT_WORK_TREE, undefined)
+  } finally {
+    for (const [key, value] of [['GIT_DIR', saved.dir], ['GIT_WORK_TREE', saved.tree]]) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 
   const codex = buildRunnerCommand({ ...base, runner: 'codex', model: 'gpt-x' })
-  assert.deepEqual(codex.args, ['exec', '--sandbox', 'read-only', '--ephemeral', '-C', '/repo', '-m', 'gpt-x', '-o', '/data/verify-jobs/j1.codex-last.txt', '-'])
-  assert.equal(codex.outputFile, '/data/verify-jobs/j1.codex-last.txt')
+  assert.deepEqual(codex.args, ['exec', '--sandbox', 'read-only', '--ephemeral', '-C', '/repo', '-c', 'approval_policy="never"', '-m', 'gpt-x', '-o', '/data/verify-jobs/j1/codex-last.txt', '-'])
+  assert.equal(codex.outputFile, '/data/verify-jobs/j1/codex-last.txt')
   assert.equal(buildRunnerCommand({ ...base, runner: 'codex', model: null }).args.includes('-m'), false)
 
   const custom = buildRunnerCommand({ ...base, command: '/bin/stub' })
@@ -822,6 +1276,17 @@ test('verdict extraction and validation', () => {
   assert.match(extractVerdict('').error, /아무것도 출력하지 않음/)
   assert.match(extractVerdict('JSON 없음').error, /판정 JSON 을 찾지 못함/)
   assert.match(extractVerdict('{"verdict":"maybe"}').error, /판정 형식 오류/)
+
+  // 스키마 예시를 되풀이한 객체는 검증을 통과하지 못하므로 건너뛰고, 통과한 것 중 마지막을 쓴다.
+  const echo = '{"verdict":"on_track|drift|unclear","kind":"step_unmet|order|scope|other|none","summary":"…","evidence":["file:line 또는 커밋"],"missing":["미충족 끝 조건"]}'
+  assert.equal(extractVerdict(`스키마는 ${echo} 입니다.\n${JSON.stringify(DRIFT_SCOPE)}`).verdict.kind, 'scope', 'echo before the answer')
+  assert.equal(extractVerdict(`${JSON.stringify(DRIFT_ORDER)}\n(참고 스키마 ${echo})`).verdict.kind, 'order', 'echo after the answer')
+  assert.equal(extractVerdict(`${JSON.stringify(ON_TRACK)} → 정정: ${JSON.stringify(DRIFT_SCOPE)}`).verdict.verdict, 'drift', 'the last valid one wins')
+  const wrappedEcho = extractVerdict(JSON.stringify({ type: 'result', is_error: false, result: `형식: ${echo}\n\`\`\`json\n${JSON.stringify(UNCLEAR)}\n\`\`\`` }))
+  assert.equal(wrappedEcho.verdict.verdict, 'unclear')
+  assert.match(extractVerdict(`${echo} 와 {"verdict":"maybe"}`).error, /판정 형식 오류/, 'nothing valid => format error')
+  const noisy = `${'{ "x": 1 } '.repeat(300)}${JSON.stringify(DRIFT_STEP)}`
+  assert.equal(extractVerdict(noisy).verdict.kind, 'step_unmet', 'many earlier objects do not hide the answer')
 
   const long = normalizeVerdict({
     verdict: 'drift',
