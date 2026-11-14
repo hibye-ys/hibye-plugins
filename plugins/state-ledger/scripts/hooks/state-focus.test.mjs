@@ -992,7 +992,7 @@ test('M2: a branch change with an identical hash goes full (only record.branch d
   assert.ok(f.isShort(f.turn()))
 })
 
-test('M1: the default interval follows the host (claude 10, others 3) and .staterc overrides it', (t) => {
+test('M1: the default interval follows the host (claude·codex 10, others 3) and .staterc overrides it', (t) => {
   const f = focusFixture(t)
   const withHost = (host, check) => {
     const previous = process.env.STATE_LEDGER_HOST
@@ -1000,17 +1000,19 @@ test('M1: the default interval follows the host (claude 10, others 3) and .state
     else process.env.STATE_LEDGER_HOST = host
     try { check() } finally { process.env.STATE_LEDGER_HOST = previous }
   }
-  withHost('claude', () => assert.equal(focusFullEvery(f.root), 10))
-  for (const host of ['codex', 'muse', 'opencode', '', undefined]) withHost(host, () => assert.equal(focusFullEvery(f.root), 3, String(host)))
-  withHost('codex', () => {
+  // Claude Code·Codex 는 압축 뒤 SessionStart(source=compact)를 다시 보낸다 — 압축 뒤 전체 알림을 그 훅이 싣는다.
+  for (const host of ['claude', 'codex']) withHost(host, () => assert.equal(focusFullEvery(f.root), 10, host))
+  for (const host of ['muse', 'opencode', 'CODEX', '', undefined]) withHost(host, () => assert.equal(focusFullEvery(f.root), 3, String(host)))
+  withHost('muse', () => {
     assert.equal(f.turn().split('\n')[0].includes('3턴마다'), true)
     assert.equal(f.turn().split('\n')[0].includes('3턴마다'), true)
   })
+  withHost('codex', () => assert.equal(f.turn().split('\n')[0].includes('10턴마다'), true))
   write(f.root, '.staterc', `${FM_STATERC}STATE_FOCUS_FULL_EVERY="7"\n`)
-  withHost('codex', () => assert.equal(focusFullEvery(f.root), 7))
-  withHost('claude', () => assert.equal(focusFullEvery(f.root), 7))
+  for (const host of ['claude', 'codex', 'muse']) withHost(host, () => assert.equal(focusFullEvery(f.root), 7, host))
   write(f.root, '.staterc', `${FM_STATERC}STATE_FOCUS_FULL_EVERY="0"\n`)
-  withHost('codex', () => assert.equal(focusFullEvery(f.root), 3))
+  withHost('muse', () => assert.equal(focusFullEvery(f.root), 3))
+  withHost('codex', () => assert.equal(focusFullEvery(f.root), 10))
   withHost('claude', () => assert.equal(focusFullEvery(f.root), 10))
 })
 
@@ -1034,20 +1036,23 @@ function turnKinds(t, fixture, options, count) {
   return { kinds: contexts.map((text) => (text.includes(INSTRUCTION) ? 'F' : 'S')).join(''), header: contexts[0].split('\n')[0] }
 }
 
-test('M1: the dispatcher passes the host to the hook script (explicit codex host gets the 3-turn default)', (t) => {
-  const fixture = worktreeFixture(t)
-  const { kinds, header } = turnKinds(t, fixture, { host: 'codex' }, 4)
-  assert.equal(kinds, 'FSSF')
-  assert.match(header, /3턴마다/)
+test('M1: the dispatcher passes the host to the hook script (explicit muse host gets the 3-turn default, explicit codex 10)', (t) => {
+  const muse = turnKinds(t, worktreeFixture(t), { host: 'muse' }, 4)
+  assert.equal(muse.kinds, 'FSSF')
+  assert.match(muse.header, /3턴마다/)
+  const codex = turnKinds(t, worktreeFixture(t), { host: 'codex' }, 4)
+  assert.equal(codex.kinds, 'FSSS')
+  assert.match(codex.header, /10턴마다/)
 })
 
-test('M1: with STATE_LEDGER_HOST unset the dispatcher derives the host — PLUGIN_ROOT means codex (3 turns), otherwise claude (10 turns)', (t) => {
-  const codex = turnKinds(t, worktreeFixture(t), { pluginRoot: '/opt/plugin-root' }, 4)
-  assert.equal(codex.kinds, 'FSSF')
-  assert.match(codex.header, /3턴마다/)
-  const claude = turnKinds(t, worktreeFixture(t), {}, 4)
-  assert.equal(claude.kinds, 'FSSS')
-  assert.match(claude.header, /10턴마다/)
+// PLUGIN_ROOT → codex 판별 자체는 state-hooks.test.mjs 의 "shared plugin commands resolve each native host" 가 검사한다
+// (로컬 훅 감지가 호스트별로 갈린다). 여기서는 두 native 호스트가 모두 10턴 기본을 받는지만 본다.
+test('M1: with STATE_LEDGER_HOST unset both native hosts get the 10-turn default — PLUGIN_ROOT (codex) and none (claude)', (t) => {
+  for (const options of [{ pluginRoot: '/opt/plugin-root' }, {}]) {
+    const { kinds, header } = turnKinds(t, worktreeFixture(t), options, 4)
+    assert.equal(kinds, 'FSSS', JSON.stringify(options))
+    assert.match(header, /10턴마다/)
+  }
 })
 
 test('L6: the session id falls back to STATE_HOOK_SESSION_ID like the baseline and cleanup engines', (t) => {
