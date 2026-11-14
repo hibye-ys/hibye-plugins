@@ -1,7 +1,7 @@
 {
   "name": "muse-delegate",
-  "version": "0.1.4",
-  "description": "Delegate implementation to Muse workers via Orca, only when the user mentions muse.",
+  "version": "0.1.5",
+  "description": "Delegate implementation to Muse workers via Orca or headless muse exec, only when the user mentions muse.",
   "author": {
     "name": "hibye-ys"
   }

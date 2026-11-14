@@ -11,7 +11,7 @@ Claude Code·Codex·Muse Code용 개인 에이전트 플러그인 원본 저장�
 | `project-context` | 프로젝트 opt-in에 따라 primary 공유 메모리와 현재 checkout intent를 host별로 연결. 스킬 `setup-project-context`; `docs-boundary`(문서는 실행 입력이 아님, 문서 위치 규칙)는 프로젝트에 복사하는 템플릿 |
 | `spec-plan` | 간결한 스펙·구현 계획, 모델 배정, 순차·병렬 실행과 작업 인계 (Claude·Codex·Muse 전역 설치) |
 | `agent-results` | 실제 실행 결과·하네스 버전 보존, 근거 있는 개선 권고와 사용자 지시 후 개선 (Codex·Claude 공통) |
-| `muse-delegate` | muse를 언급할 때만 Orca로 muse 워커에 구현을 위임하고 검증 (Claude·Codex 전역 설치) |
+| `muse-delegate` | muse를 언급할 때만 Orca 또는 Orca 없는 headless `muse exec`(`muse-exec.sh`)로 muse 워커에 구현을 위임하고 검증 (Claude·Codex 전역 설치) |
 | `orch` | Claude 모델·effort 배정 원칙 `claude-models`와 역할 기반 최상위 관리 세션 `lead`(구현·검증 하위 세션 배분). 수동 호출 `/orch:lead`·`/orch:claude-models` (Claude 전용) |
 
 ## spec-plan 전역 설치
@@ -156,7 +156,8 @@ bare·non-Git·`--separate-git-dir` 및 inline/dotted `memories` TOML 레이아�
 
 ## muse-delegate 전역 설치
 
-원본은 `plugins/muse-delegate/skills/muse-delegate/`(SKILL.md와 `scripts/muse-run.sh`·`muse-settle.sh`·`muse-resume.sh`)이다.
+원본은 `plugins/muse-delegate/skills/muse-delegate/`(SKILL.md와 `scripts/muse-run.sh`·`muse-settle.sh`·`muse-resume.sh`·`muse-exec.sh`)이다.
+`muse-exec.sh`는 Orca 없이 `muse exec --json`을 세션별 worktree(`<repo>/.muse/worktrees/`, 브랜치 `muse/session-<id>`)에서 돌려 한 줄 JSON을 낸다. `--session`으로 같은 세션·worktree에서 후속 지시를 잇고, 세션당 동시 실행은 잠금으로 막으며 timeout이면 프로세스를 종료한다.
 사용자가 muse를 언급할 때만 로드되도록 description에 트리거를 둔다. Muse 자신에게는 설치하지 않는다.
 
 ```bash
@@ -166,7 +167,7 @@ codex plugin add muse-delegate@hibye-plugins
 
 Claude 캐시는 SessionStart의 `link-cache.sh`가 원본으로 연결하므로 수정이 바로 반영된다.
 Codex는 설치 사본을 쓰므로 원본 수정 후 두 manifest의 `version`을 올리고 `codex plugin add`를 다시 실행한다.
-스크립트 수정 후에는 `bash plugins/muse-delegate/tests/run-tests.sh`(가짜 orca로 실패 경로 회귀 검증)를 실행한다.
+스크립트 수정 후에는 `bash plugins/muse-delegate/tests/run-tests.sh`(가짜 orca·가짜 muse로 실패 경로 회귀 검증)를 실행한다.
 
 ## backend-ts 배선
 
