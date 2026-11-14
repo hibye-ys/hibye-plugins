@@ -44,21 +44,50 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # 독립 검증(opt-in, state-verify.mjs): 끝난 검사 판정을 반영하고 계기가 있으면 검사 세션을 백그라운드로 시작한다.
-# stop_hook_active 조기 종료보다 앞에서 돌지만, 엔진 스스로 stop_hook_active 면 막지 않는다. 단계 끝 미충족·순서 위반 판정은
-# decision:block 을 내되, 이번 Stop 의 일반 평가(기준점·태그·덧붙임·구조 알림)는 건너뛰지 않고 끝에서 systemMessage 로 함께 낸다
-# (정리 요청 차단이 있으면 위에서 이미 끝났다). 보고뿐이면 systemMessage 만 이후 알림에 합친다.
+# 엔진은 출력 직전에 상태(판정 전달·차단 표시, stopTurn, 시작한 검사, 옮긴 기준점)를 저장한다. 호스트 Stop 타임아웃(30초)을 넘기면
+# stdout 은 버려지는데 엔진은 이미 판정을 전달됨·차단됨으로 기록했으니, 그 차단·보고가 영영 사라진다. 그래서 엔진은 일반 평가(기준점·
+# 커밋 태그·덧붙임·구조 알림) 뒤, 출력 직전에 돌려 상태 저장이 마지막으로 비싼 단계가 되게 한다. stop_hook_active 재진입은 일반 평가를
+# 하지 않으므로 바로 돈다. 엔진은 스스로 stop_hook_active 면 막지 않는다. 단계 끝 미충족·순서 위반 판정은 decision:block 을 내되,
+# 일반 평가 결과는 버리지 않고 systemMessage 로 함께 낸다(정리 요청 차단이 있으면 위에서 이미 끝났다). 보고뿐이면 systemMessage 만 일반 알림에 합친다.
+# 시간 가드: 디스패처가 시작한 뒤(STATE_LEDGER_HOOK_T0, 믿을 수 없으면 이 스크립트의 $SECONDS) STATE_VERIFY_STOP_BUDGET_S 초(0..600 정수, 기본 20)
+# 이상 지났으면 엔진을 `--defer-verdict` 로 돌린다. 엔진은 Stop 을 평소대로 끝까지 처리하되(수거·기준점·계기·stopTurn·저장) 아직 전달하지 않은 판정은
+# 소비하지 않는다(전달됨·막음 표시도, 차단도 없다). 그런 판정을 미룬 Stop 은 안내 한 줄을 내고 새 검사를 시작하지 않는다 — 계기는 대기열에 남고, 판정은
+# 다음 턴 시작이 전달하므로 타임아웃으로 출력이 버려져도 잃지 않는다. 이미 전달된 판정의 보고와 검사 시작은 평소대로다.
 # .staterc 에 STATE_VERIFY="1" 이 없으면 node 를 띄우지 않는다. 엔진 오류는 엔진이 systemMessage 로 낸다.
 verify_msg=""
 verify_block_reason=""
+verify_enabled=false
 if command -v node >/dev/null 2>&1 && [ -f "$root/.staterc" ] && grep -Eq '^STATE_VERIFY="1"[[:space:]]*$' "$root/.staterc" 2>/dev/null; then
-  verify_out=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-verify.mjs" stop 2>/dev/null || true)
+  verify_enabled=true
+fi
+
+run_verify() {
+  [ "$verify_enabled" = "true" ] || return 0
+  local budget=20 elapsed=$SECONDS now t0 defer_args=()
+  case "${STATE_VERIFY_STOP_BUDGET_S:-}" in
+    ''|*[!0-9]*) ;;
+    *) if [ "${#STATE_VERIFY_STOP_BUDGET_S}" -le 3 ] && [ "$((10#$STATE_VERIFY_STOP_BUDGET_S))" -le 600 ]; then budget=$((10#$STATE_VERIFY_STOP_BUDGET_S)); fi ;;
+  esac
+  # 디스패처 시작 시각이 그럴듯한 epoch 초(미래가 아니고 1시간 안)일 때만 그 경과를 쓴다. 아니면 이 스크립트의 $SECONDS.
+  case "${STATE_LEDGER_HOOK_T0:-}" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "${#STATE_LEDGER_HOOK_T0}" -le 12 ]; then
+        now=$(date +%s)
+        t0=$((10#$STATE_LEDGER_HOOK_T0))
+        if [ "$t0" -le "$now" ] && [ $((now - t0)) -le 3600 ]; then elapsed=$((now - t0)); fi
+      fi ;;
+  esac
+  if [ "$elapsed" -ge "$budget" ]; then defer_args=(--defer-verdict); fi
+  local verify_out
+  verify_out=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-verify.mjs" stop ${defer_args[@]+"${defer_args[@]}"} 2>/dev/null || true)
   if [ -n "$verify_out" ]; then
     if [ "$(printf '%s' "$verify_out" | jq -r '.decision // empty' 2>/dev/null)" = "block" ]; then
       verify_block_reason=$(printf '%s' "$verify_out" | jq -r '.reason // empty' 2>/dev/null || true)
     fi
     verify_msg=$(printf '%s' "$verify_out" | jq -r '.systemMessage // empty' 2>/dev/null || true)
   fi
-fi
+}
 
 # 막을 때는 JSON 하나로 낸다: decision/reason 은 검증 판정, systemMessage 는 검증 줄 다음에 일반 알림 줄.
 emit_block() {
@@ -66,6 +95,7 @@ emit_block() {
 }
 
 if [ "$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then
+  run_verify
   if [ -n "$verify_block_reason" ]; then emit_block "$verify_msg"
   elif [ -n "$verify_msg" ]; then jq -n --arg msg "$verify_msg" '{systemMessage: $msg}'; fi
   exit 0
@@ -166,6 +196,9 @@ EOF
     fi
   fi
 fi
+
+# 독립 검증은 비싼 일반 평가가 모두 끝난 뒤, 출력 직전에 돈다 (위 시간 가드 설명 참고).
+run_verify
 
 if [ -n "$verify_block_reason" ]; then
   # 판정 줄이 먼저, 일반 알림 줄이 그다음. Antigravity 는 이 기능이 꺼져 있어 여기 오지 않는다.

@@ -217,8 +217,26 @@ function stripGitEnv(env) {
   return env
 }
 
+// PATH 에서 안전한 항목만 남긴다. 상대 항목(`.`·`node_modules/.bin`·빈 항목)은 git/claude/codex/ps 를 띄울 때의 작업 폴더(= 저장소)에서 풀려,
+// 저장소 안의 (오래됐거나 심어 둔) 실행 파일이 사용자 자격 증명을 쥔 검사 세션으로 실행될 수 있다 — 버린다.
+// 예외로 맨 앞 `~` / `~/` 는 HOME(절대 경로일 때)으로 펼친다: bash 는 PATH 의 글자 그대로 `~` 를 조회 때 펼치지만 libuv 는 펼치지 않으므로,
+// 펼쳐야 사용자의 셸이 찾던 `~/.local/bin` 같은 항목을 잃지 않는다. `~user` 꼴은 버린다.
+export function absolutePath(value, home = process.env.HOME) {
+  const base = typeof home === 'string' && home.startsWith('/') ? home.replace(/\/+$/, '') : null
+  return String(value).split(':').map((entry) => {
+    if (entry === '~' || entry.startsWith('~/')) return base === null ? '' : `${base}${entry.slice(1)}` || '/'
+    return entry
+  }).filter((entry) => entry.startsWith('/')).join(':')
+}
+
+// 정리한 결과가 비면 PATH="" 가 되어 execvp 가 작업 폴더(저장소)를 찾으므로, 시스템 기본 경로로 대신한다.
+const FALLBACK_PATH = '/usr/bin:/bin'
+const safePath = (value, home) => absolutePath(value, home) || FALLBACK_PATH
+
 function gitEnv() {
-  return stripGitEnv({ ...process.env })
+  const env = stripGitEnv({ ...process.env })
+  if (typeof env.PATH === 'string') env.PATH = safePath(env.PATH, env.HOME)
+  return env
 }
 
 // 저장소 설정이 외부 명령(서명 검증·fsmonitor)을 실행하지 못하게 끈다.
@@ -938,7 +956,7 @@ export function buildPrompt({ root, branch, items, triggers, base, head, transcr
 // 데스크톱 앱처럼 PATH 에 claude 가 없는 환경이면 부모 세션이 알려 주는 CLAUDE_CODE_EXECPATH 로 대신한다.
 function executableOnPath(name, env) {
   for (const directory of (env.PATH ?? '').split(':')) {
-    if (!directory) continue
+    if (!directory.startsWith('/')) continue // 상대 항목은 저장소에서 풀린다 — 건너뛴다
     try {
       accessSync(join(directory, name), constants.X_OK)
       if (statSync(join(directory, name)).isFile()) return true
@@ -959,6 +977,7 @@ export function runnerEnv({ runner, command = false, model = null, extra = [] } 
   const names = [...ENV_BASE, ...ENV_NETWORK, ...(runner === 'codex' ? ENV_CODEX : ENV_CLAUDE), ...(Array.isArray(extra) ? extra.filter((name) => typeof name === 'string' && ENV_NAME_RE.test(name)) : [])]
   const env = {}
   for (const name of names) if (typeof source[name] === 'string') env[name] = source[name]
+  if (typeof source.PATH === 'string') env.PATH = safePath(source.PATH, source.HOME)
   if (runner !== 'codex') {
     for (const [name, value] of Object.entries(source)) if (typeof value === 'string' && ENV_CLAUDE_PATTERNS.some((pattern) => pattern.test(name))) env[name] = value
   }
@@ -1682,17 +1701,32 @@ function deniedStop(path, root, cfg, sessionId) {
 // 막는 규칙(actOnLatest)은 그대로다: 소유 해제(release) 계기의 판정은 검사 시점의 소유 스냅샷이 [] 라 지금의 [] 와 같아, 턴 시작에 아직 전달되지 않았다면 이 Stop 에서도 한 번 막는다
 // (끝났다는 거짓 주장을 한 번은 멈춘다). 그 밖의 판정은 스냅샷이 달라 낡은 것이 되어 보고만 한다.
 // stopTurn 은 남기지 않는다 — 소유 브랜치에서 끝까지 돈 Stop 이 아니므로, 기능 브랜치로 돌아온 뒤의 턴 시작은 그 비교를 건너뛰면 안 된다.
-function stopWithoutOwner(path, root, cfg, sessionId, payload) {
+function stopWithoutOwner(path, root, cfg, sessionId, payload, deferVerdict) {
   if (!existsSync(path)) return null
   const state = loadState(path, root, sessionId)
   const messages = []
   warnOnce(state, cfg.warnings, messages)
   const now = Date.now()
   reap(state, now)
-  const acted = actOnLatest(state, payload, ownedSnapshot([]), now)
+  const acted = actOrDefer(state, payload, ownedSnapshot([]), now, deferVerdict)
   messages.push(...acted.messages)
   saveState(path, state)
   return stopResult(acted, messages)
+}
+
+export const DEFER_LINE = 'STATE 독립 검증: Stop 훅 시간이 모자라 이번 판정은 다음 턴 시작에 전달합니다.'
+
+// 시간이 모자란 Stop(--defer-verdict): 아직 에이전트에게 전달되지 않은(delivered 아님) 최신 판정만 소비하지 않는다 — 전달됨·막음·stopHandled 표시도, 차단도 없다.
+// 평소였다면 막거나 말했을 판정일 때만 안내 한 줄을 내고 deferred 로 알린다. actOnLatest 는 state 밖으로 부수 효과가 없어(state 만 바꾼다) 복제본으로 미리 돌려 보고 버린다.
+// 이미 전달된 판정이거나 판정이 없으면 평소의 actOnLatest 를 그대로 돈다: 전달된 판정은 막을 수 없고(delivered === true 이면 보고만 한다) 그 보고를 소비해야 느린 Stop 마다 되풀이되지 않는다.
+// deferred 인 Stop 은 새 검사를 시작하지 않는다(stop() 이 계기를 대기열에 둔다) — 새 판정이 아직 전달되지 않은 판정을 덮어쓰지 못하게.
+// 호스트 타임아웃으로 이 Stop 의 출력이 버려져도 판정은 소비되지 않아, 다음 턴 시작(deliverLatest)이 전달한다.
+function actOrDefer(state, payload, snapshot, now, deferVerdict) {
+  const latest = state.verdicts.at(-1)
+  if (!deferVerdict || !latest || latest.delivered === true) return actOnLatest(state, payload, snapshot, now)
+  const probe = actOnLatest(JSON.parse(JSON.stringify(state)), payload, snapshot, now)
+  if (probe.block || probe.messages.length > 0) return { messages: [DEFER_LINE], block: null, deferred: true }
+  return actOnLatest(state, payload, snapshot, now)
 }
 
 function stopResult(acted, messages) {
@@ -1700,7 +1734,7 @@ function stopResult(acted, messages) {
   return messages.length > 0 ? { systemMessage: messages.join('\n') } : null
 }
 
-function stop(root, payload) {
+function stop(root, payload, { deferVerdict = false } = {}) {
   const cfg = verifyConfig(root)
   const sessionId = sessionIdOf(payload)
   if (!cfg || !sessionId) return null
@@ -1709,7 +1743,7 @@ function stop(root, payload) {
   const path = statePath(root, sessionId)
   if (!cfg.allowed) return deniedStop(path, root, cfg, sessionId)
   const owned = currentOwned(root)
-  if (!owned) return stopWithoutOwner(path, root, cfg, sessionId, payload)
+  if (!owned) return stopWithoutOwner(path, root, cfg, sessionId, payload, deferVerdict)
   const state = loadState(path, root, sessionId)
   const messages = []
   warnOnce(state, cfg.warnings, messages)
@@ -1718,7 +1752,7 @@ function stop(root, payload) {
   const now = Date.now()
   reap(state, now)
   const snapshot = ownedSnapshot(owned.items)
-  const acted = actOnLatest(state, payload, snapshot, now)
+  const acted = actOrDefer(state, payload, snapshot, now, deferVerdict)
   messages.push(...acted.messages)
 
   const found = baselineChanges(state, owned, snapshot, null)
@@ -1746,7 +1780,8 @@ function stop(root, payload) {
   const all = mergeTriggers(state.pendingTriggers, fresh)
   // 막힌 뒤의 재진입(stop_hook_active)과 같은 사용자 턴 안의 Stop(이번 Stop 이 막은 경우 포함; Codex 처럼 stop_hook_active 를 안 주는 호스트도 같다)에서는
   // 검사를 시작하지 않는다 — 에이전트가 바로잡는 중이라 낡은 상태를 검사하게 된다. 계기는 대기열에 두고 다음 사용자 턴의 Stop 이 시작한다.
-  const continuation = payload.stop_hook_active === true || (state.userTurn > 0 && state.blockedTurn === state.userTurn)
+  // 판정을 미룬(acted.deferred) Stop 도 같다: 새 검사의 판정이 아직 전달되지 않은 판정을 덮어쓰면 그 판정은 영영 보이지 않는다. 계기는 대기열에 남아 판정이 전달된 뒤의 Stop 이 시작한다.
+  const continuation = payload.stop_hook_active === true || (state.userTurn > 0 && state.blockedTurn === state.userTurn) || acted.deferred === true
   // 소유 항목이 없으면 단계 변경(소유 해제)이 있을 때만 시작한다 — 프롬프트는 그 계기가 담은 마지막 값을 쓴다.
   const launchable = owned.items.length > 0 ? all.length > 0 : all.some((trigger) => trigger.type === 'step')
   if (state.running || !launchable || continuation) {
@@ -1911,6 +1946,8 @@ function manageCommand(command, args) {
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2)
+  // 이 프로세스가 띄우는 모든 자식(ps·git·검사 세션 worker)이 상대 PATH 항목을 이어받지 않게 한 번 정리한다. (모듈을 import 만 하는 테스트에는 영향이 없다.)
+  if (typeof process.env.PATH === 'string') process.env.PATH = safePath(process.env.PATH, process.env.HOME)
   if (command === 'run') {
     await runWorker(rest)
     return
@@ -1920,7 +1957,7 @@ async function main() {
     return
   }
   if (!['turn-start', 'session-start', 'stop'].includes(command)) {
-    process.stderr.write('usage: state-verify.mjs turn-start|session-start|stop|run --job <file>|allow [--runner R] [--model M] [--step-model M] [--every N] [--env NAME]...|disallow|status\n')
+    process.stderr.write('usage: state-verify.mjs turn-start|session-start|stop [--defer-verdict]|run --job <file>|allow [--runner R] [--model M] [--step-model M] [--every N] [--env NAME]...|disallow|status\n')
     process.exitCode = 2
     return
   }
@@ -1933,7 +1970,7 @@ async function main() {
     } else if (command === 'session-start') {
       sessionStart(root, payload)
     } else {
-      const result = stop(root, payload)
+      const result = stop(root, payload, { deferVerdict: rest.includes('--defer-verdict') })
       if (result) process.stdout.write(`${JSON.stringify(result)}\n`)
     }
   } catch (error) {

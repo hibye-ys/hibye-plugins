@@ -25,8 +25,33 @@ const ACTIONS = new Map([
   ['render', { script: 'scripts/hooks/state-index.mjs', args: ['render', '--write'], runtime: 'node' }],
 ])
 
+// 프로젝트 루트 선택 순서는 scripts/hooks/state-config.mjs 의 projectRoot() 와 같다:
+// HOOK_PROJECT_DIR → 현재 디렉터리의 git toplevel → CLAUDE_PROJECT_DIR → cwd.
+// Claude 데스크톱 앱은 linked worktree 세션에서도 CLAUDE_PROJECT_DIR 을 primary checkout 으로 두므로,
+// git toplevel 을 먼저 봐야 worktree 자신의 .staterc 로 판정한다.
+// lifecycle 액션(session-start/turn-start/stamp/stop)은 dispatcher global-state-hook.sh 로 그대로 전달되고
+// 세션별 pin 규칙은 dispatcher 가 따로 적용한다. 그래서 runner 에는 pin 로직을 넣지 않는다.
+// 여기서 구한 루트는 .staterc capability 판정(cleanupRequired/frontmatterRequired)에만 쓴다.
+let cachedProjectRoot
+function projectRoot() {
+  if (cachedProjectRoot !== undefined) return cachedProjectRoot
+  let root = process.env.HOOK_PROJECT_DIR
+  if (!root) {
+    const top = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const out = top.status === 0 ? (top.stdout || '').trim() : ''
+    root = out || process.env.CLAUDE_PROJECT_DIR || process.cwd()
+  }
+  cachedProjectRoot = root
+  return root
+}
+
 function cleanupRequired() {
-  const root = process.env.HOOK_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd()
+  const root = projectRoot()
   try {
     if (/^STATE_CLEANUP_ENFORCE="1"\s*$/m.test(readFileSync(join(root, '.staterc'), 'utf8'))) return true
   } catch { /* HEAD still protects an uncommitted opt-out */ }
@@ -37,7 +62,7 @@ function cleanupRequired() {
 // STATE_INDEX_SOURCE="frontmatter" 프로젝트는 그 원천을 아는 설치본(index_source_version 1)만 실행한다.
 // 모르는 설치본은 STATE.md 가 없다고 보고 detail 을 고아로 판정하므로 unavailable 로 다룬다(정리 강제면 fail-closed).
 function frontmatterRequired() {
-  const root = process.env.HOOK_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd()
+  const root = projectRoot()
   const pattern = /^STATE_INDEX_SOURCE="frontmatter"\s*$/m
   try {
     if (pattern.test(readFileSync(join(root, '.staterc'), 'utf8'))) return true

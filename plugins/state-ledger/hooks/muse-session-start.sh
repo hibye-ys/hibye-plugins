@@ -3,6 +3,11 @@
 # Project memory/intent context is owned by project-context, independently registered.
 # Final home: hibye-plugins/plugins/state-ledger/hooks/ (self-locating via $0).
 set -u
+# Muse 는 Claude 가 아니다 — Claude 세션의 Bash 도구로 띄운 Muse 워커(muse-delegate 스킬)는 부모의 CLAUDE_PROJECT_DIR 을
+# 물려받는다. 그대로 두면 dispatcher 가 부모 프로젝트(다른 저장소이거나, 저장소가 아니면 pin 비활성)에 anchor 를 잡는다.
+# Muse 의 anchor 는 자기 세션 pin 이다. HOOK_PROJECT_DIR 도 지워 dispatcher 의 pin 규칙(SessionStart 고정, 같은 저장소 검사,
+# pin 폴더 소유자·심링크 검사)을 네 어댑터가 똑같이 따르게 한다.
+unset HOOK_PROJECT_DIR CLAUDE_PROJECT_DIR
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ -n "${STATE_LEDGER_ROOT:-}" ]; then LEDGER_ROOT="$STATE_LEDGER_ROOT";
 else LEDGER_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd); fi
@@ -20,12 +25,10 @@ process.stdin.on("data", (c) => { raw += c; }).on("end", () => {
   if (sid) { j.session_id = j.session_id || sid; j.sessionID = j.sessionID || sid; }
   process.stdout.write(JSON.stringify(j));
 });' 2>/dev/null || printf '%s' "$input")
-root=$(git rev-parse --show-toplevel 2>/dev/null || true)
-[ -n "$root" ] || exit 0
 
 ledger_out=""
 if [ -f "$DISPATCH" ]; then
-  ledger_out=$(printf '%s' "$input" | STATE_LEDGER_HOST=muse HOOK_PROJECT_DIR="$root" bash "$DISPATCH" session-start 2>/dev/null || true)
+  ledger_out=$(printf '%s' "$input" | STATE_LEDGER_HOST=muse bash "$DISPATCH" session-start 2>/dev/null || true)
 else
   ledger_out="{\"hookSpecificOutput\":{\"hookEventName\":\"$EVENT\",\"additionalContext\":\"⚠️ state-ledger dispatcher를 찾지 못했습니다 ($DISPATCH). 플러그인 설치를 확인하세요.\"}}"
 fi
