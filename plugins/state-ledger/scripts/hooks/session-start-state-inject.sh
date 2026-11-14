@@ -53,13 +53,18 @@ fi
 # 초기화 오류는 그보다도 앞이다. 최종 순서: 정리 요청 → 초기화·설정 경고 → 현재 작업 알림 → 정합·예산 요약 → 규칙 스킬 → 원칙 → 인덱스.
 # 실패는 주입을 막지 않고 알림 자리에 경고로 남는다. config_error 면 건너뛴다.
 focus_context=""
+focus_failed=0
 if [ -z "$config_error" ]; then
   focus_err_file=$(mktemp "${TMPDIR:-/tmp}/state-ledger-focus.XXXXXX" 2>/dev/null) || focus_err_file=""
-  if ! focus_context=$(HOOK_PROJECT_DIR="$root" node "$script_dir/state-focus.mjs" reminder 2>"${focus_err_file:-/dev/null}"); then
+  # Antigravity 는 turn-start 와 같은 알림 텍스트(기록 없는 레거시 머리줄)를 받아야 pre-invocation 의 중복 비교가 맞는다.
+  focus_mode="--session-start"
+  [ "${STATE_LEDGER_HOST:-}" = "antigravity" ] && focus_mode=""
+  if ! focus_context=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-focus.mjs" reminder $focus_mode 2>"${focus_err_file:-/dev/null}"); then
     focus_err=""
     [ -n "$focus_err_file" ] && focus_err=$(cat "$focus_err_file" 2>/dev/null)
     focus_context="=== STATE hook 경고 ===
 STATE 현재 작업 알림 실패: ${focus_err:0:400}"
+    focus_failed=1
   fi
   [ -n "$focus_err_file" ] && rm -f "$focus_err_file"
 fi
@@ -177,6 +182,23 @@ if command -v node >/dev/null 2>&1; then
     out="$cleanup_context
 
 $out"
+  fi
+fi
+
+# 세션 기록(state-focus.mjs --session-start 가 sinceFull:0 으로 남김)은 전체 알림이 실제로 컨텍스트에 닿았을 때만 믿는다.
+# 설정 오류로 알림을 건너뛰었거나, 알림 생성이 실패했거나, 알림 끝이 Claude additionalContextLimit(hooks.json, 5000B) 밖이면 기록을 지워
+# 다음 턴이 전체로 시작하게 한다. 실패는 주입을 막지 않는다.
+if command -v node >/dev/null 2>&1; then
+  forget_focus=0
+  if [ -n "$config_error" ] || [ "$focus_failed" -eq 1 ]; then
+    forget_focus=1
+  elif [ -n "$focus_context" ]; then
+    focus_before="${out%%"$focus_context"*}"
+    focus_end=$(( $(printf '%s' "$focus_before" | LC_ALL=C wc -c) + $(printf '%s' "$focus_context" | LC_ALL=C wc -c) ))
+    [ "$focus_end" -gt 5000 ] && forget_focus=1
+  fi
+  if [ "$forget_focus" -eq 1 ]; then
+    printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-focus.mjs" forget >/dev/null 2>&1 || true
   fi
 fi
 

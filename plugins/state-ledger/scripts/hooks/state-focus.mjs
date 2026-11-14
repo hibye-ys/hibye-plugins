@@ -1,18 +1,33 @@
 #!/usr/bin/env node
-// 현재 브랜치가 소유한 STATE 항목(§1 활성·§2 다음)의 목표·지금 단계·다음 단계·절차(handoff)를 매 턴 다시 주입한다.
+// 현재 브랜치가 소유한 STATE 항목(§1 활성·§2 다음)의 목표·지금 단계·다음 단계·절차(handoff)를 다시 주입한다.
 // 긴 작업이 컨텍스트 압축 뒤 목표와 정해진 단계 순서를 잃고 계획 밖 작업을 제안하는 문제를 막기 위한 것이다.
-// 소유 = detail frontmatter `branch:` 가 체크아웃의 현재 브랜치와 같은 항목. 토큰 비용보다 목표 유지를 우선한다.
-//   node state-focus.mjs reminder   → 알림 텍스트 stdout (없으면 출력 없음). 실패는 stderr + 종료 코드 1.
+// 소유 = detail frontmatter `branch:` 가 체크아웃의 현재 브랜치와 같은 항목.
+// 전체 알림이 대화에 쌓여 중복되지 않도록 세션별 기록(focus-<세션 해시>.json)을 두고, 바뀌지 않은 턴에는 목표·단계 요약만 싣는다.
+//   node state-focus.mjs reminder                  → 전체 알림 텍스트 stdout (기록 없음, 기존 호출자 호환). 없으면 출력 없음. 실패는 stderr + 종료 코드 1.
+//   node state-focus.mjs reminder --session-start  → 전체 알림 + 기록(sinceFull 0). 훅 payload JSON 을 stdin 으로 받는다.
+//   node state-focus.mjs reminder --turn           → 전체 또는 요약(SHORT). 판정은 focusOutput 주석 참고.
+//   node state-focus.mjs forget                    → 세션 기록 삭제(payload 는 stdin). 실패해도 종료 코드 0.
 
 import { execFileSync } from 'node:child_process'
-import { lstatSync, readFileSync, realpathSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { projectRoot, readStaterc, stateConfig, staysWithinRoot } from './state-config.mjs'
+import { dataDirectory, ensureOwnedPrivateDirectory } from './state-data-dir.mjs'
 import { detailEntries, indexSource, parseFrontmatter } from './state-index.mjs'
 
 export const MAX_ITEMS = 3
 export const MAX_REMINDER_BYTES = 3000
+export const MAX_SHORT_BYTES = 1200
+// 전체 알림을 다시 싣는 기본 턴 간격: Claude 는 SessionStart(compact 포함)가 압축 뒤 전체를 다시 싣는다. 그 밖의 호스트(Codex·Muse·모름)는
+// 압축 뒤 SessionStart 를 보장하지 못하므로 더 자주 싣는다. `.staterc` STATE_FOCUS_FULL_EVERY 가 있으면 그것이 우선한다.
+export const DEFAULT_FULL_EVERY = 10
+export const DEFAULT_FULL_EVERY_OTHER_HOST = 3
+const FOCUS_RECORD_VERSION = 1
+const FOCUS_RECORD_MAX_BYTES = 4096
+// 요약(SHORT) 항목의 값 길이(바이트) 단계. 1200B 안에 안 들어가면 단계를 낮추고, 그래도 넘으면 항목 수를 줄인다.
+const SHORT_TIERS = [120, 60, 40]
 const SECTION_LABEL = { active: '§1 활성', next: '§2 다음' }
 const SECTION_ORDER = { active: 0, next: 1 }
 const NONE_VALUES = new Set(['', '-', '—'])
@@ -35,6 +50,18 @@ const TIERS = [
 export const INSTRUCTION = '작업을 제안·시작·전환하기 전에 각 항목의 handoff(없으면 detail ## 현재)에서 지금·다음 단계 절과 끝 조건을 다시 읽고, 제안에 그 절 제목이나 줄을 인용한다. '
   + '계획 순서를 벗어나거나 범위를 바꾸려면 먼저 사용자에게 묻는다 — 단, 이번 턴 사용자의 명시 지시가 우선한다(계획과 어긋나면 그 사실만 한 줄 알리고 따른다). '
   + '단계가 바뀌면 해당 항목 detail 의 step·next_step(과 status)을 바꿔 쓴다.'
+
+// `.staterc` STATE_FOCUS_FULL_EVERY: 전체 알림을 다시 싣는 턴 간격. 정수 1..100, 아니면 호스트별 기본(claude 10, 그 밖 3). 1 = 매 턴 전체(옛 동작).
+// 호스트는 dispatcher(global-state-hook.sh)가 STATE_LEDGER_HOST 로 넘긴다.
+export function focusFullEvery(root) {
+  let raw = null
+  try { raw = readStaterc(root, 'STATE_FOCUS_FULL_EVERY') } catch { /* 설정 오류는 다른 곳에서 알린다 — 기본값 */ }
+  if (typeof raw === 'string' && /^\d{1,3}$/.test(raw.trim())) {
+    const n = Number(raw.trim())
+    if (n >= 1 && n <= 100) return n
+  }
+  return process.env.STATE_LEDGER_HOST === 'claude' ? DEFAULT_FULL_EVERY : DEFAULT_FULL_EVERY_OTHER_HOST
+}
 
 function bytes(text) {
   return Buffer.byteLength(text, 'utf8')
@@ -260,10 +287,12 @@ function clipBytesPlain(text, max) {
 const joinBody = ({ itemsText, restLine }) => (restLine ? `${itemsText}\n${restLine}` : itemsText)
 
 // 머리 → 지시문 → 항목 순. 어떤 절단이 와도(Claude SessionStart additionalContext 5000B 한도 포함) 지시문이 항목 꼬리보다 먼저 잘리지 않는다.
-export function buildReminder(root, branch, items) {
+// mode: 'legacy'(기본, 플래그 없는 reminder — Antigravity 처럼 매번 전체를 싣는 호출자) | 'periodic'(--session-start·--turn — 바뀔 때·N턴마다·세션 시작 때만 전체).
+export function buildReminder(root, branch, items, mode = 'legacy') {
   if (items.length === 0) return ''
   // 브랜치 이름은 머리줄에서 200B 로 자른다 — 이름이 아주 길어도 지시문과 `외 N개` 줄이 3000B 안에 남게.
-  const head = `=== STATE 현재 작업 — 브랜치 ${clipBytesWith(branch, 200, '…')} (매 턴 다시 주입) ===\n${INSTRUCTION}`
+  const when = mode === 'periodic' ? `바뀔 때·${focusFullEvery(root)}턴마다·세션 시작 때 전체 주입` : '매 턴 다시 주입'
+  const head = `=== STATE 현재 작업 — 브랜치 ${clipBytesWith(branch, 200, '…')} (${when}) ===\n${INSTRUCTION}`
   const budget = MAX_REMINDER_BYTES - bytes(head) - 2
   const full = Math.min(items.length, MAX_ITEMS)
   const last = TIERS[TIERS.length - 1]
@@ -281,6 +310,57 @@ export function buildReminder(root, branch, items) {
   const room = budget - (restLine ? bytes(restLine) + 1 : 0)
   const itemsText = room >= bytes(TRUNCATED) ? clipBytesWith(body.itemsText, room, TRUNCATED) : clipBytesPlain(body.itemsText, Math.max(room, 0))
   return clipBytesPlain(`${head}\n\n${joinBody({ itemsText, restLine })}`, MAX_REMINDER_BYTES)
+}
+
+const SHORT_RULE = '계획 순서를 벗어나려면 먼저 사용자에게 묻는다(이번 턴 사용자의 명시 지시가 우선). 절차(handoff)·끝 조건은 앞선 전체 알림에 있고, 대화에 보이지 않으면(압축·되감기 뒤) 위 detail 의 frontmatter·handoff 를 다시 읽는다. 앞선 전체 알림과 다르면 이 요약과 detail 이 최신이다.'
+
+const SHORT_HANDOFF_FIXED = 'detail frontmatter handoff 참고'
+
+function renderShortItem(item, valueMax) {
+  const { meta } = item
+  const lines = [`[${item.id}] ${clipBytes(item.title, valueMax)} — ${item.path}`]
+  const goal = value(meta, 'goal')
+  const step = value(meta, 'step')
+  const next = value(meta, 'next_step')
+  if (goal) lines.push(`- 목표: ${clipBytes(goal, valueMax)}`)
+  if (step) lines.push(`- 지금 단계: ${clipBytes(step, valueMax)}`)
+  if (next) lines.push(`- 다음 단계: ${clipBytes(next, valueMax)}`)
+  if (!goal && !step && !next) lines.push(`- 상태: ${clipBytes(item.status, valueMax)}`)
+  // 절차 포인터: handoff 경로(#절 포함)를 80B(tier 40 에서는 40B) 안에서 통째로. 안 들어가면 잘린 경로 대신 고정 안내 — 경로·앵커는 절대 자르지 않는다. 없으면 detail ## 현재.
+  const handoff = value(meta, 'handoff')
+  const pointerMax = Math.min(valueMax, 80)
+  lines.push(`- 절차: ${handoff ? (bytes(handoff) <= pointerMax ? handoff : SHORT_HANDOFF_FIXED) : 'detail ## 현재'}`)
+  return lines.join('\n')
+}
+
+// 바뀌지 않은 턴용 요약. 항목마다 제목·목표·지금 단계·다음 단계·절차 경로만 싣고(긴 지시문·handoff 상세·발췌는 앞선 전체 알림에 있다) 1200B 를 넘지 않는다.
+// 머리 → 항목 → `외 N개` → 규칙 한 줄 순이며, 넘치면 값 길이 → 항목 수 → (최후) 항목 꼬리 순으로 줄여도 머리와 규칙 줄은 남는다.
+export function buildShortReminder(root, branch, items) {
+  if (items.length === 0) return ''
+  const head = `=== STATE 현재 작업 — 브랜치 ${clipBytesWith(branch, 200, '…')} (마지막 전체 알림 뒤 변경 없음 — 전체는 바뀔 때·${focusFullEvery(root)}턴마다·세션 시작 때) ===`
+  const fixed = bytes(head) + bytes(SHORT_RULE) + 2
+  const budget = MAX_SHORT_BYTES - fixed
+  const full = Math.min(items.length, MAX_ITEMS)
+  const lastTier = SHORT_TIERS[SHORT_TIERS.length - 1]
+  const attempts = [...SHORT_TIERS.map((tier) => [full, tier]), ...Array.from({ length: full - 1 }, (_, i) => [full - 1 - i, lastTier])]
+  const render = (count, tier) => {
+    const itemsText = items.slice(0, count).map((item) => renderShortItem(item, tier)).join('\n')
+    const rest = items.slice(count)
+    const restLine = rest.length ? `외 ${rest.length}개: ${rest.slice(0, MAX_LISTED_REST_IDS).map((item) => `[${item.id}]`).join(' ')}${rest.length > MAX_LISTED_REST_IDS ? ' …' : ''}` : ''
+    return { itemsText, restLine, rest }
+  }
+  const assemble = ({ itemsText, restLine }) => `${head}\n${joinBody({ itemsText, restLine })}\n${SHORT_RULE}`
+  let body = null
+  for (const [count, tier] of attempts) {
+    body = render(count, tier)
+    if (bytes(joinBody(body)) <= budget) return assemble(body)
+  }
+  // 최후: 항목 1개의 고정 줄(긴 경로 등)만으로도 넘친다. 규칙 줄은 두고 `외 N개` 줄을 예산에 맞춘 뒤 항목 꼬리를 자른다.
+  const restLine = body.restLine ? fitRestLine(body.rest, body.restLine, Math.max(Math.floor(budget / 2), budget - 1 - bytes(body.itemsText))) : ''
+  const room = budget - (restLine ? bytes(restLine) + 1 : 0)
+  const itemsText = room >= bytes(TRUNCATED) ? clipBytesWith(body.itemsText, room, TRUNCATED) : clipBytesPlain(body.itemsText, Math.max(room, 0))
+  const text = assemble({ itemsText, restLine })
+  return bytes(text) <= MAX_SHORT_BYTES ? text : clipBytesPlain(text, MAX_SHORT_BYTES)
 }
 
 // 기본 브랜치 판정. BASE 가 `origin/main` 같은 원격 ref 로 주어질 수 있다 — refs/remotes/<BASE> 가 실제로 있을 때만
@@ -314,13 +394,117 @@ export function focusReminder(root) {
   return owned ? buildReminder(root, owned.branch, owned.items) : ''
 }
 
+const sha256 = (text) => createHash('sha256').update(text).digest('hex')
+
+// payload 의 session_id·sessionID·sessionId, 없으면 환경 STATE_HOOK_SESSION_ID (state-turn-baseline·state-cleanup 과 같은 순서).
+function sessionIdOf(stdinText) {
+  let payload = {}
+  try {
+    const parsed = JSON.parse(stdinText)
+    if (parsed && typeof parsed === 'object') payload = parsed
+  } catch { /* payload 없음 */ }
+  const id = payload.session_id || payload.sessionID || payload.sessionId || process.env.STATE_HOOK_SESSION_ID
+  return typeof id === 'string' && id.trim() ? id.trim() : null
+}
+
+// 세션별 기록 {v, root, branch, hash, sinceFull}. 훅 데이터 폴더 검사(실제 폴더·내 소유·심링크 아님)를 통과하지 못하면 null — 읽지도 쓰지도 않는다.
+function focusRecordPath(sessionId) {
+  const directory = dataDirectory()
+  if (!ensureOwnedPrivateDirectory(directory)) return null
+  return join(directory, `focus-${sha256(sessionId).slice(0, 32)}.json`)
+}
+
+function readFocusRecord(path) {
+  try {
+    const info = lstatSync(path)
+    if (!info.isFile() || info.isSymbolicLink() || info.size > FOCUS_RECORD_MAX_BYTES) return null
+    const record = JSON.parse(readFileSync(path, 'utf8'))
+    if (record?.v !== FOCUS_RECORD_VERSION || typeof record.root !== 'string' || typeof record.branch !== 'string'
+      || typeof record.hash !== 'string' || !Number.isInteger(record.sinceFull) || record.sinceFull < 0) return null
+    return record
+  } catch {
+    return null
+  }
+}
+
+// 원자적 기록(같은 폴더 임시 파일 + rename, 0600). 실패는 false.
+function writeFocusRecord(path, record) {
+  // 임시 파일도 `.json` 으로 끝나야 7일 지난 `*.json` 정리가 비정상 종료로 남은 것까지 거둔다 (기준점 읽기는 파싱 실패/version 없음으로 건너뛴다).
+  const temp = join(dataDirectory(), `.${basename(path, '.json')}.${process.pid}.tmp.json`)
+  try {
+    writeFileSync(temp, `${JSON.stringify({ v: FOCUS_RECORD_VERSION, ...record })}\n`, { mode: 0o600, flag: 'wx' })
+    renameSync(temp, path)
+    return true
+  } catch {
+    try { unlinkSync(temp) } catch { /* 없을 수 있다 */ }
+    return false
+  }
+}
+
+// 요약 없이 기록을 비운다 — 다음 소유 턴은 전체로 시작한다. 실패는 무시한다.
+function clearFocusRecord(path) {
+  try { unlinkSync(path) } catch { /* 없거나 지울 수 없으면 다음 턴 판정(hash·branch 비교)에 맡긴다 */ }
+}
+
+// 전체/요약 판정 (mode: 'session-start' | 'turn'). 전체가 되는 경우:
+//   세션 id 없음 · 데이터 폴더 불안전 · 기록 없음/손상 · root·branch·hash 변경 · sinceFull + 1 >= N (N = STATE_FOCUS_FULL_EVERY, 기본은 호스트별: claude 10, 그 밖 3).
+// 그 밖에는 요약이고 sinceFull 을 1 올린다. 소유 항목이 없으면 출력 없이 기록을 비운다. 기록 쓰기 실패는 항상 전체로 대신한다.
+export function focusOutput(root, mode, stdinText = '') {
+  const owned = currentOwned(root)
+  const full = owned ? buildReminder(root, owned.branch, owned.items, 'periodic') : ''
+  const sessionId = sessionIdOf(stdinText)
+  const path = sessionId ? focusRecordPath(sessionId) : null
+  if (!path) return full
+  if (!full) {
+    clearFocusRecord(path)
+    return ''
+  }
+  const state = { root, branch: owned.branch, hash: sha256(full) }
+  if (mode === 'session-start') {
+    writeFocusRecord(path, { ...state, sinceFull: 0 })
+    return full
+  }
+  const record = readFocusRecord(path)
+  const same = record && record.root === state.root && record.branch === state.branch && record.hash === state.hash
+  if (!same || record.sinceFull + 1 >= focusFullEvery(root)) {
+    writeFocusRecord(path, { ...state, sinceFull: 0 })
+    return full
+  }
+  if (!writeFocusRecord(path, { ...state, sinceFull: record.sinceFull + 1 })) return full
+  return buildShortReminder(root, owned.branch, owned.items)
+}
+
+// 세션 기록을 지운다(다음 소유 턴은 전체). 전체 알림이 실제로 컨텍스트에 닿지 못했을 때 SessionStart 가 부른다. 어떤 실패도 던지지 않는다.
+export function forgetFocus(stdinText = '') {
+  try {
+    const sessionId = sessionIdOf(stdinText)
+    const path = sessionId ? focusRecordPath(sessionId) : null
+    if (path) clearFocusRecord(path)
+  } catch { /* 훅을 막지 않는다 */ }
+}
+
+function readStdin() {
+  try {
+    return process.stdin.isTTY ? '' : readFileSync(0, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
 function main() {
-  if (process.argv[2] !== 'reminder') {
-    process.stderr.write('usage: state-focus.mjs reminder\n')
+  const [command, flag, ...extra] = process.argv.slice(2)
+  if (command === 'forget' && flag === undefined) {
+    forgetFocus(readStdin())
+    return
+  }
+  const modes = { '--session-start': 'session-start', '--turn': 'turn' }
+  if (command !== 'reminder' || extra.length || (flag !== undefined && !modes[flag])) {
+    process.stderr.write('usage: state-focus.mjs reminder [--session-start|--turn] | forget\n')
     process.exitCode = 2
     return
   }
-  const text = focusReminder(projectRoot())
+  const root = projectRoot()
+  const text = flag === undefined ? focusReminder(root) : focusOutput(root, modes[flag], readStdin())
   if (text) process.stdout.write(`${text}\n`)
 }
 
