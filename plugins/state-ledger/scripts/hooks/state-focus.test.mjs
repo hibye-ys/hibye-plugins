@@ -2,13 +2,13 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { blockCleanup, requestCleanup } from './state-cleanup.mjs'
-import { INSTRUCTION, MAX_REMINDER_BYTES, buildReminder, currentBranch, focusReminder, ownedItems } from './state-focus.mjs'
+import { INSTRUCTION, MAX_REMINDER_BYTES, MAX_SHORT_BYTES, buildReminder, buildShortReminder, currentBranch, focusFullEvery, focusOutput, focusReminder, forgetFocus, ownedItems } from './state-focus.mjs'
 
 const WIP_CHECK_SCRIPT = fileURLToPath(new URL('../check-state-wip-cap.sh', import.meta.url))
 const SESSION_SCRIPT = fileURLToPath(new URL('./session-start-state-inject.sh', import.meta.url))
@@ -78,7 +78,7 @@ function run(script, root, { args = [], input = '', env = {} } = {}) {
     cwd: root,
     encoding: 'utf8',
     input,
-    env: { ...process.env, HOOK_PROJECT_DIR: root, STATE_HOOK_DATA_DIR: `${root}-hook-data`, ...env },
+    env: { ...process.env, HOOK_PROJECT_DIR: root, STATE_HOOK_DATA_DIR: `${root}-hook-data`, STATE_LEDGER_HOST: 'claude', ...env },
   })
   return { status: result.status, stdout: result.stdout, out: `${result.stdout}${result.stderr}` }
 }
@@ -111,7 +111,7 @@ test('owned active item: turn-start injects goal, step, next step, handoff and t
   assert.equal(parsed.hookSpecificOutput.hookEventName, 'UserPromptSubmit')
   assert.equal(parsed.systemMessage, undefined)
   const text = parsed.hookSpecificOutput.additionalContext
-  assert.match(text, /^=== STATE 현재 작업 — 브랜치 feat\/x \(매 턴 다시 주입\) ===\n/)
+  assert.match(text, /^=== STATE 현재 작업 — 브랜치 feat\/x \(바뀔 때·10턴마다·세션 시작 때 전체 주입\) ===\n/)
   assert.match(text, /\[notes\] 노트 영역 구현 — docs\/state\/root\/notes\.md \(§1 활성\)/)
   assert.ok(text.includes(`- 목표·완성 기준: ${FULL_FIELDS.goal}`))
   assert.ok(text.includes(`- 지금 단계: ${FULL_FIELDS.step}`))
@@ -433,7 +433,7 @@ test('a remote-ref STATE_DEFAULT_BRANCH counts the matching local branch as the 
 })
 
 const bytesOf = (text) => Buffer.byteLength(text, 'utf8')
-const HEADER_RE = /^=== STATE 현재 작업 — 브랜치 .+ \(매 턴 다시 주입\) ===$/
+const HEADER_RE = /^=== STATE 현재 작업 — 브랜치 .+ \(매 턴 다시 주입\) ===$/ // 플래그 없는 reminder(레거시, Antigravity)의 머리줄
 
 // ---------- 0.10.1: 현재 작업 알림 보강 ----------
 
@@ -563,7 +563,7 @@ test('a very long branch name is clipped in the header so the instruction and th
   const text = buildReminder(root, `feat/${'가'.repeat(1500)}`, ownedItems(root, 'feat/x'))
   assert.ok(bytesOf(text) <= MAX_REMINDER_BYTES, `${bytesOf(text)}B`)
   const lines = text.split('\n')
-  assert.ok(bytesOf(lines[0]) < 300, `header ${bytesOf(lines[0])}B`)
+  assert.ok(bytesOf(lines[0]) < 350, `header ${bytesOf(lines[0])}B`)
   assert.match(lines[0], /…/)
   assert.equal(lines[1], INSTRUCTION)
   assert.match(text, /\[item\d+\]/)
@@ -579,7 +579,7 @@ test('instruction sits right after the header line, before any item', (t) => {
   assert.equal(lines[1], INSTRUCTION)
   assert.ok(lines.findIndex((line) => line.startsWith('[notes]')) > 1)
   const context = sessionContext(root, { source: 'startup' })
-  assert.ok(context.includes(`매 턴 다시 주입) ===\n${INSTRUCTION}\n`))
+  assert.ok(context.includes(`전체 주입) ===\n${INSTRUCTION}\n`))
 })
 
 const PLACEHOLDERS = ['>', '|', '>-', '|-', '""', "''", 'null', '~']
@@ -705,10 +705,462 @@ test('SessionStart: a long cleanup-request list is capped so the reminder stays 
     await blockCleanup(root, { requestId: request.id, sessionId: 'focus-session', reason: '긴 사유 '.repeat(300) })
   }
   const context = sessionContext(root, { source: 'startup' })
-  const reminder = focusReminder(root)
+  const previousHost = process.env.STATE_LEDGER_HOST
+  process.env.STATE_LEDGER_HOST = 'claude' // 훅 프로세스와 같은 호스트여야 머리줄의 N 이 같다
+  const reminder = buildReminder(root, 'feat/x', ownedItems(root, 'feat/x'), 'periodic') // SessionStart 는 --session-start 머리줄
+  if (previousHost === undefined) delete process.env.STATE_LEDGER_HOST
+  else process.env.STATE_LEDGER_HOST = previousHost
   const at = context.indexOf(reminder)
   assert.ok(at >= 0, 'reminder present in full')
   assert.ok(bytesOf(context.slice(0, at + reminder.length)) <= 5000, `reminder ends at ${bytesOf(context.slice(0, at + reminder.length))}B`)
   assert.match(context, /…\(2개 더\)/)
   assert.ok(context.indexOf('STATE 정리 미완료 요청') < at, 'cleanup list still comes first')
+})
+
+// ---------- 0.10.3: 바뀌지 않은 턴은 요약(SHORT)만 ----------
+
+const SHORT_HEADER_RE = /^=== STATE 현재 작업 — 브랜치 .+ \(마지막 전체 알림 뒤 변경 없음 — 전체는 바뀔 때·\d+턴마다·세션 시작 때\) ===$/
+const SHORT_RULE_LINE = '계획 순서를 벗어나려면 먼저 사용자에게 묻는다(이번 턴 사용자의 명시 지시가 우선). 절차(handoff)·끝 조건은 앞선 전체 알림에 있고, 대화에 보이지 않으면(압축·되감기 뒤) 위 detail 의 frontmatter·handoff 를 다시 읽는다. 앞선 전체 알림과 다르면 이 요약과 detail 이 최신이다.'
+
+// 한 세션의 훅 데이터 폴더를 쓰는 focusOutput 호출 도구. 데이터 폴더는 repo 옆 임시 폴더(repo() 가 정리한다).
+function focusFixture(t, { staterc = FM_STATERC, fields = FULL_FIELDS } = {}) {
+  const root = repo(t, { staterc })
+  seedHandoff(root)
+  write(root, 'docs/state/root/notes.md', detail('notes', { title: '노트 영역 구현', fields }))
+  commit(root, 'seed [id=notes]')
+  const dataDir = `${root}-hook-data`
+  const saved = { STATE_HOOK_DATA_DIR: process.env.STATE_HOOK_DATA_DIR, STATE_LEDGER_HOST: process.env.STATE_LEDGER_HOST, STATE_HOOK_SESSION_ID: process.env.STATE_HOOK_SESSION_ID }
+  process.env.STATE_HOOK_DATA_DIR = dataDir
+  process.env.STATE_LEDGER_HOST = 'claude'
+  delete process.env.STATE_HOOK_SESSION_ID
+  t.after(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+  const sid = 'focus-session' // payload() 와 같은 세션 — 스크립트 호출과 기록을 공유한다
+  const stdin = JSON.stringify({ session_id: sid })
+  const hash32 = createHash('sha256').update(sid).digest('hex').slice(0, 32)
+  const file = join(dataDir, `focus-${hash32}.json`)
+  const tempFile = join(dataDir, `.focus-${hash32}.${process.pid}.tmp.json`)
+  const turn = (input = stdin) => focusOutput(root, 'turn', input)
+  const start = (input = stdin) => focusOutput(root, 'session-start', input)
+  const isShort = (text) => text.startsWith('=== STATE 현재 작업') && text.split('\n')[0].includes('변경 없음')
+  const isFull = (text) => text.startsWith('=== STATE 현재 작업') && text.includes(INSTRUCTION)
+  return { root, dataDir, file, tempFile, turn, start, isShort, isFull }
+}
+
+test('SHORT: first turn is full, the identical second turn is short with header, id, path, goal/step/next and the rule line', (t) => {
+  const f = focusFixture(t)
+  const first = f.turn()
+  assert.ok(f.isFull(first))
+  assert.ok(first.includes(`- 절차(handoff): ${FULL_FIELDS.handoff}`))
+  const second = f.turn()
+  assert.ok(f.isShort(second), second)
+  assert.ok(bytesOf(second) <= MAX_SHORT_BYTES, `${bytesOf(second)}B`)
+  const lines = second.split('\n')
+  assert.match(lines[0], SHORT_HEADER_RE)
+  assert.equal(lines[1], '[notes] 노트 영역 구현 — docs/state/root/notes.md')
+  assert.ok(second.includes(`- 목표: ${FULL_FIELDS.goal}`))
+  assert.ok(second.includes(`- 지금 단계: ${FULL_FIELDS.step}`))
+  assert.ok(second.includes(`- 다음 단계: ${FULL_FIELDS.next_step}`))
+  assert.ok(lines.includes(`- 절차: ${FULL_FIELDS.handoff}`), 'the handoff path survives in the short form')
+  assert.equal(lines.at(-1), SHORT_RULE_LINE)
+  assert.doesNotMatch(second, /handoff\): docs|INSTRUCTION|제안·시작·전환하기 전에/)
+  assert.ok(!second.includes(INSTRUCTION))
+  assert.equal(JSON.parse(readFileSyncText(f.file)).sinceFull, 1)
+})
+
+function readFileSyncText(path) {
+  return spawnSync('cat', [path], { encoding: 'utf8' }).stdout
+}
+
+test('SHORT: goal/step/next lines are omitted when missing, the status line stands in when all are missing', (t) => {
+  const f = focusFixture(t, { fields: { step: '지금 이 단계' } })
+  f.turn()
+  const second = f.turn()
+  assert.ok(f.isShort(second))
+  assert.ok(second.includes('- 지금 단계: 지금 이 단계'))
+  assert.ok(second.includes('- 절차: detail ## 현재'), 'no handoff → pointer to the detail ## 현재')
+  assert.doesNotMatch(second, /- 목표:|- 다음 단계:|- 상태:/)
+  const bare = focusFixture(t, { fields: {} })
+  bare.turn()
+  const bareSecond = bare.turn()
+  assert.ok(bare.isShort(bareSecond))
+  assert.ok(bareSecond.includes('- 상태: notes 상태'))
+  assert.doesNotMatch(bareSecond, /- 목표:|- 지금 단계:|- 다음 단계:/)
+})
+
+test('SHORT: a content change (detail step edit) goes full again, then short again', (t) => {
+  const f = focusFixture(t)
+  f.turn()
+  assert.ok(f.isShort(f.turn()))
+  write(f.root, 'docs/state/root/notes.md', detail('notes', { title: '노트 영역 구현', fields: { ...FULL_FIELDS, step: '4단계 시작' } }))
+  const changed = f.turn()
+  assert.ok(f.isFull(changed) && changed.includes('- 지금 단계: 4단계 시작'))
+  const after = f.turn()
+  assert.ok(f.isShort(after) && after.includes('- 지금 단계: 4단계 시작'))
+})
+
+test('SHORT: a branch change goes full (the record keeps the branch)', (t) => {
+  const f = focusFixture(t)
+  git(f.root, 'checkout', '-q', '-b', 'feat/y')
+  write(f.root, 'docs/state/root/other.md', detail('other', { branch: 'feat/y', fields: FULL_FIELDS }))
+  commit(f.root, 'other [id=other]')
+  f.turn()
+  assert.ok(f.isShort(f.turn()))
+  git(f.root, 'checkout', '-q', 'feat/x')
+  const back = f.turn()
+  assert.ok(f.isFull(back) && back.includes('브랜치 feat/x'))
+})
+
+test('SHORT: every N-th turn is full (STATE_FOCUS_FULL_EVERY=3 → full, short, short, full, short)', (t) => {
+  const f = focusFixture(t, { staterc: `${FM_STATERC}STATE_FOCUS_FULL_EVERY="3"\n` })
+  const kinds = [1, 2, 3, 4, 5].map(() => (f.isFull(f.turn()) ? 'F' : 'S'))
+  assert.equal(kinds.join(''), 'FSSFS')
+  assert.match(f.turn().split('\n')[0], /3턴마다/)
+})
+
+test('SHORT: STATE_FOCUS_FULL_EVERY=1 is always full; invalid values fall back to 10', (t) => {
+  const one = focusFixture(t, { staterc: `${FM_STATERC}STATE_FOCUS_FULL_EVERY="1"\n` })
+  assert.ok([1, 2, 3].every(() => one.isFull(one.turn())))
+  for (const bad of ['0', '101', 'abc', '2.5', '-3', '']) {
+    const f = focusFixture(t, { staterc: `${FM_STATERC}STATE_FOCUS_FULL_EVERY="${bad}"\n` })
+    const kinds = Array.from({ length: 11 }, () => (f.isFull(f.turn()) ? 'F' : 'S')).join('')
+    assert.equal(kinds, 'FSSSSSSSSSF', `value ${JSON.stringify(bad)}`)
+  }
+  const hundred = focusFixture(t, { staterc: `${FM_STATERC}STATE_FOCUS_FULL_EVERY="100"\n` })
+  assert.match(hundred.turn().split('\n')[0], /100턴마다/)
+})
+
+test('SHORT: no session id → always full and no record is written', (t) => {
+  const f = focusFixture(t)
+  for (const input of ['', '{}', 'not json', JSON.stringify({ session_id: '  ' })]) {
+    assert.ok(f.isFull(f.turn(input)), input)
+    assert.ok(f.isFull(f.turn(input)), input)
+  }
+  assert.ok(!existsSync(f.dataDir) || readdirSync(f.dataDir).filter((name) => name.startsWith('focus-')).length === 0)
+  // sessionID / sessionId 철자도 읽는다.
+  f.turn(JSON.stringify({ sessionID: 'alt-1' }))
+  assert.ok(f.isShort(f.turn(JSON.stringify({ sessionID: 'alt-1' }))))
+  f.turn(JSON.stringify({ sessionId: 'alt-2' }))
+  assert.ok(f.isShort(f.turn(JSON.stringify({ sessionId: 'alt-2' }))))
+})
+
+test('SHORT: an unsafe data directory (symlink) is never read or written; the output is full', (t) => {
+  const f = focusFixture(t)
+  const elsewhere = `${f.root}-elsewhere`
+  mkdirSync(elsewhere)
+  t.after(() => rmSync(elsewhere, { recursive: true, force: true }))
+  rmSync(f.dataDir, { recursive: true, force: true })
+  symlinkSync(elsewhere, f.dataDir)
+  assert.ok(f.isFull(f.turn()))
+  assert.ok(f.isFull(f.turn()))
+  assert.ok(f.isFull(f.start()))
+  assert.deepEqual(readdirSync(elsewhere), [])
+})
+
+test('SHORT: session-start is full and records, the next turn is short; a compact session-start resets the interval', (t) => {
+  const f = focusFixture(t, { staterc: `${FM_STATERC}STATE_FOCUS_FULL_EVERY="3"\n` })
+  assert.ok(f.isFull(f.start()))
+  assert.ok(f.isShort(f.turn()))
+  assert.equal(JSON.parse(readFileSyncText(f.file)).sinceFull, 1)
+  assert.ok(f.isFull(f.start()))
+  assert.equal(JSON.parse(readFileSyncText(f.file)).sinceFull, 0)
+  assert.ok(f.isShort(f.turn()))
+  assert.ok(f.isShort(f.turn()))
+  assert.ok(f.isFull(f.turn()))
+})
+
+test('SHORT: no owned items → nothing printed and the record is removed so the next owned turn is full', (t) => {
+  const f = focusFixture(t)
+  f.turn()
+  assert.ok(f.isShort(f.turn()))
+  assert.ok(existsSync(f.file))
+  git(f.root, 'checkout', '-q', 'main')
+  assert.equal(f.turn(), '')
+  assert.equal(f.start(), '')
+  assert.ok(!existsSync(f.file))
+  git(f.root, 'checkout', '-q', 'feat/x')
+  assert.ok(f.isFull(f.turn()))
+})
+
+test('SHORT: unparsable or foreign records are treated as missing (full), and a record write failure still prints full', (t) => {
+  const f = focusFixture(t)
+  f.turn()
+  writeFileSync(f.file, '{broken')
+  assert.ok(f.isFull(f.turn()))
+  writeFileSync(f.file, JSON.stringify({ v: 2, root: f.root, branch: 'feat/x', hash: 'x', sinceFull: 0 }))
+  assert.ok(f.isFull(f.turn()))
+  assert.ok(f.isShort(f.turn()))
+  // 기록 자리가 폴더라 rename 이 실패한다 → 요약이 아니라 전체.
+  rmSync(f.file)
+  mkdirSync(f.file)
+  assert.ok(f.isFull(f.turn()))
+  assert.ok(f.isFull(f.turn()))
+  assert.deepEqual(readdirSync(f.dataDir).filter((name) => name.endsWith('.tmp')), [])
+})
+
+test('SHORT: the record is private (0600), holds only {v, root, branch, hash, sinceFull}, and sits in the data dir as focus-<32 hex>.json', (t) => {
+  const f = focusFixture(t)
+  const first = f.turn()
+  assert.match(f.file, /focus-[0-9a-f]{32}\.json$/)
+  const record = JSON.parse(readFileSyncText(f.file))
+  assert.deepEqual(Object.keys(record).sort(), ['branch', 'hash', 'root', 'sinceFull', 'v'])
+  assert.equal(record.v, 1)
+  assert.equal(record.hash, createHash('sha256').update(first).digest('hex'))
+  assert.equal(statSync(f.file).mode & 0o777, 0o600)
+})
+
+test('SHORT: with three max-size items the short text stays within the cap, keeps header and rule, and lists the rest', (t) => {
+  const root = repo(t)
+  const long = { goal: '목'.repeat(300), step: '단'.repeat(300), next_step: '다'.repeat(300), handoff: 'docs/plans/p.md' }
+  for (let i = 0; i < 5; i += 1) write(root, `docs/state/root/item${i}.md`, detail(`item${i}`, { title: '제'.repeat(200), touched: `2026-11-0${i + 1}T00:00`, fields: long }))
+  commit(root, 'seed')
+  const text = buildShortReminder(root, 'feat/x', ownedItems(root, 'feat/x'))
+  assert.ok(bytesOf(text) <= MAX_SHORT_BYTES, `${bytesOf(text)}B`)
+  assert.equal(Buffer.from(text, 'utf8').toString('utf8'), text)
+  const lines = text.split('\n')
+  assert.match(lines[0], SHORT_HEADER_RE)
+  assert.equal(lines.at(-1), SHORT_RULE_LINE)
+  assert.match(text, /^외 \d+개: \[item\d\]/m)
+  assert.match(text, /\[item\d\] .+ — docs\/state\/root\/item\d\.md/)
+  // 아주 긴 브랜치 이름도 상한을 넘기지 않는다.
+  const longBranch = buildShortReminder(root, `feat/${'가'.repeat(1500)}`, ownedItems(root, 'feat/x'))
+  assert.ok(bytesOf(longBranch) <= MAX_SHORT_BYTES)
+  assert.equal(longBranch.split('\n').at(-1), SHORT_RULE_LINE)
+})
+
+test('SHORT: turn-start script gives full then short for one session; the verify block and error handling are untouched', (t) => {
+  const f = focusFixture(t)
+  const first = JSON.parse(turnStart(f.root)).hookSpecificOutput.additionalContext
+  assert.ok(f.isFull(first))
+  const second = JSON.parse(turnStart(f.root)).hookSpecificOutput.additionalContext
+  assert.ok(f.isShort(second))
+  // Antigravity 는 ephemeralMessage 라 기록 없이 매번 전체를 받는다.
+  const anti = (extra) => JSON.parse(run(SNAPSHOT_SCRIPT, f.root, { input: payload(extra), env: { STATE_LEDGER_HOST: 'antigravity' } }).stdout).hookSpecificOutput.additionalContext
+  assert.ok(f.isFull(anti({ session_id: 'anti-s' })) && f.isFull(anti({ session_id: 'anti-s' })))
+})
+
+test('SHORT: dispatcher turn-start gives full, short, then full again after a detail step edit', (t) => {
+  const fixture = worktreeFixture(t)
+  const ctx = () => JSON.parse(dispatch('turn-start', fixture)).hookSpecificOutput.additionalContext
+  const first = ctx()
+  assert.ok(first.includes(INSTRUCTION) && first.includes(FULL_FIELDS.goal))
+  const second = ctx()
+  assert.ok(!second.includes(INSTRUCTION) && second.includes('변경 없음') && second.includes(`- 목표: ${FULL_FIELDS.goal}`))
+  assert.ok(bytesOf(second) <= MAX_SHORT_BYTES)
+  write(fixture.worktree, 'docs/state/root/notes.md', detail('notes', { branch: 'feat/x', status: '워크트리 상태', fields: { ...FULL_FIELDS, step: '4단계 시작' } }))
+  const third = ctx()
+  assert.ok(third.includes(INSTRUCTION) && third.includes('- 지금 단계: 4단계 시작'))
+})
+
+// ---------- 0.10.3 리뷰 보강 ----------
+
+const readRecord = (f) => JSON.parse(readFileSync(f.file, 'utf8'))
+const writeRecord = (f, patch) => writeFileSync(f.file, `${JSON.stringify({ ...readRecord(f), ...patch })}\n`)
+
+test('M2: a SHORT-path record write failure with a valid record still prints full (temp create fails)', (t) => {
+  const f = focusFixture(t)
+  f.turn()
+  assert.ok(f.isShort(f.turn()), 'the record is valid, so the next turn would be short')
+  writeFileSync(f.tempFile, 'occupied') // `wx` 가 EEXIST 로 실패한다
+  const blocked = f.turn()
+  assert.ok(f.isFull(blocked), blocked)
+  assert.equal(readRecord(f).sinceFull, 1, 'a failed write leaves the record as it was')
+  assert.ok(f.isShort(f.turn()), 'once the write works again the interval continues')
+})
+
+test('M2: a root change with identical text goes full (only record.root differs)', (t) => {
+  const f = focusFixture(t)
+  f.turn()
+  assert.ok(f.isShort(f.turn()))
+  writeRecord(f, { root: `${f.root}-other-clone` })
+  assert.ok(f.isFull(f.turn()))
+  assert.equal(readRecord(f).root, f.root)
+  assert.ok(f.isShort(f.turn()))
+})
+
+test('M2: a branch change with an identical hash goes full (only record.branch differs)', (t) => {
+  const f = focusFixture(t)
+  f.turn()
+  assert.ok(f.isShort(f.turn()))
+  writeRecord(f, { branch: 'feat/z' })
+  assert.ok(f.isFull(f.turn()))
+  assert.equal(readRecord(f).branch, 'feat/x')
+  assert.ok(f.isShort(f.turn()))
+})
+
+test('M1: the default interval follows the host (claude 10, others 3) and .staterc overrides it', (t) => {
+  const f = focusFixture(t)
+  const withHost = (host, check) => {
+    const previous = process.env.STATE_LEDGER_HOST
+    if (host === undefined) delete process.env.STATE_LEDGER_HOST
+    else process.env.STATE_LEDGER_HOST = host
+    try { check() } finally { process.env.STATE_LEDGER_HOST = previous }
+  }
+  withHost('claude', () => assert.equal(focusFullEvery(f.root), 10))
+  for (const host of ['codex', 'muse', 'opencode', '', undefined]) withHost(host, () => assert.equal(focusFullEvery(f.root), 3, String(host)))
+  withHost('codex', () => {
+    assert.equal(f.turn().split('\n')[0].includes('3턴마다'), true)
+    assert.equal(f.turn().split('\n')[0].includes('3턴마다'), true)
+  })
+  write(f.root, '.staterc', `${FM_STATERC}STATE_FOCUS_FULL_EVERY="7"\n`)
+  withHost('codex', () => assert.equal(focusFullEvery(f.root), 7))
+  withHost('claude', () => assert.equal(focusFullEvery(f.root), 7))
+  write(f.root, '.staterc', `${FM_STATERC}STATE_FOCUS_FULL_EVERY="0"\n`)
+  withHost('codex', () => assert.equal(focusFullEvery(f.root), 3))
+  withHost('claude', () => assert.equal(focusFullEvery(f.root), 10))
+})
+
+// 호스트를 지정(host)하거나 비워(undefined) dispatcher 가 정하게 한다. pluginRoot 가 있으면 PLUGIN_ROOT(Codex 표지)를 준다.
+function dispatchWithHost(t, mode, { primary, worktree }, { host, pluginRoot, sid = 'host-session' } = {}) {
+  const dataDir = `${primary}-hook-data-host`
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }))
+  const env = { ...process.env, CLAUDE_PROJECT_DIR: primary, STATE_HOOK_DATA_DIR: dataDir }
+  delete env.HOOK_PROJECT_DIR
+  delete env.STATE_LEDGER_HOST
+  delete env.PLUGIN_ROOT
+  if (host !== undefined) env.STATE_LEDGER_HOST = host
+  if (pluginRoot) env.PLUGIN_ROOT = pluginRoot
+  const result = spawnSync('bash', [GLOBAL_SCRIPT, mode], { cwd: worktree, encoding: 'utf8', env, input: JSON.stringify({ session_id: sid, cwd: worktree, prompt: 'x' }) })
+  assert.equal(result.status, 0, result.stderr)
+  return result.stdout.trim()
+}
+
+function turnKinds(t, fixture, options, count) {
+  const contexts = Array.from({ length: count }, () => JSON.parse(dispatchWithHost(t, 'turn-start', fixture, options)).hookSpecificOutput.additionalContext)
+  return { kinds: contexts.map((text) => (text.includes(INSTRUCTION) ? 'F' : 'S')).join(''), header: contexts[0].split('\n')[0] }
+}
+
+test('M1: the dispatcher passes the host to the hook script (explicit codex host gets the 3-turn default)', (t) => {
+  const fixture = worktreeFixture(t)
+  const { kinds, header } = turnKinds(t, fixture, { host: 'codex' }, 4)
+  assert.equal(kinds, 'FSSF')
+  assert.match(header, /3턴마다/)
+})
+
+test('M1: with STATE_LEDGER_HOST unset the dispatcher derives the host — PLUGIN_ROOT means codex (3 turns), otherwise claude (10 turns)', (t) => {
+  const codex = turnKinds(t, worktreeFixture(t), { pluginRoot: '/opt/plugin-root' }, 4)
+  assert.equal(codex.kinds, 'FSSF')
+  assert.match(codex.header, /3턴마다/)
+  const claude = turnKinds(t, worktreeFixture(t), {}, 4)
+  assert.equal(claude.kinds, 'FSSS')
+  assert.match(claude.header, /10턴마다/)
+})
+
+test('L6: the session id falls back to STATE_HOOK_SESSION_ID like the baseline and cleanup engines', (t) => {
+  const f = focusFixture(t)
+  process.env.STATE_HOOK_SESSION_ID = 'env-session'
+  assert.ok(f.isFull(f.turn('')))
+  assert.ok(f.isShort(f.turn('')))
+  assert.ok(f.isShort(f.turn('{}')))
+  // payload 의 id 가 우선한다.
+  assert.ok(f.isFull(f.turn(JSON.stringify({ session_id: 'payload-session' }))))
+  assert.equal(readdirSync(f.dataDir).filter((name) => name.startsWith('focus-')).length, 2)
+})
+
+test('L7: the temp file ends in .json (covered by the 7-day cleanup) and the baseline readers skip it', (t) => {
+  const f = focusFixture(t)
+  f.turn()
+  // 임시 파일이 남은 상태를 흉내 내어 기준점 읽기가 건너뛰는지 본다.
+  writeFileSync(f.tempFile, '{"v":1,"root":"x"')
+  assert.match(f.tempFile, /\.tmp\.json$/)
+  const turn = run(SNAPSHOT_SCRIPT, f.root, { input: payload() })
+  assert.equal(turn.status, 0, turn.out)
+  assert.doesNotMatch(turn.out, /systemMessage/)
+})
+
+test('L4: forget removes the record and never fails; session-start with a settings error forgets the record', (t) => {
+  const f = focusFixture(t)
+  f.start()
+  assert.ok(existsSync(f.file))
+  forgetFocus(JSON.stringify({ session_id: 'someone-else' }))
+  forgetFocus('not json')
+  assert.ok(existsSync(f.file))
+  forgetFocus(JSON.stringify({ session_id: 'focus-session' }))
+  assert.ok(!existsSync(f.file))
+  const cli = spawnSync('node', [FOCUS_SCRIPT, 'forget'], { cwd: f.root, encoding: 'utf8', input: '', env: { ...process.env, HOOK_PROJECT_DIR: f.root } })
+  assert.equal(cli.status, 0)
+
+  // 정상 SessionStart 는 기록을 남기고 다음 턴이 요약이 된다.
+  sessionContext(f.root, { source: 'startup' })
+  assert.ok(existsSync(f.file))
+  assert.equal(readRecord(f).sinceFull, 0)
+  assert.ok(f.isShort(f.turn()))
+  // 설정 오류로 알림을 건너뛰면 기록을 지운다 → 다음 턴은 전체.
+  write(f.root, '.staterc', 'STATE_INDEXES="/etc/STATE.md"\n')
+  run(SESSION_SCRIPT, f.root, { input: payload({ source: 'compact' }) })
+  assert.ok(!existsSync(f.file))
+})
+
+test('SHORT: a handoff that does not fit is replaced by the fixed pointer, never printed clipped', (t) => {
+  const root = repo(t)
+  const longHandoff = `docs/plans/${'a'.repeat(100)}.md#구현-순서`
+  const exact = `docs/plans/${'b'.repeat(69)}` // 정확히 80B
+  assert.equal(bytesOf(exact), 80)
+  write(root, 'docs/state/root/longho.md', detail('longho', { fields: { ...FULL_FIELDS, handoff: longHandoff } }))
+  write(root, 'docs/state/root/exactho.md', detail('exactho', { touched: '2026-10-01T00:00', fields: { ...FULL_FIELDS, handoff: exact } }))
+  commit(root, 'seed')
+  const text = buildShortReminder(root, 'feat/x', ownedItems(root, 'feat/x'))
+  assert.ok(text.includes('- 절차: detail frontmatter handoff 참고'))
+  assert.ok(text.includes(`- 절차: ${exact}`), 'a path that fits is printed whole')
+  assert.ok(!text.includes('aaaaa'), 'no clipped path')
+  assert.doesNotMatch(text, /- 절차: docs\/plans\/a/)
+  assert.ok(bytesOf(text) <= MAX_SHORT_BYTES)
+})
+
+// ---------- SessionStart 가 전체 알림이 닿지 못했을 때 기록을 지우는 경로 ----------
+
+// node 대역: 경고 요약 호출만 가짜 JSON 을 내고 나머지는 진짜 node 로 넘긴다 (초기화 경고가 앞에서 커지는 상황을 만든다).
+function nodeShim(t, initialization) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'state-focus-shim-')))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const json = join(dir, 'summary.json')
+  writeFileSync(json, JSON.stringify({ initialization, summary: '=== STATE 정합·예산 (warn-only) ===' }))
+  writeFileSync(join(dir, 'node'), `#!/bin/bash
+case "$1" in
+  *session-start-warning-summary.mjs) cat ${JSON.stringify(json)}; exit 0 ;;
+esac
+exec ${JSON.stringify(process.execPath)} "$@"
+`)
+  chmodSync(join(dir, 'node'), 0o755)
+  return dir
+}
+
+function sessionStartWith(f, env = {}) {
+  const result = run(SESSION_SCRIPT, f.root, { input: payload({ source: 'startup' }), env })
+  assert.equal(result.status, 0, result.out)
+  return JSON.parse(result.stdout).hookSpecificOutput.additionalContext
+}
+
+test('L4: SessionStart keeps the record when the focus block ends inside 5000B and forgets it when the block is pushed past 5000B', (t) => {
+  const f = focusFixture(t)
+  // 대조군: 초기화 경고가 작으면 알림 끝이 5000B 안 — 기록이 남는다.
+  const small = sessionStartWith(f, { PATH: `${nodeShim(t, '=== STATE 검사 초기화 경고 ===\n- 작은 경고')}:${process.env.PATH}` })
+  const smallEnd = bytesOf(small.slice(0, small.indexOf('\n\n=== STATE 정합·예산')))
+  assert.ok(smallEnd <= 5000, `${smallEnd}B`)
+  assert.ok(existsSync(f.file), 'record kept when the reminder fits')
+  assert.equal(readRecord(f).sinceFull, 0)
+
+  // 초기화 경고가 4000B 를 먹으면 알림 끝이 5000B 를 넘는다 — 기록을 지운다.
+  const big = sessionStartWith(f, { PATH: `${nodeShim(t, `=== STATE 검사 초기화 경고 ===\n${'초'.repeat(1400)}`)}:${process.env.PATH}` })
+  const focusAt = big.indexOf('=== STATE 현재 작업')
+  assert.ok(focusAt >= 0 && bytesOf(big.slice(0, focusAt)) > 4000)
+  assert.ok(bytesOf(big.slice(0, big.indexOf('\n\n=== STATE 정합·예산'))) > 5000)
+  assert.ok(!existsSync(f.file), 'record forgotten when the reminder is pushed past the 5000B limit')
+  assert.ok(f.isFull(f.turn()), 'so the next turn is full')
+})
+
+test('L4: SessionStart forgets the record when the focus step itself fails', (t) => {
+  const f = focusFixture(t)
+  sessionContext(f.root, { source: 'startup' })
+  assert.ok(existsSync(f.file))
+  const detailPath = join(f.root, 'docs/state/root/notes.md')
+  chmodSync(detailPath, 0o000) // 읽을 수 없는 detail → 알림 엔진이 던진다
+  t.after(() => { try { chmodSync(detailPath, 0o644) } catch { /* root 폴더가 먼저 지워졌을 수 있다 */ } })
+  const context = sessionContext(f.root, { source: 'startup' })
+  assert.match(context, /STATE 현재 작업 알림 실패/, 'the failure is shown in place of the reminder')
+  assert.ok(!existsSync(f.file), 'record forgotten after a failed focus step')
 })

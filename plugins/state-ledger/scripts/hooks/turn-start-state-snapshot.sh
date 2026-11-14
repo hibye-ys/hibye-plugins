@@ -34,7 +34,11 @@ else
 
   # 현재 작업 알림 — 실패해도 기준점 저장 결과와 섞지 않고 경고만 덧붙인다.
   focus_err_file=$(mktemp "${TMPDIR:-/tmp}/state-ledger-focus.XXXXXX" 2>/dev/null) || focus_err_file=""
-  if ! focus_reminder=$(HOOK_PROJECT_DIR="$root" node "$script_dir/state-focus.mjs" reminder 2>"${focus_err_file:-/dev/null}"); then
+  # 바뀌지 않은 턴에는 목표·단계 요약만 싣는다(--turn, 세션 기록은 state-focus.mjs). Antigravity 의 ephemeralMessage 는 대화에 남지 않으므로
+  # 그 호스트는 기록 없이 매번 전체를 받는다(antigravity-pre-invocation.mjs 가 session-start 텍스트와 중복 비교도 한다).
+  focus_mode="--turn"
+  [ "${STATE_LEDGER_HOST:-}" = "antigravity" ] && focus_mode=""
+  if ! focus_reminder=$(printf '%s' "$input" | HOOK_PROJECT_DIR="$root" node "$script_dir/state-focus.mjs" reminder $focus_mode 2>"${focus_err_file:-/dev/null}"); then
     focus_err=""
     [ -n "$focus_err_file" ] && focus_err=$(cat "$focus_err_file" 2>/dev/null)
     error="${error}${error:+

@@ -182,7 +182,7 @@ if command -v node >/dev/null 2>&1 && \
   exit 0
 fi
 
-printf '%s' "$input" | HOOK_PROJECT_DIR="$root" bash "$script_dir/$hook_script"
+printf '%s' "$input" | HOOK_PROJECT_DIR="$root" STATE_LEDGER_HOST="$host" bash "$script_dir/$hook_script"
 status=$?
 # frontmatter 원천이면 detail 편집·턴 종료 뒤 로컬 생성 인덱스(git 미추적)를 갱신한다. 출력·실패는 훅 결과에 섞지 않는다.
 render=0
