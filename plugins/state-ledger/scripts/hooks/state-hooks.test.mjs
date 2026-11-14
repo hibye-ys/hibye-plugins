@@ -2299,6 +2299,160 @@ test('the pin directory defaults to a per-user path under TMPDIR, like the Node 
   assert.ok(readdirSync(join(tmp, created[0])).some((name) => /^root-[0-9a-f]+\.json$/.test(name)))
 })
 
+// ── Muse 어댑터: 네 어댑터 모두 dispatcher 의 pin 규칙을 똑같이 따른다 ──────────────────────────────
+// 어댑터는 HOOK_PROJECT_DIR·CLAUDE_PROJECT_DIR 를 지운다 (Claude 세션에서 띄운 Muse 워커가 부모의 anchor 를 물려받지 않도록).
+const MUSE_HOOKS = {
+  sessionStart: fileURLToPath(new URL('../../hooks/muse-session-start.sh', import.meta.url)),
+  turnStart: fileURLToPath(new URL('../../hooks/muse-turn-start.sh', import.meta.url)),
+  postToolUse: fileURLToPath(new URL('../../hooks/muse-post-tool-use.sh', import.meta.url)),
+  stop: fileURLToPath(new URL('../../hooks/muse-stop.sh', import.meta.url)),
+}
+
+// manifest 처럼 `sh <script>` 로 실행. HOOK_PROJECT_DIR·CLAUDE_PROJECT_DIR 은 기본으로 비우고(env 로만 다시 줄 수 있다) 프로세스 cwd 는 호출자가 고른다.
+function runMuse(script, fixture, { cwd, payload, env = {} }) {
+  const childEnv = { ...process.env, STATE_HOOK_DATA_DIR: fixture.dataDir, PWD: cwd }
+  delete childEnv.HOOK_PROJECT_DIR
+  delete childEnv.CLAUDE_PROJECT_DIR
+  delete childEnv.STATE_LEDGER_ROOT
+  const merged = { ...childEnv, ...env }
+  for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key]
+  const result = spawnSync('sh', [script], { cwd, encoding: 'utf8', env: merged, input: JSON.stringify(payload) })
+  assert.equal(result.status, 0, result.stderr)
+  return result.stdout.trim()
+}
+
+const museSessionStart = (fixture, options) => {
+  const output = runMuse(MUSE_HOOKS.sessionStart, fixture, options)
+  return output === '' ? '' : JSON.parse(output).hookSpecificOutput.additionalContext
+}
+
+// Muse 형태 PostToolUse(sessionId·filePath)로 detail 을 고쳐 스탬프한다. 편집 전 내용과 후 내용을 돌려준다.
+function museEditAndStamp(fixture, { detailPath, cwd, sessionId }) {
+  const before = `${readFileSync(detailPath, 'utf8')}- 새 본문 한 줄\n`
+  writeFileSync(detailPath, before)
+  runMuse(MUSE_HOOKS.postToolUse, fixture, { cwd, payload: { sessionId, filePath: detailPath } })
+  return { before, after: readFileSync(detailPath, 'utf8') }
+}
+
+test('Muse SessionStart in a linked worktree pins that worktree and injects its branch STATE', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'muse-wt-start'
+  assertWorktreeStatus(museSessionStart(fixture, { cwd: fixture.worktree, payload: { sessionId, source: 'startup' } }))
+  assert.deepEqual(pinFiles(fixture), [pinName(sessionId)])
+  assert.equal(JSON.parse(readFileSync(join(fixture.dataDir, pinName(sessionId)), 'utf8')).root, realpathSync(fixture.worktree))
+})
+
+test('Muse PostToolUse stamps through the session pin when its cwd is outside any git repository', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'muse-stamp-pin'
+  const away = plainDirectory(fixture)
+  museSessionStart(fixture, { cwd: fixture.worktree, payload: { sessionId } })
+  const detailPath = join(fixture.worktree, 'docs/state/root/wtitem.md')
+  const primaryDetail = join(fixture.primary, 'docs/state/root/wtitem.md')
+  const primaryBefore = readFileSync(primaryDetail, 'utf8')
+  const { before, after } = museEditAndStamp(fixture, { detailPath, cwd: away, sessionId })
+  assert.notEqual(after, before, 'stamp rewrote the worktree detail although the hook cwd is outside any repository')
+  const body = after.slice(after.indexOf('\n---\n') + 5)
+  assert.match(after, new RegExp(`^hash: ${createHash('sha256').update(body).digest('hex').slice(0, 8)}$`, 'm'))
+  assert.doesNotMatch(after, /^touched: 2026-11-01T00:00$/m)
+  assert.equal(readFileSync(primaryDetail, 'utf8'), primaryBefore)
+})
+
+test('Muse PostToolUse without a session pin and outside any repository stamps nothing', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const detailPath = join(fixture.worktree, 'docs/state/root/wtitem.md')
+  const { before, after } = museEditAndStamp(fixture, { detailPath, cwd: plainDirectory(fixture), sessionId: 'muse-no-pin' })
+  assert.equal(after, before)
+  assert.deepEqual(pinFiles(fixture), [])
+})
+
+test('Muse respects the pin directory checks: a symlinked STATE_HOOK_DATA_DIR gets no pin and its pins are not used', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const away = plainDirectory(fixture)
+  const realDirectory = `${fixture.dataDir}-real`
+  t.after(() => rmSync(realDirectory, { recursive: true, force: true }))
+  const sessionId = 'muse-linked'
+  seedPin(realDirectory, sessionId, fixture.worktree)
+  symlinkSync(realDirectory, fixture.dataDir)
+  const before = readdirSync(realDirectory).sort()
+  // SessionStart: 주입은 계속되고(cwd 의 worktree) 심링크 너머에는 아무것도 쓰지 않는다.
+  assertWorktreeStatus(museSessionStart(fixture, { cwd: fixture.worktree, payload: { sessionId: 'muse-linked-new' } }))
+  // PostToolUse: 심링크 너머의 pin(worktree)을 읽지 않으므로 저장소 밖 cwd 에서는 스탬프가 없다.
+  const detailPath = join(fixture.worktree, 'docs/state/root/wtitem.md')
+  const edit = museEditAndStamp(fixture, { detailPath, cwd: away, sessionId })
+  assert.equal(edit.after, edit.before, 'the pin behind the symlink was not used')
+  assert.deepEqual(readdirSync(realDirectory).sort(), before)
+})
+
+test('Muse PostToolUse reads a valid pin seeded in a real pin directory (control for the symlink case)', (t) => {
+  const fixture = worktreeFixture(t, 'frontmatter')
+  const sessionId = 'muse-control'
+  seedPin(fixture.dataDir, sessionId, fixture.worktree)
+  const detailPath = join(fixture.worktree, 'docs/state/root/wtitem.md')
+  const edit = museEditAndStamp(fixture, { detailPath, cwd: plainDirectory(fixture), sessionId })
+  assert.notEqual(edit.after, edit.before)
+})
+
+// Claude 세션의 Bash 도구로 띄운 Muse 워커가 물려받을 수 있는 환경. 둘 다 비-Muse 호스트라면 pin 을 무효로 하거나 끄는 값이다.
+//  - 무관한 저장소: CLAUDE_PROJECT_DIR 이 anchor 가 되어 worktree pin 이 "다른 저장소"로 버려진다.
+//  - 저장소가 아닌 폴더: dispatcher 가 pin 자체를 끈다.
+//  - HOOK_PROJECT_DIR: dispatcher 가 pin 로직 없이 그 값을 그대로 root 로 쓴다.
+function museInheritedEnvs(fixture) {
+  const other = otherRepository(fixture, { ledger: true })
+  const nogit = plainDirectory(fixture)
+  return {
+    away: nogit, // 저장소가 아닌 hook cwd
+    envs: {
+      'CLAUDE_PROJECT_DIR in an unrelated repository': { CLAUDE_PROJECT_DIR: other },
+      'CLAUDE_PROJECT_DIR outside any repository': { CLAUDE_PROJECT_DIR: nogit },
+      'HOOK_PROJECT_DIR in an unrelated repository': { HOOK_PROJECT_DIR: other },
+      'HOOK_PROJECT_DIR in the primary checkout': { HOOK_PROJECT_DIR: fixture.primary },
+    },
+  }
+}
+
+for (const label of ['CLAUDE_PROJECT_DIR in an unrelated repository', 'CLAUDE_PROJECT_DIR outside any repository', 'HOOK_PROJECT_DIR in an unrelated repository', 'HOOK_PROJECT_DIR in the primary checkout']) {
+
+  test(`Muse SessionStart ignores an inherited ${label}`, (t) => {
+    const fixture = worktreeFixture(t, 'frontmatter')
+    const sessionId = 'muse-inherit-start'
+    const { envs } = museInheritedEnvs(fixture)
+    const context = museSessionStart(fixture, { cwd: fixture.worktree, payload: { sessionId }, env: envs[label] })
+    assertWorktreeStatus(context)
+    assert.equal(JSON.parse(readFileSync(join(fixture.dataDir, pinName(sessionId)), 'utf8')).root, realpathSync(fixture.worktree))
+  })
+
+  test(`Muse PostToolUse stamps through the session pin despite an inherited ${label}`, (t) => {
+    const fixture = worktreeFixture(t, 'frontmatter')
+    const sessionId = 'muse-inherit-stamp'
+    const { away, envs } = museInheritedEnvs(fixture)
+    museSessionStart(fixture, { cwd: fixture.worktree, payload: { sessionId } })
+    const detailPath = join(fixture.worktree, 'docs/state/root/wtitem.md')
+    const before = `${readFileSync(detailPath, 'utf8')}- 새 본문 한 줄\n`
+    writeFileSync(detailPath, before)
+    runMuse(MUSE_HOOKS.postToolUse, fixture, { cwd: away, payload: { sessionId, filePath: detailPath }, env: envs[label] })
+    assert.notEqual(readFileSync(detailPath, 'utf8'), before, 'the inherited variable decided the root instead of the session pin')
+  })
+
+  test(`Muse TurnStart and Stop use the session pin despite an inherited ${label}`, (t) => {
+    const fixture = worktreeFixture(t, 'frontmatter')
+    const sessionId = 'muse-inherit-turn'
+    const { away, envs } = museInheritedEnvs(fixture)
+    const env = envs[label]
+    museSessionStart(fixture, { cwd: fixture.worktree, payload: { sessionId } })
+    const pin = join(fixture.dataDir, pinName(sessionId))
+    const pinBefore = readFileSync(pin, 'utf8')
+    // turn-start 가 worktree 에 기준점을 저장해야 한다 (환경을 믿으면 다른 저장소에 저장하거나 아무 데도 저장하지 못한다).
+    runMuse(MUSE_HOOKS.turnStart, fixture, { cwd: away, payload: { sessionId }, env })
+    write(fixture.worktree, 'src/muse.ts', 'export const muse = true\n')
+    commit(fixture.worktree, ['src/muse.ts'], 'muse worktree work without a tag')
+    // Stop 도 같은 pin 으로 worktree 를 판정해야 한다.
+    const stopped = runMuse(MUSE_HOOKS.stop, fixture, { cwd: away, payload: { sessionId }, env })
+    assert.match(stopped, /muse worktree work without a tag/)
+    assert.equal(readFileSync(pin, 'utf8'), pinBefore, 'neither turn-start nor Stop moves the pin')
+  })
+}
+
 // ── 0.10.1 M9: frontmatter 만 고친 편집도 touched 를 갱신한다 ────────────────────────────────────
 test('stamp: a frontmatter-only edit refreshes touched and keeps hash; a no-op edit leaves the file untouched', (t) => {
   const fixture = worktreeFixture(t, 'frontmatter')

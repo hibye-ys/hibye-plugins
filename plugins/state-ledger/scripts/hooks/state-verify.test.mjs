@@ -5,18 +5,20 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
   CODEX_HARDENING,
   CONCURRENT_LINE,
+  DEFER_LINE,
   DELIVERED_LINE,
   OLD_VERDICT_LINE,
   PROMPT_MAX_BYTES,
   QUOTE_LABEL,
   SAME_TURN_LINE,
   STALE_VERDICT_LINE,
+  absolutePath,
   buildPrompt,
   buildRunnerCommand,
   claudeCommand,
@@ -35,6 +37,7 @@ import {
 } from './state-verify.mjs'
 
 const VERIFY = fileURLToPath(new URL('./state-verify.mjs', import.meta.url))
+const STOP_SCRIPT = fileURLToPath(new URL('./stop-state-reminder.sh', import.meta.url))
 const GLOBAL_SCRIPT = fileURLToPath(new URL('./global-state-hook.sh', import.meta.url))
 const BASELINE = fileURLToPath(new URL('./state-turn-baseline.mjs', import.meta.url))
 const FM_STATERC = 'STATE_INDEXES="STATE.md"\nSTATE_DEFAULT_BRANCH="main"\nSTATE_INDEX_SOURCE="frontmatter"\n'
@@ -173,6 +176,8 @@ function setup(t, { staterc = 'STATE_VERIFY="1"\n', allow = { every: 0 }, branch
     STATE_VERIFY_COMMAND: stub,
     STATE_VERIFY_TEST_STUB_DIR: stubDir,
     STATE_LEDGER_HOST: '',
+    // 일반 테스트가 Stop 의 실행 시간에 기대지 않게 시간 가드 예산을 넉넉히 둔다. 예산 테스트가 덮어쓴다.
+    STATE_VERIFY_STOP_BUDGET_S: '600',
     ...env,
   }
   delete hookEnv.STATE_LEDGER_VERIFY_CHILD
@@ -897,6 +902,175 @@ test('dispatcher Stop with only a verify report prints just that systemMessage',
   const out = JSON.parse(ctx.dispatch('stop', { hook_event_name: 'Stop', stop_hook_active: false }))
   assert.deepEqual(Object.keys(out), ['systemMessage'])
   assert.match(out.systemMessage, /unclear\/other/)
+})
+
+// Stop 시간 가드: 엔진(상태 저장)을 건너뛴 Stop 은 엔진 상태를 바꾸지 않아 판정이 사라지지 않는다.
+// 디스패처로 한 턴: 기준점을 만들고 step 변경 뒤 Stop 으로 검사를 시작해 판정 파일까지 기다린다. (일반 평가의 기준점이 있어야 두 번째 Stop 에 기준점 경고가 끼지 않는다.)
+async function launchViaDispatcher(ctx) {
+  ctx.dispatch('turn-start', { prompt: 'turn one' })
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.dispatch('stop', { hook_event_name: 'Stop', stop_hook_active: false }), '')
+  await ctx.waitCalls(1)
+  await ctx.waitResult()
+}
+
+// 시간이 모자란 Stop(--defer-verdict): Stop 은 평소대로 끝까지 돌되 판정만 소비하지 않는다.
+const STOP_PAYLOAD = { hook_event_name: 'Stop', stop_hook_active: false }
+const BUDGET_ZERO = { STATE_VERIFY_STOP_BUDGET_S: '0' }
+
+test('Stop budget 0 with a ready blocking verdict: no block, only the deferral line, the verdict is not consumed, and the next turn start delivers it', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  await launchViaDispatcher(ctx)
+  const out = JSON.parse(ctx.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO))
+  assert.deepEqual(Object.keys(out), ['systemMessage'])
+  assert.equal(out.systemMessage, DEFER_LINE)
+  const state = ctx.state()
+  assert.equal(state.verdicts.length, 1, 'the finished check is still collected')
+  const [verdict] = state.verdicts
+  assert.ok(!verdict.delivered && !verdict.blocked && !verdict.stopHandled, 'the verdict is neither delivered, blocked nor handled')
+  assert.equal(state.blockedTurn, null)
+  assert.equal(state.stopTurn, state.userTurn, 'the Stop ran in full, so the next turn start knows it')
+
+  const turn = JSON.parse(ctx.dispatch('turn-start', { prompt: 'next' }))
+  assert.match(turn.hookSpecificOutput.additionalContext, /판정: drift\/step_unmet — /)
+  assert.equal(ctx.state().verdicts.at(-1).delivered, true)
+})
+
+test('Stop budget 0 says nothing when there is no verdict to act on (none yet, on_track, base branch, not allowed)', async (t) => {
+  const none = setup(t)
+  none.dispatch('turn-start', { prompt: 'x' })
+  assert.equal(none.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO), '')
+
+  const onTrack = setup(t)
+  onTrack.stub.output(ON_TRACK)
+  await launchViaDispatcher(onTrack)
+  assert.equal(onTrack.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO), '')
+
+  const onMain = setup(t, { branch: 'main', itemBranch: 'main' })
+  onMain.dispatch('turn-start', { prompt: 'x' })
+  assert.equal(onMain.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO), '')
+
+  const denied = setup(t, { allow: null })
+  denied.dispatch('turn-start', { prompt: 'x' })
+  assert.doesNotMatch(denied.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO), /시간이 모자라/)
+
+  const off = setup(t, { staterc: '' })
+  off.dispatch('turn-start', { prompt: 'x' })
+  assert.equal(off.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO), '')
+})
+
+test('Stop budget 0 still launches a check for a pending trigger (a slow repo never starves the verifier)', async (t) => {
+  const ctx = setup(t)
+  ctx.dispatch('turn-start', { prompt: 'x' })
+  ctx.setFields(FIELDS_B)
+  assert.equal(ctx.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO), '')
+  const [call] = await ctx.waitCalls(1)
+  assert.ok(call.prompt)
+  await ctx.waitResult()
+  assert.equal(ctx.state().pendingTriggers.length, 0)
+  assert.equal(ctx.state().stopTurn, ctx.state().userTurn)
+})
+
+test('Stop budget 0 with an undelivered verdict AND a pending trigger: deferral line, no launch, the trigger stays queued; after the turn-start delivery the next budget-0 Stop launches it', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  await launchViaDispatcher(ctx)
+  ctx.setFields(FIELDS_C) // 새 단계 변경 = 새 계기
+  assert.deepEqual(JSON.parse(ctx.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO)), { systemMessage: DEFER_LINE })
+  await sleep(300)
+  assert.equal(ctx.stub.calls().length, 1, 'no second check while the first verdict is undelivered')
+  const queued = ctx.state()
+  assert.equal(queued.running, null)
+  assert.equal(queued.pendingTriggers.length, 1)
+  assert.equal(queued.pendingTriggers[0].type, 'step')
+  assert.ok(!queued.verdicts[0].delivered && !queued.verdicts[0].blocked)
+
+  const turn = JSON.parse(ctx.dispatch('turn-start', { prompt: 'next' }))
+  assert.match(turn.hookSpecificOutput.additionalContext, /판정: drift\/step_unmet — /, 'the first verdict is shown, not overwritten')
+  const out = JSON.parse(ctx.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO))
+  assert.equal(out.decision, undefined)
+  assert.ok(!out.systemMessage.includes(DEFER_LINE), out.systemMessage)
+  assert.ok(out.systemMessage.includes(DELIVERED_LINE), out.systemMessage)
+  const calls = await ctx.waitCalls(2)
+  assert.match(calls[1].prompt, /5단계 배포/)
+  assert.equal(ctx.state().pendingTriggers.length, 0)
+})
+
+test('Stop budget 0 with an already delivered verdict prints the normal report (not the deferral line) once, never blocks, and does not repeat it', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  await launchViaDispatcher(ctx)
+  ctx.dispatch('turn-start', { prompt: 'next' }) // 판정을 전달한다
+  const first = JSON.parse(ctx.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO))
+  assert.equal(first.decision, undefined)
+  assert.ok(first.systemMessage.includes(DELIVERED_LINE), first.systemMessage)
+  assert.ok(!first.systemMessage.includes(DEFER_LINE))
+  assert.equal(ctx.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO), '', 'the report is consumed')
+})
+
+test('Stop budget 0 keeps the general reminders and appends the deferral line after them', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  await launchViaDispatcher(ctx)
+  write(ctx.root, 'src/untagged.js', 'x\n')
+  commit(ctx.root, 'untagged work')
+  const out = JSON.parse(ctx.dispatch('stop', STOP_PAYLOAD, BUDGET_ZERO))
+  assert.equal(out.decision, undefined)
+  assert.match(out.systemMessage, /STATE reminder: 이번 턴 커밋 중 STATE id 태그가 없는 커밋 — [0-9a-f]{7} untagged work/)
+  assert.ok(out.systemMessage.endsWith(DEFER_LINE), out.systemMessage)
+})
+
+test('Stop budget 0 with stop_hook_active: no block; the same turn can still block at a real Stop, and after a turn-start delivery the next Stop only reports', async (t) => {
+  const ctx = setup(t)
+  ctx.stub.output(DRIFT_STEP)
+  await launchViaDispatcher(ctx)
+  // 재진입 Stop 은 어차피 판정을 막지 않으므로(다음 Stop 으로 미룬다) 엔진은 할 말이 없다 — 안내 줄도 없다.
+  assert.equal(ctx.dispatch('stop', { ...STOP_PAYLOAD, stop_hook_active: true }, BUDGET_ZERO), '')
+  assert.ok(!ctx.state().verdicts[0].delivered && !ctx.state().verdicts[0].blocked)
+
+  const blocked = JSON.parse(ctx.dispatch('stop', STOP_PAYLOAD))
+  assert.equal(blocked.decision, 'block', 'the verdict was not consumed by the deferred Stop')
+
+  const other = setup(t)
+  other.stub.output(DRIFT_STEP)
+  await launchViaDispatcher(other)
+  assert.equal(other.dispatch('stop', { ...STOP_PAYLOAD, stop_hook_active: true }, BUDGET_ZERO), '')
+  other.dispatch('turn-start', { prompt: 'next' })
+  const report = JSON.parse(other.dispatch('stop', STOP_PAYLOAD))
+  assert.equal(report.decision, undefined)
+  assert.ok(report.systemMessage.includes(DELIVERED_LINE), report.systemMessage)
+})
+
+test('Stop budget: a non-integer or out-of-range STATE_VERIFY_STOP_BUDGET_S falls back to 20 s, so the verdict still blocks as usual', async (t) => {
+  for (const value of ['abc', '601', '-1', '1.5', '']) {
+    const ctx = setup(t)
+    ctx.stub.output(DRIFT_STEP)
+    await launchViaDispatcher(ctx)
+    const out = JSON.parse(ctx.dispatch('stop', STOP_PAYLOAD, { STATE_VERIFY_STOP_BUDGET_S: value }))
+    assert.equal(out.decision, 'block', `budget ${JSON.stringify(value)}`)
+  }
+})
+
+test('Stop budget counts from the dispatcher start (STATE_LEDGER_HOOK_T0); an implausible T0 is ignored in favour of $SECONDS', async (t) => {
+  const direct = (ctx, t0) => {
+    const result = spawnSync('bash', [STOP_SCRIPT], { cwd: ctx.root, encoding: 'utf8', input: JSON.stringify({ session_id: SESSION, ...STOP_PAYLOAD }), env: { ...ctx.env, STATE_VERIFY_STOP_BUDGET_S: '20', STATE_LEDGER_HOOK_T0: t0 } })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  const now = Math.floor(Date.now() / 1000)
+  const past = setup(t)
+  past.stub.output(DRIFT_STEP)
+  await launchViaDispatcher(past)
+  const deferred = JSON.parse(direct(past, String(now - 100)))
+  assert.deepEqual(deferred, { systemMessage: DEFER_LINE }, 'T0 100 s ago exceeds the 20 s budget although this script just started')
+
+  for (const bad of [String(now + 1000), 'garbage', String(now - 7200), '99999999999999']) {
+    const ctx = setup(t)
+    ctx.stub.output(DRIFT_STEP)
+    await launchViaDispatcher(ctx)
+    assert.equal(JSON.parse(direct(ctx, bad)).decision, 'block', `T0 ${bad} is ignored`)
+  }
 })
 
 // ---------- 실제 CLI 경로 (가짜 claude/codex 실행 파일) ----------
@@ -1802,7 +1976,7 @@ test('env: the checker gets an allowlisted environment — parent secrets and se
   for (const name of ['CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SESSION_ID', 'DATABASE_URL', 'SSH_AUTH_SOCK', 'GITHUB_TOKEN', 'NPM_TOKEN', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_PROJECT_DIR', 'GIT_DIR', 'OPENAI_API_KEY', 'CODEX_HOME', 'STATE_HOOK_DATA_DIR', 'HOOK_PROJECT_DIR', 'STATE_VERIFY_COMMAND']) {
     assert.equal(call.env[name], undefined, `${name} must not reach the checker`)
   }
-  assert.equal(call.env.PATH, process.env.PATH)
+  assert.equal(call.env.PATH, absolutePath(process.env.PATH), '상대 PATH 항목은 검사 세션에 넘기지 않고, 물결표(~/…)는 HOME 으로 펼쳐 넘긴다')
   assert.equal(call.env.HOME, process.env.HOME)
   assert.equal(call.env.ANTHROPIC_API_KEY, 'k-claude')
   assert.equal(call.env.HTTPS_PROXY, 'http://proxy:3128')
@@ -1830,6 +2004,40 @@ test('env: the checker gets an allowlisted environment — parent secrets and se
   assert.equal(seen.env.CODEX_HOME, '/codex-home')
   assert.equal(seen.env.ANTHROPIC_API_KEY, undefined, 'a codex checker gets no Anthropic credentials')
   assert.equal(seen.env.DATABASE_URL, undefined)
+})
+
+test('PATH: absolutePath keeps absolute entries in order and expands ~ and ~/ to an absolute HOME; runnerEnv drops ".", relative and empty entries', () => {
+  assert.equal(absolutePath('/usr/bin:.:node_modules/.bin::/opt/x/bin:../up:/bin', '/home/u'), '/usr/bin:/opt/x/bin:/bin')
+  assert.equal(absolutePath('~/x:/a:~:~/.local/bin', '/home/u'), '/home/u/x:/a:/home/u:/home/u/.local/bin')
+  assert.equal(absolutePath('~/x:~root/y:~', '/home/u/'), '/home/u/x:/home/u')
+  assert.equal(absolutePath('~/x:/a', 'relative-home'), '/a', 'a relative HOME expands nothing')
+  assert.equal(absolutePath('~/x:/a', null), '/a')
+  const saved = process.env.HOME
+  process.env.HOME = '/home/default'
+  try { assert.equal(absolutePath('~/x'), '/home/default/x') } finally { process.env.HOME = saved }
+  assert.equal(absolutePath('', '/home/u'), '')
+  assert.equal(absolutePath('.:bin', '/home/u'), '')
+  const source = { PATH: '/usr/local/bin:node_modules/.bin:.::~/bin:~bob/bin:/bin:', HOME: '/home/u' }
+  for (const runner of ['claude', 'codex']) assert.equal(runnerEnv({ runner }, source).PATH, '/usr/local/bin:/home/u/bin:/bin')
+  assert.equal(runnerEnv({ runner: 'claude' }, { PATH: '.:rel' }).PATH, '/usr/bin:/bin', 'an all-relative PATH never becomes an empty PATH (which would search the cwd)')
+  assert.equal(runnerEnv({ runner: 'claude' }, {}).PATH, undefined)
+})
+
+test('PATH: claudeCommand ignores a relative PATH directory that holds an executable claude', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'state-verify-relpath-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const planted = join(dir, 'node_modules', '.bin')
+  mkdirSync(planted, { recursive: true })
+  writeFileSync(join(planted, 'claude'), '#!/bin/sh\n')
+  chmodSync(join(planted, 'claude'), 0o755)
+  const exec = join(dir, 'claude-from-app')
+  writeFileSync(exec, '#!/bin/sh\n')
+  chmodSync(exec, 0o755)
+  const rel = relative(process.cwd(), planted)
+  assert.ok(!rel.startsWith('/'), rel)
+  assert.equal(claudeCommand({ PATH: planted, CLAUDE_CODE_EXECPATH: exec }), 'claude', 'sanity: the same directory as an absolute entry is found')
+  assert.equal(claudeCommand({ PATH: `${rel}:.::`, CLAUDE_CODE_EXECPATH: exec }), exec)
+  assert.equal(claudeCommand({ PATH: rel }), 'claude')
 })
 
 test('env: runnerEnv for the real CLI paths — no test prefix passthrough, git variables dropped, runner-specific credentials only', () => {

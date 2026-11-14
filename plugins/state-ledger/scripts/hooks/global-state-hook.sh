@@ -19,6 +19,9 @@ esac
 
 command -v git >/dev/null 2>&1 || exit 0
 
+# Stop 훅의 시간 가드가 디스패처 시작부터의 경과를 재도록 시작 시각(epoch 초)을 넘긴다 (항상 덮어쓴다).
+export STATE_LEDGER_HOOK_T0="$(date +%s)"
+
 input=""
 if [ ! -t 0 ]; then
   input=$(cat 2>/dev/null || true)

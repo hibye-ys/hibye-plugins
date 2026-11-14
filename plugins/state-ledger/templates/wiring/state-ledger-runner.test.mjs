@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -378,4 +378,92 @@ test('a manual ledger keeps running on an installation without the index source 
   write(join(fixture.plugin, 'state-ledger-contract.json'), JSON.stringify({ version: 6, cleanup_version: 1 }))
   const result = invoke(['validate'], { env: fixture.env })
   assert.doesNotMatch(result.stdout, /설치본을 찾지 못해/)
+})
+
+// --- 프로젝트 루트 선택: HOOK_PROJECT_DIR 없이 cwd 의 git toplevel 을 우선한다 ---
+
+function git(cwd, ...args) {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8' })
+  assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`)
+  return r.stdout
+}
+
+function initRepo(dir) {
+  mkdirSync(dir, { recursive: true })
+  git(dir, 'init', '-q')
+  git(dir, 'config', 'user.email', 'test@example.com')
+  git(dir, 'config', 'user.name', 'test')
+  git(dir, 'config', 'core.hooksPath', '/dev/null')
+}
+
+// HOOK_PROJECT_DIR 와 git 환경변수를 지운 채 명시한 cwd·CLAUDE_PROJECT_DIR 로 runner 를 실행한다.
+function invokeFromCwd(args, { cwd, claudeProjectDir, env = {} }) {
+  const childEnv = { ...process.env, ...env, CLAUDE_PROJECT_DIR: claudeProjectDir }
+  for (const key of ['HOOK_PROJECT_DIR', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete childEnv[key]
+  return spawnSync(process.execPath, [RUNNER, ...args], { cwd, encoding: 'utf8', env: childEnv })
+}
+
+// primary(커밋된 .staterc 없음) + linked worktree 를 만든다. .staterc 는 작업 트리에만 둔다.
+function worktreeFixture(t, { primaryOptIn, worktreeOptIn }) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'state-ledger-runner-root-')))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const plugin = join(root, 'plugin')
+  fakePlugin(plugin)
+  write(join(plugin, 'state-ledger-contract.json'), JSON.stringify({ version: 6 }))
+  const primary = join(root, 'primary')
+  initRepo(primary)
+  write(join(primary, 'README.md'), 'x\n')
+  git(primary, 'add', 'README.md')
+  git(primary, 'commit', '-q', '-m', 'init')
+  const worktree = join(root, 'wt')
+  git(primary, 'worktree', 'add', '-q', '-b', 'wt-branch', worktree)
+  const rc = (on) => `STATE_CLEANUP_ENFORCE="${on ? '1' : '0'}"\n`
+  write(join(primary, '.staterc'), rc(primaryOptIn))
+  write(join(worktree, '.staterc'), rc(worktreeOptIn))
+  return {
+    root,
+    primary,
+    worktree,
+    env: {
+      STATE_LEDGER_PLUGIN_ROOT: plugin,
+      CODEX_CLI_PATH: join(root, 'no-codex'),
+      CODEX_HOME: join(root, 'no-codex-home'),
+      CLAUDE_CONFIG_DIR: join(root, 'no-claude'),
+    },
+  }
+}
+
+test('linked worktree opt-in wins over a CLAUDE_PROJECT_DIR pointing at an opted-out primary', (t) => {
+  const f = worktreeFixture(t, { primaryOptIn: false, worktreeOptIn: true })
+  const result = invokeFromCwd(['validate'], { cwd: f.worktree, claudeProjectDir: f.primary, env: f.env })
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+  assert.match(result.stdout, /STATE_CLEANUP_BLOCK/)
+})
+
+test('linked worktree opt-out wins over a CLAUDE_PROJECT_DIR pointing at an opted-in primary', (t) => {
+  const f = worktreeFixture(t, { primaryOptIn: true, worktreeOptIn: false })
+  const result = invokeFromCwd(['validate'], { cwd: f.worktree, claudeProjectDir: f.primary, env: f.env })
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  assert.doesNotMatch(result.stdout, /STATE_CLEANUP_BLOCK/)
+  assert.equal(result.stdout.trim(), 'branch-ok\nwip-ok')
+})
+
+test('a subdirectory cwd uses the git toplevel .staterc', (t) => {
+  const f = worktreeFixture(t, { primaryOptIn: false, worktreeOptIn: true })
+  const sub = join(f.worktree, 'src/deep')
+  mkdirSync(sub, { recursive: true })
+  const result = invokeFromCwd(['validate'], { cwd: sub, claudeProjectDir: f.primary, env: f.env })
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+  assert.match(result.stdout, /STATE_CLEANUP_BLOCK/)
+})
+
+test('HOOK_PROJECT_DIR still wins over the cwd git toplevel', (t) => {
+  const f = worktreeFixture(t, { primaryOptIn: false, worktreeOptIn: true })
+  // cwd 는 opt-in 한 worktree 지만 HOOK_PROJECT_DIR 은 opt-out 한 primary 를 가리킨다.
+  const result = invoke(['validate'], {
+    cwd: f.worktree,
+    env: { ...f.env, HOOK_PROJECT_DIR: f.primary, CLAUDE_PROJECT_DIR: f.worktree },
+  })
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  assert.equal(result.stdout.trim(), 'branch-ok\nwip-ok')
 })

@@ -214,7 +214,7 @@ Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 pri
 - **stamp**: 편집한 파일이 같은 저장소의 다른 worktree 에 있으면 그 checkout 기준으로 스탬프하고 그쪽 로컬 인덱스도 렌더한다. 본문이 같아도 frontmatter(`step`·`next_step`·`status` 등)가 HEAD 와 다르면 `touched` 를 갱신한다(`hash` 는 그대로, 바뀐 게 없으면 다시 쓰지 않는다).
 - **브랜치 이름**: 같은 이름의 태그가 있어도 `refs/heads/` 전체 ref 로 읽어 소유 판정·기본 브랜치 침묵·유령 검사가 깨지지 않는다. `STATE_DEFAULT_BRANCH="origin/main"` 이면 로컬 `main` 도 기본 브랜치로 본다. 유령 검사는 `for-each-ref` 의 `%(ahead-behind:)` 한 번과 묶음 tree 읽기로 바꿔 미등재 브랜치 300개에서 약 12초 → 1초 미만이다(git 2.41 미만은 브랜치별 폴백).
 - **알림 배치**: 지시문은 머리줄 바로 뒤에 온다. handoff 경로와 `#절` 은 자르지 않는다(300자 초과는 고정 안내). 예산이 모자라면 필드·발췌 → 보이는 항목 수 순으로 줄이고 `외 N개` 줄은 항상 남긴다(id 는 12개까지; 총량 상한은 아래 2차 재검증 수정). YAML 블록·null 표기(`>` `|` `""` `null` `~` 등)는 빈 값으로 보고 `check-state-wip-cap.sh` 가 경고한다. 저장소 밖 handoff 는 `(저장소 밖 경로 — 무시)` 로 표시하고 stat 하지 않는다. SessionStart 의 정리 요청 목록은 4줄로 줄여 알림이 5000바이트 한도 안에 들어오게 한다. Antigravity 는 알림 구간만 비교해 판정 블록이 있어도 알림을 두 번 싣지 않는다.
-- **남은 한계**: 저장소 밖에서 시작한 세션은 고정이 없어 한 턴 안에 다른 저장소로 `cd` 하면 Stop 이 기준점을 찾지 못한다. codex 하드닝 키는 `codex sandbox`·`features list`·`mcp list` 로 확인했고 `codex exec` 한 판은 돌려 보지 않았다. Stop 훅이 30초를 넘겨 출력이 버려지면 그 판정의 차단·보고가 사라질 수 있다. PATH 에 상대 경로 항목이 있으면 저장소 cwd 기준으로 runner 를 찾는다(기존 git 호출과 같은 성질). Muse adapter 의 이벤트별 root 선택은 손대지 않았다.
+- **남은 한계**: 저장소 밖에서 시작한 세션은 고정이 없어 한 턴 안에 다른 저장소로 `cd` 하면 Stop 이 기준점을 찾지 못한다. codex 하드닝 키는 `codex sandbox`·`features list`·`mcp list` 로 확인했고 `codex exec` 한 판은 돌려 보지 않았다. Stop 훅 타임아웃·PATH 상대 항목·Muse adapter 의 root 선택은 0.10.2 에서 고쳤다(아래).
 
 #### 2차 재검증 수정
 
@@ -230,3 +230,13 @@ Claude 데스크톱 앱은 git worktree 세션에도 `CLAUDE_PROJECT_DIR`를 pri
 - **알림 상한**: 턴당 알림은 항상 3000바이트 이하다. `외 N개` 줄은 정확한 N 을 유지하고, 자리가 모자라면 id 를 더 적게 보여 `…` 로 끝낸다. 머리줄의 브랜치 이름은 200바이트로 자른다. 최후에는 항목 본문을 자른다(handoff 줄이 잘리는 것은 이 극단적인 경우뿐).
 - **알려진 한계(의도적으로 고치지 않음)**: 같은 턴에 브랜치를 옮기면서(`git checkout -b` 새 브랜치, main 에 머지한 뒤 main 체크아웃) 한 완료 주장은 검사하지 않는다. 잡으려면 평범한 브랜치 전환에서도 오탐이 나기 때문이다.
 - **알려진 한계(추가)**: `.staterc` 에서 `STATE_VERIFY` 를 껐다 켜도 기준점은 초기화되지 않는다(꺼져 있는 동안은 엔진이 돌지 않는다). `extensions.worktreeConfig` 로 `core.worktree` 가 `config.worktree` 에 있는 submodule 은 허용하지 않는다(안전한 쪽으로 거절).
+
+### 0.10.2 root 일관성·Stop 시간 예산
+
+0.10.1 리뷰에서 남긴 후속 네 가지를 고쳤다.
+
+- **runner 의 root**: `templates/wiring/state-ledger-runner.mjs` 는 `.staterc`(정리 강제·frontmatter 원천 판정)를 `HOOK_PROJECT_DIR` → 현재 디렉터리의 git toplevel → `CLAUDE_PROJECT_DIR` → cwd 순으로 찾는다(`state-config.mjs` 와 같다). 전에는 `CLAUDE_PROJECT_DIR` 을 먼저 봐서, 데스크톱 앱 worktree 세션에서 한 커밋이 primary checkout 의 `.staterc` 로 판정됐다(잘못 막거나, 막아야 할 때 통과). lifecycle 액션은 dispatcher 로 그대로 넘기므로 세션 pin 규칙은 dispatcher 가 적용한다. 프로젝트의 runner 사본은 템플릿으로 다시 복사해야 반영된다.
+- **Muse adapter**: 네 이벤트 모두 dispatcher 의 root 규칙을 따른다. SessionStart·PostToolUse 가 cwd 의 toplevel 을 `HOOK_PROJECT_DIR` 로 강제하던 것을 없애, SessionStart 가 pin 을 쓰고 stamp 가 그 pin 을 쓴다(pin 은 같은 저장소일 때만 받고, pin 폴더는 심링크·다른 사용자 소유면 쓰지 않으며 0700 으로 좁힌다). 턴 도중 cwd 가 저장소 밖으로 나가도 Claude·Codex 처럼 고정된 checkout 에 스탬프한다. 네 adapter 는 `HOOK_PROJECT_DIR`·`CLAUDE_PROJECT_DIR` 를 지운다 — Claude 세션에서 띄운 Muse worker 가 부모의 `CLAUDE_PROJECT_DIR` 을 물려받아 다른 저장소에 anchor 를 잡거나(저장소가 아니면) 고정이 꺼지지 않게 한다. Muse hook 입력에 `cwd` 가 없으면 hook 프로세스의 cwd 를 쓴다(실제 Muse 입력 형식은 확인하지 못했다). `CLAUDE_PROJECT_DIR` 이 없으므로 Codex 와 같이, 고정이 있는 세션이 턴 경계에서 다른 저장소로 옮겨도 고정한 checkout 에 머문다.
+- **Stop 시간 예산**: 독립 검증 엔진은 출력 직전에 상태(판정 전달·차단 표시, `stopTurn`, 시작한 검사)를 저장한다. 전에는 엔진이 Stop 앞부분에서 돌고 그 뒤 일반 평가가 이어져, 호스트 타임아웃(30초)으로 출력이 버려지면 판정이 전달된 것으로 남아 차단·보고가 사라졌다. 이제 엔진은 일반 평가(기준점·커밋 태그·덧붙임·구조 알림)가 끝난 뒤 출력 직전에 돈다. 그리고 dispatcher 가 시작한 지 `STATE_VERIFY_STOP_BUDGET_S` 초(0..600 정수, 기본 20)가 지났으면 엔진을 **판정 보류** 모드로 돌린다: 검사 수거·기준점 비교와 이동·주기 점검·`stopTurn` 은 평소대로 하고(검사 시작은 미룬 판정이 없을 때만), 끝난 판정만 반영하지 않는다(전달·차단 표시 없음, 막지 않음). 아직 전달하지 않은 판정을 반영해야 했을 때만 `STATE 독립 검증: Stop 훅 시간이 모자라 이번 판정은 다음 턴 시작에 전달합니다.` 한 줄을 내고, 그 Stop 은 새 검사를 시작하지 않는다(새 판정이 미룬 판정을 덮지 않게 계기는 대기열에 남고, 판정이 전달된 뒤의 Stop 이 시작한다). 턴 시작에 이미 전달된 판정의 보고는 평소대로 낸다. 판정을 소비하지 않으므로 그 뒤 타임아웃이 나도 판정은 다음 턴 시작이 전달한다. 출력 형식은 그대로다.
+  - 한계: 보류된 차단 판정은 다음 턴 시작에 보고로 전달되므로, 그 턴 안의 강제 교정(차단)은 없다. 예산은 dispatcher 시작부터 세지만, 출력 뒤 dispatcher 의 frontmatter 인덱스 렌더 시간은 남은 10초에 맡긴다.
+- **PATH 상대 항목**: 검사 엔진은 PATH 에서 절대 경로 항목만 남긴다(`.`·`node_modules/.bin`·빈 항목 제거, 다 지워지면 `/usr/bin:/bin`). 엔진 프로세스 전체(`main`)·git 호출·검사 세션 환경(`runnerEnv`)·`claude` 탐색에 적용된다. 그래서 저장소 안의 `node_modules/.bin/claude`(예: 오래된 devDependency)나 심어 둔 실행 파일이 사용자 자격 증명을 쥔 백그라운드 검사 세션으로 실행되지 않는다. 나머지 훅 스크립트는 그대로다 — 호스트가 훅 명령의 `bash`·`sh`·`node` 자체를 사용자 PATH 로 찾으므로, PATH 에 상대 항목을 두지 않는 것은 사용자 환경의 몫이다. 셸이 풀지 않은 `~`·`~/…` 항목은 bash 처럼 `$HOME` 으로 풀어 남기고, `~user/…` 는 버린다.
