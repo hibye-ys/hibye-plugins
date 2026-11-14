@@ -20,10 +20,12 @@ import { detailEntries, indexSource, parseFrontmatter } from './state-index.mjs'
 export const MAX_ITEMS = 3
 export const MAX_REMINDER_BYTES = 3000
 export const MAX_SHORT_BYTES = 1200
-// 전체 알림을 다시 싣는 기본 턴 간격: Claude 는 SessionStart(compact 포함)가 압축 뒤 전체를 다시 싣는다. 그 밖의 호스트(Codex·Muse·모름)는
-// 압축 뒤 SessionStart 를 보장하지 못하므로 더 자주 싣는다. `.staterc` STATE_FOCUS_FULL_EVERY 가 있으면 그것이 우선한다.
+// 전체 알림을 다시 싣는 기본 턴 간격: Claude Code·Codex 는 압축 뒤 SessionStart(source=compact)가 전체를 다시 싣는다
+// (Codex 0.166.0 소스·통합 테스트로 확인 — README 0.10.4). 그 밖의 호스트(Muse·모름)는 설치된 버전마다 이를 보장하지 못하므로
+// 더 자주 싣는다. `.staterc` STATE_FOCUS_FULL_EVERY 가 있으면 그것이 우선한다.
 export const DEFAULT_FULL_EVERY = 10
 export const DEFAULT_FULL_EVERY_OTHER_HOST = 3
+const COMPACT_SESSION_START_HOSTS = new Set(['claude', 'codex'])
 const FOCUS_RECORD_VERSION = 1
 const FOCUS_RECORD_MAX_BYTES = 4096
 // 요약(SHORT) 항목의 값 길이(바이트) 단계. 1200B 안에 안 들어가면 단계를 낮추고, 그래도 넘으면 항목 수를 줄인다.
@@ -51,7 +53,7 @@ export const INSTRUCTION = '작업을 제안·시작·전환하기 전에 각 �
   + '계획 순서를 벗어나거나 범위를 바꾸려면 먼저 사용자에게 묻는다 — 단, 이번 턴 사용자의 명시 지시가 우선한다(계획과 어긋나면 그 사실만 한 줄 알리고 따른다). '
   + '단계가 바뀌면 해당 항목 detail 의 step·next_step(과 status)을 바꿔 쓴다.'
 
-// `.staterc` STATE_FOCUS_FULL_EVERY: 전체 알림을 다시 싣는 턴 간격. 정수 1..100, 아니면 호스트별 기본(claude 10, 그 밖 3). 1 = 매 턴 전체(옛 동작).
+// `.staterc` STATE_FOCUS_FULL_EVERY: 전체 알림을 다시 싣는 턴 간격. 정수 1..100, 아니면 호스트별 기본(claude·codex 10, 그 밖 3). 1 = 매 턴 전체(옛 동작).
 // 호스트는 dispatcher(global-state-hook.sh)가 STATE_LEDGER_HOST 로 넘긴다.
 export function focusFullEvery(root) {
   let raw = null
@@ -60,7 +62,7 @@ export function focusFullEvery(root) {
     const n = Number(raw.trim())
     if (n >= 1 && n <= 100) return n
   }
-  return process.env.STATE_LEDGER_HOST === 'claude' ? DEFAULT_FULL_EVERY : DEFAULT_FULL_EVERY_OTHER_HOST
+  return COMPACT_SESSION_START_HOSTS.has(process.env.STATE_LEDGER_HOST) ? DEFAULT_FULL_EVERY : DEFAULT_FULL_EVERY_OTHER_HOST
 }
 
 function bytes(text) {
@@ -447,7 +449,7 @@ function clearFocusRecord(path) {
 }
 
 // 전체/요약 판정 (mode: 'session-start' | 'turn'). 전체가 되는 경우:
-//   세션 id 없음 · 데이터 폴더 불안전 · 기록 없음/손상 · root·branch·hash 변경 · sinceFull + 1 >= N (N = STATE_FOCUS_FULL_EVERY, 기본은 호스트별: claude 10, 그 밖 3).
+//   세션 id 없음 · 데이터 폴더 불안전 · 기록 없음/손상 · root·branch·hash 변경 · sinceFull + 1 >= N (N = STATE_FOCUS_FULL_EVERY, 기본은 호스트별: claude·codex 10, 그 밖 3).
 // 그 밖에는 요약이고 sinceFull 을 1 올린다. 소유 항목이 없으면 출력 없이 기록을 비운다. 기록 쓰기 실패는 항상 전체로 대신한다.
 export function focusOutput(root, mode, stdinText = '') {
   const owned = currentOwned(root)
