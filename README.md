@@ -8,7 +8,7 @@ Claude Code·Codex·Muse Code용 개인 에이전트 플러그인 원본 저장�
 |---|---|
 | `backend-ts` | EUNHA TypeScript API의 agent, context, provider, tool, MCP, HTTP, SSE 런타임 스킬 10개와 검증 하네스 |
 | `state-ledger` | 전역 STATE 원장 lifecycle; 프로젝트 context와 독립된 native snapshot. 스킬 `setup-state`(설치); 사용 규칙 `state-ledger-rules`는 프로젝트에 복사하는 템플릿 |
-| `project-context` | 프로젝트 opt-in에 따라 primary 공유 메모리와 현재 checkout intent를 host별로 연결. 스킬 `setup-project-context`; `docs-boundary`(문서는 실행 입력이 아님, 문서 위치 규칙)는 프로젝트에 복사하는 템플릿 |
+| `project-context` | 프로젝트 opt-in에 따라 현재 checkout의 메모리와 intent를 host별로 연결. 스킬 `setup-project-context`; `docs-boundary`(문서는 실행 입력이 아님, 문서 위치 규칙)는 프로젝트에 복사하는 템플릿 |
 | `spec-plan` | 간결한 스펙·구현 계획, 모델 배정, 순차·병렬 실행과 작업 인계 (Claude·Codex·Muse 전역 설치) |
 | `agent-results` | 실제 실행 결과·하네스 버전 보존, 근거 있는 개선 권고와 사용자 지시 후 개선 (Codex·Claude 공통) |
 | `muse-delegate` | muse를 언급할 때만 Orca 또는 Orca 없는 headless `muse exec`(`muse-exec.sh`)로 muse 워커에 구현을 위임하고 검증 (Claude·Codex 전역 설치) |
@@ -127,15 +127,17 @@ bash scripts/setup-project.sh /path/to/project --plugin project-context --tools 
 기본 opt-in은 `.project-context.json`의 memory=`docs/memory/MEMORY.md`, intent=`intent/`다.
 `--memory-directory`, `--memory-index`, `--intent-directory`, `--no-memory`, `--no-intent`로
 선택한다. 기존 opt-in이 있고 새 선택을 주지 않으면 그대로 재사용한다. 하나 이상 활성화해야 한다.
-v1 Claude native memory는 directory 안의 `MEMORY.md`만 지원한다. 기본 setup이나 Claude를 포함한
-선택에서 custom index는 `CLAUDE_NATIVE_MEMORY_UNSUPPORTED`로 쓰기 전에 실패한다.
-custom index는 `--tools codex`를 명시한 setup에서 지원한다. 자동 index 복사본은 만들지 않는다.
+custom index 이름은 모든 host에서 지원한다. 자동 index 복사본은 만들지 않는다.
 memory를 켠 프로젝트에서만 Codex `use_memories`·`generate_memories`를 false로 두고,
-Claude `autoMemoryDirectory`는 Git primary checkout의 절대 경로로 맞춘다. linked worktree의
-intent는 현재 checkout에서 읽는다. linked setup의 memory 설정은 primary opt-in과 같아야 한다.
-primary opt-in이 없거나 memory를 사용하지 않으면 `PRIMARY_MEMORY_CONFIG_REQUIRED`,
-linked memory directory/index가 다르면 `PRIMARY_MEMORY_CONFIG_MISMATCH`로 쓰기 전에 실패한다.
-linked 설정을 primary에 붙여 새 native 경로를 만들거나 다른 사용자 설정으로 임의 교체하지 않는다.
+Claude는 `autoMemoryEnabled`를 false로 두며 예전 setup이 넣은 `autoMemoryDirectory`를 제거한다.
+메모리와 intent는 모두 현재 checkout(linked worktree·primary·독립/클라우드 clone 각각)의
+디렉터리를 읽고 쓴다. worktree에서 쓴 메모리는 그 브랜치의 PR이 병합될 때 합쳐지고, 다른
+worktree가 아직 병합하지 않은 메모리는 보이지 않는다. primary checkout 경로에는 의존하지 않는다.
+`autoMemoryDirectory`는 절대 경로나 `~/`만 받고, 추적되는 `.claude/settings.json`은 데스크톱 앱
+worktree 세션에서도 main checkout 것이 읽히므로 checkout마다 다른 경로를 넣을 수 없다. 그래서
+Claude도 Codex처럼 SessionStart 훅이 현재 checkout의 index 경로·해시를 안내한다.
+기존 프로젝트는 setup을 다시 실행하면 절대 경로가 빠지고(`--check`는 exit 1로 알린다), 그 전까지
+Claude 세션에는 `PROJECT_MEMORY_NATIVE_SETTING_STALE`이 표시된다.
 native plugin hooks가 runtime을 제공하며 project에 이를 복제하지 않는다.
 
 기존 은하 소유 context 등록은 코드에 고정한 완전한 canonical command 문자열만 제거한다.
@@ -151,7 +153,7 @@ project SessionStart에서 `session-start-context.mjs`, `intent-ledger.mjs`, `pr
 해당 등록을 검토한 뒤 명시적으로 정리해야 한다. 다른 일반 사용자 hook은 허용한다.
 JSON/TOML 오류·미지원 레이아웃·경로 탈출·symlink는 쓰기 전에 실패하며, 쓰기 실패는
 이미 쓴 파일을 되돌리고 완료로 보고하지 않는다. 일반/linked Git checkout을 지원하며
-bare·non-Git·`--separate-git-dir` 및 inline/dotted `memories` TOML 레이아웃은 안전 실패한다.
+bare·non-Git 및 inline/dotted `memories` TOML 레이아웃은 안전 실패한다.
 필요하면 먼저 명시적인 `[memories]` table로 정리한다. `--check`는 변경이 필요하면 exit 1이다.
 
 ## muse-delegate 전역 설치

@@ -24,43 +24,79 @@ function fixture(t, config = { schema_version: 1, memory: { directory: 'docs/mem
 }
 const context = options => runtime.buildSessionStartContext(options).hookSpecificOutput.additionalContext
 
-test('primary memory/current intent across linked worktree, subdir and polluted Git env', t => {
+test('linked worktree reads current-checkout memory and intent across subdir and polluted Git env', t => {
   const { root, base } = fixture(t)
   const linked = path.join(base, "linked space's")
   git(root, 'worktree', 'add', '-qb', 'fixture-linked', linked)
   fs.mkdirSync(path.join(linked, 'sub dir'))
   fs.writeFileSync(path.join(linked, 'intent/work.md'), '# Work\n설명: Linked current decisions\n## C1 · Current\n- 규칙: PRIVATE_LINKED_RULE\n- 갱신: 2026-10-20\n')
-  fs.writeFileSync(path.join(linked, 'docs/memory/MEMORY.md'), 'WRONG_LOCAL_MEMORY')
+  const linkedIndex = '[Linked lesson](detail.md)\n'
+  fs.writeFileSync(path.join(linked, 'docs/memory/MEMORY.md'), linkedIndex)
   const env = { ...process.env, GIT_DIR: '/missing/poison', GIT_COMMON_DIR: '/bad', GIT_WORK_TREE: root, GIT_INDEX_FILE: '/bad' }
   const memory = runtime.resolveProjectMemory({ repoRoot: path.join(linked, 'sub dir'), env })
-  assert.equal(memory.directory, path.join(fs.realpathSync(root), 'docs/memory'))
+  assert.equal(memory.directory, path.join(fs.realpathSync(linked), 'docs/memory'))
+  assert.equal(memory.index_path, path.join(fs.realpathSync(linked), 'docs/memory/MEMORY.md'))
   assert.equal(memory.checkout_root, fs.realpathSync(linked))
-  const text = context({ repoRoot: linked, env })
-  assert.match(text, /Linked current decisions/); assert.doesNotMatch(text, /Fixture decisions|PRIVATE_|WRONG_LOCAL_MEMORY/)
-  assert.match(text, /index_sha256/)
+  assert.equal(memory.primary_checkout, undefined)
+  for (const host of ['codex', 'claude']) {
+    const text = context({ repoRoot: linked, host, env })
+    const pointer = JSON.parse(/^PROJECT_MEMORY (.+)$/m.exec(text)[1])
+    assert.equal(pointer.directory, memory.directory)
+    assert.equal(pointer.index_sha256, require('node:crypto').createHash('sha256').update(linkedIndex).digest('hex'))
+    assert.match(text, /Linked current decisions/); assert.doesNotMatch(text, /Fixture decisions|PRIVATE_|Linked lesson/)
+    assert.doesNotMatch(text, /shared directory|never substitute a worktree copy|primary/i)
+    assert.match(text, /commit memory edits with this branch/)
+  }
+  // The commit-time index contract checks the same checkout copy.
+  const report = runtime.inspectMemoryIndex({ repoRoot: linked })
+  assert.equal(report.index_path, memory.index_path); assert.equal(report.ok, true)
+  fs.writeFileSync(path.join(linked, 'docs/memory/new.md'), 'unindexed in worktree only')
+  assert.deepEqual(runtime.inspectMemoryIndex({ repoRoot: linked }).unindexed, ['new.md'])
+  assert.equal(runtime.inspectMemoryIndex({ repoRoot: root }).ok, true)
+  const cli = spawnSync(process.execPath, [SCRIPT, 'check-memory', '--project', linked], { encoding: 'utf8' })
+  assert.equal(cli.status, 1); assert.equal(JSON.parse(cli.stdout).index_path, memory.index_path)
 })
-test('independent clone has independent memory', t => {
+test('independent clone and primary checkout use their own memory', t => {
   const { root, base } = fixture(t)
   const clone = path.join(base, 'clone'); git(base, 'clone', '-q', root, clone)
-  assert.equal(runtime.resolveProjectMemory({ repoRoot: clone }).primary_checkout, fs.realpathSync(clone))
+  assert.equal(runtime.resolveProjectMemory({ repoRoot: clone }).directory, path.join(fs.realpathSync(clone), 'docs/memory'))
+  assert.equal(runtime.resolveProjectMemory({ repoRoot: root }).directory, path.join(fs.realpathSync(root), 'docs/memory'))
 })
-test('missing primary index never falls back to linked copy; failure is visible', t => {
+test('separate Git directory without a primary worktree still resolves checkout memory', t => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'project-context-sepgit-'))
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }))
+  const repo = path.join(base, 'repo'); fs.mkdirSync(repo)
+  git(base, 'init', '-q', '--separate-git-dir', path.join(base, 'storage'), repo)
+  fs.mkdirSync(path.join(repo, 'docs/memory'), { recursive: true }); fs.writeFileSync(path.join(repo, 'docs/memory/MEMORY.md'), '')
+  fs.writeFileSync(path.join(repo, '.project-context.json'), JSON.stringify({ schema_version: 1, memory: { directory: 'docs/memory', index: 'MEMORY.md' } }))
+  assert.match(context({ repoRoot: repo }), new RegExp(`"directory":${JSON.stringify(path.join(fs.realpathSync(repo), 'docs/memory')).replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`))
+})
+test('missing checkout index fails visibly and never falls back to the primary copy', t => {
   const { root, base } = fixture(t); const linked = path.join(base, 'linked')
   git(root, 'worktree', 'add', '-qb', 'linked', linked)
-  fs.unlinkSync(path.join(root, 'docs/memory/MEMORY.md'))
+  fs.unlinkSync(path.join(linked, 'docs/memory/MEMORY.md'))
   const text = context({ repoRoot: linked })
   assert.match(text, /PROJECT_CONTEXT_FAILED/); assert.doesNotMatch(text, /index_sha256/)
   assert.match(text, /Fixture decisions/)
   let out = ''; assert.equal(runtime.runSessionStartContextCli({ repoRoot: linked, host: 'codex', input: {}, argv: ['session-start'], writeStdout: x => out += x }), 0)
   assert.match(JSON.parse(out).hookSpecificOutput.additionalContext, /PROJECT_CONTEXT_FAILED/)
 })
-test('all four events and hosts keep memory and intent bodies lazy; Claude native index never duplicated', t => {
+test('Claude warns when the checkout still pins native auto memory from an earlier setup', t => {
+  const { root } = fixture(t)
+  fs.mkdirSync(path.join(root, '.claude'))
+  fs.writeFileSync(path.join(root, '.claude/settings.json'), JSON.stringify({ autoMemoryDirectory: '/old/primary/docs/memory' }))
+  assert.match(context({ repoRoot: root, host: 'claude' }), /PROJECT_MEMORY_NATIVE_SETTING_STALE/)
+  assert.doesNotMatch(context({ repoRoot: root, host: 'codex' }), /NATIVE_SETTING_STALE/)
+  fs.writeFileSync(path.join(root, '.claude/settings.json'), JSON.stringify({ autoMemoryEnabled: false }))
+  assert.doesNotMatch(context({ repoRoot: root, host: 'claude' }), /NATIVE_SETTING_STALE/)
+})
+test('all four events and hosts keep memory and intent bodies lazy with the same pointer', t => {
   const { root } = fixture(t)
   for (const host of ['codex', 'claude', 'muse', 'antigravity']) for (const event of runtime.PROJECT_CONTEXT_EVENTS) {
     const text = context({ repoRoot: root, host, event })
     assert.match(text, /PROJECT_MEMORY/); assert.match(text, /Fixture decisions/)
     assert.doesNotMatch(text, /PRIVATE_|\[Shared lesson\]/)
-    assert.equal(text.includes('Before relevant work, read this shared memory index'), host !== 'claude')
+    assert.ok(text.includes('Before relevant work, read this memory index'))
     assert.match(text, new RegExp(`Session event: ${event}`))
   }
 })
@@ -139,13 +175,13 @@ test('Muse response fits byte ceiling, Antigravity source adapter emits lazy con
   assert.match(JSON.parse(resumed.stdout).injectSteps[0].ephemeralMessage, /Session event: resume/)
 })
 
-test('linked config drift keeps primary memory authoritative and diagnoses mismatch', t => {
+test('linked checkout uses its own memory config', t => {
   const { root, base } = fixture(t); const linked = path.join(base, 'linked')
   git(root, 'worktree', 'add', '-qb', 'drift', linked)
+  fs.mkdirSync(path.join(linked, 'other-memory')); fs.writeFileSync(path.join(linked, 'other-memory/OTHER.md'), '')
   fs.writeFileSync(path.join(linked, '.project-context.json'), JSON.stringify({ schema_version: 1, memory: { directory: 'other-memory', index: 'OTHER.md' }, intent: { directory: 'intent' } }))
-  const memory = runtime.resolveProjectMemory({ repoRoot: linked })
-  assert.equal(memory.index_path, path.join(fs.realpathSync(root), 'docs/memory/MEMORY.md'))
-  assert.match(context({ repoRoot: linked }), /PROJECT_MEMORY_CONFIG_MISMATCH/)
+  assert.equal(runtime.resolveProjectMemory({ repoRoot: linked }).index_path, path.join(fs.realpathSync(linked), 'other-memory/OTHER.md'))
+  assert.doesNotMatch(context({ repoRoot: linked }), /CONFIG_MISMATCH|PROJECT_CONTEXT_FAILED/)
 })
 test('individual index and intent file symlink escapes fail before reading', t => {
   const { root, base } = fixture(t)
@@ -172,7 +208,7 @@ test('dangling opt-in config is invalid and huge optional diagnostics stay bound
   assert.throws(() => runtime.loadProjectContextConfig({ repoRoot: root }), /dangling symlink/)
 })
 
-test('intent directory and malformed primary intent never erase valid current or linked memory', t => {
+test('intent directory and malformed intent never erase valid current or linked memory', t => {
   const { root, base } = fixture(t); const linked = path.join(base, 'linked')
   git(root, 'worktree', 'add', '-qb', 'isolated-intent', linked)
   const outside = path.join(base, 'outside'); fs.mkdirSync(outside)
@@ -187,17 +223,14 @@ test('intent directory and malformed primary intent never erase valid current or
   assert.match(context({ repoRoot: linked }), /PROJECT_MEMORY/)
   assert.match(context({ repoRoot: root }), /INTENT_CONTEXT_FAILED/)
 })
-test('Claude native MEMORY.md-only contract rejects custom indexes in doctor and session, while Codex retains support', t => {
+test('custom memory index is supported for every host', t => {
   const { root } = fixture(t)
   fs.renameSync(path.join(root, 'docs/memory/MEMORY.md'), path.join(root, 'docs/memory/INDEX.md'))
+  fs.writeFileSync(path.join(root, 'docs/memory/INDEX.md'), '[Shared lesson](detail.md)\n')
   const config = JSON.parse(fs.readFileSync(path.join(root, '.project-context.json'))); config.memory.index = 'INDEX.md'
   fs.writeFileSync(path.join(root, '.project-context.json'), JSON.stringify(config))
-  assert.equal(runtime.inspectProjectContext({ repoRoot: root }).ok, false)
-  assert.equal(runtime.inspectProjectContext({ repoRoot: root, host: 'claude' }).ok, false)
-  assert.equal(runtime.inspectProjectContext({ repoRoot: root, host: 'codex' }).ok, true)
-  const text = context({ repoRoot: root, host: 'claude' })
-  assert.match(text, /CLAUDE_NATIVE_MEMORY_UNSUPPORTED/); assert.doesNotMatch(text, /native_index.*true/)
-  assert.match(context({ repoRoot: root, host: 'codex' }), /PROJECT_MEMORY/)
+  for (const host of ['all', 'claude', 'codex']) assert.equal(runtime.inspectProjectContext({ repoRoot: root, host }).ok, true)
+  for (const host of ['claude', 'codex']) assert.match(context({ repoRoot: root, host }), /INDEX\.md","index_sha256/)
 })
 test('public direct intent session CLI applies the same budget and requery marker', t => {
   const { root } = fixture(t)
@@ -211,6 +244,8 @@ test('public direct intent session CLI applies the same budget and requery marke
 test('native host proof ignores stale flags in both nesting directions; ambiguous and absent proof fail visibly', t => {
   const { root, base } = fixture(t)
   const runtimeRoot = path.resolve(__dirname, '..')
+  // A leftover native pin makes the selected host observable: only Claude reports it.
+  fs.mkdirSync(path.join(root, '.claude')); fs.writeFileSync(path.join(root, '.claude/settings.json'), JSON.stringify({ autoMemoryDirectory: '/old' }))
   const invoke = (env, payload = { hook_event_name: 'SessionStart', session_id: 'current', cwd: root }, args = []) => {
     let output = ''
     runtime.runSessionStartContextCli({ env: { ...process.env, ...env }, input: payload, argv: ['session-start', ...args], writeStdout: text => { output += text } })
@@ -218,11 +253,11 @@ test('native host proof ignores stale flags in both nesting directions; ambiguou
   }
   // Claude launched from Codex: current Claude ID replaces the parent ID; inherited Codex plugin root is not this executed snapshot.
   const claude = invoke({ CLAUDE_CODE_SESSION_ID: 'current', CODEX_THREAD_ID: 'parent-codex', CODEX_SESSION_ID: 'parent-codex', PLUGIN_ROOT: base, CLAUDE_PLUGIN_ROOT: runtimeRoot })
-  assert.match(claude, /"native_index":true/); assert.doesNotMatch(claude, /Before relevant work, read this shared memory index/)
+  assert.match(claude, /PROJECT_MEMORY_NATIVE_SETTING_STALE/); assert.doesNotMatch(claude, /PROJECT_CONTEXT_HOST/)
   // Codex launched from Claude: its current plugin root is authoritative; the inherited Claude identity is for another session.
   const codex = invoke({ CLAUDE_CODE_SESSION_ID: 'parent-claude', CLAUDECODE: '1', PLUGIN_ROOT: runtimeRoot, CLAUDE_PLUGIN_ROOT: runtimeRoot })
-  assert.match(codex, /"native_index":false/); assert.match(codex, /Before relevant work, read this shared memory index/)
+  assert.match(codex, /PROJECT_MEMORY /); assert.doesNotMatch(codex, /PROJECT_CONTEXT_HOST|NATIVE_SETTING_STALE/)
   assert.match(invoke({ CLAUDE_CODE_SESSION_ID: 'current', PLUGIN_ROOT: runtimeRoot, CLAUDE_PLUGIN_ROOT: runtimeRoot }), /PROJECT_CONTEXT_HOST_AMBIGUOUS/)
   assert.match(invoke({ CLAUDE_CODE_SESSION_ID: 'stale', CODEX_THREAD_ID: 'current', PLUGIN_ROOT: base, CLAUDE_PLUGIN_ROOT: runtimeRoot }), /PROJECT_CONTEXT_HOST_UNRESOLVED/)
-  assert.match(invoke({ CLAUDE_CODE_SESSION_ID: 'current', PLUGIN_ROOT: runtimeRoot, CLAUDE_PLUGIN_ROOT: runtimeRoot }, undefined, ['--host', 'codex']), /"native_index":false/)
+  assert.match(invoke({ CLAUDE_CODE_SESSION_ID: 'current', PLUGIN_ROOT: runtimeRoot, CLAUDE_PLUGIN_ROOT: runtimeRoot }, undefined, ['--host', 'codex']), /^(?![\s\S]*NATIVE_SETTING_STALE)[\s\S]*PROJECT_MEMORY /)
 })

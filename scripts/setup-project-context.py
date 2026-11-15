@@ -225,12 +225,7 @@ def git_root(project):
     root = Path(git('rev-parse', '--show-toplevel')).resolve()
     if git('rev-parse', '--is-bare-repository') == 'true':
         raise ValueError('Bare repositories are unsupported')
-    records = git('worktree', 'list', '--porcelain', '-z').split('\0')
-    primary_record = next((record for record in records if record.startswith('worktree ')), None)
-    primary = Path(primary_record[len('worktree '):]).resolve() if primary_record else None
-    if primary is None or not (primary / '.git').exists():
-        raise ValueError('Cannot resolve primary checkout; separate-git-dir layouts are unsupported')
-    return root, primary
+    return root
 
 
 def relative(value):
@@ -284,28 +279,17 @@ def needs_update(path, value):
 
 
 def plan_setup(project, tools, config=None):
-    root, primary = git_root(Path(project))
+    root = git_root(Path(project))
     optin = root / '.project-context.json'
     safe_target(root, optin)
     if config is None:
         config = json.loads(optin.read_text()) if optin.exists() else {'schema_version': 1, 'memory': {'directory': 'docs/memory', 'index': 'MEMORY.md'}, 'intent': {'directory': 'intent'}}
     validate_config(config)
-    if root != primary and config['memory'] is not False:
-        primary_optin = primary / '.project-context.json'
-        safe_target(primary, primary_optin)
-        if not primary_optin.is_file():
-            raise ValueError('PRIMARY_MEMORY_CONFIG_REQUIRED: set up shared memory in the primary checkout first')
-        primary_config = validate_config(json.loads(primary_optin.read_text()))
-        if primary_config['memory'] is False:
-            raise ValueError('PRIMARY_MEMORY_CONFIG_REQUIRED: primary checkout must opt in to shared memory')
-        if config['memory'] != primary_config['memory']:
-            raise ValueError('PRIMARY_MEMORY_CONFIG_MISMATCH: linked memory configuration differs from the authoritative primary checkout; no files were changed')
-    if 'claude' in tools and config['memory'] is not False and config['memory']['index'] != 'MEMORY.md':
-        raise ValueError('CLAUDE_NATIVE_MEMORY_UNSUPPORTED: Claude native memory requires memory.directory/MEMORY.md; select --tools codex explicitly for a custom index')
-    for kind, base in (('memory', primary), ('intent', root)):
+    # Memory and intent both belong to this checkout; linked worktrees merge memory through their branch.
+    for kind in ('memory', 'intent'):
         if config[kind] is not False:
-            directory = base / config[kind]['directory']
-            if not directory.resolve().is_relative_to(base) or not directory.is_dir():
+            directory = root / config[kind]['directory']
+            if not directory.resolve().is_relative_to(root) or not directory.is_dir():
                 raise ValueError(f'{kind} directory missing or escaped: {directory}')
             if kind == 'memory' and (not (directory / config[kind]['index']).is_file() or not (directory / config[kind]['index']).resolve().is_relative_to(directory.resolve())):
                 raise ValueError('Memory index missing or escaped')
@@ -324,7 +308,12 @@ def plan_setup(project, tools, config=None):
         safe_target(root, path)
         data = without_legacy_hooks(json.loads(path.read_text()) if path.exists() else {})
         if config['memory'] is not False:
-            data['autoMemoryDirectory'] = str(primary / config['memory']['directory'])
+            # autoMemoryDirectory accepts only absolute or ~/ paths, and this file is tracked and read
+            # from the main checkout by desktop worktree sessions, so no per-checkout path fits here.
+            # Native memory is turned off; the SessionStart hook points at this checkout's memory.
+            # Earlier versions wrote a primary-checkout autoMemoryDirectory; setup owns and removes it.
+            data.pop('autoMemoryDirectory', None)
+            data['autoMemoryEnabled'] = False
         data.setdefault('enabledPlugins', {})['project-context@hibye-plugins'] = True
         changes[path] = json.dumps(data, ensure_ascii=False, indent=2) + '\n'
     return {path: value for path, value in changes.items() if needs_update(path, value)}
@@ -377,7 +366,7 @@ def main():
         if args.no_memory and (args.memory_directory or args.memory_index) or args.no_intent and args.intent_directory:
             raise ValueError('Conflicting enable/disable options')
         if any((args.memory_directory, args.memory_index, args.intent_directory, args.no_memory, args.no_intent)):
-            root, _ = git_root(Path(args.project))
+            root = git_root(Path(args.project))
             optin = root / '.project-context.json'
             safe_target(root, optin)
             config = json.loads(optin.read_text()) if optin.exists() else {'schema_version': 1, 'memory': {'directory': 'docs/memory', 'index': 'MEMORY.md'}, 'intent': {'directory': 'intent'}}

@@ -63,24 +63,18 @@ function loadProjectContextConfig({ repoRoot = process.cwd(), validateIntent = t
   if (!config.memory && !config.intent) throw new Error('config must enable memory or intent')
   return { enabled: true, repoRoot: root, configPath, memory: config.memory, intent: config.intent }
 }
+// Memory belongs to the checkout being worked on: linked worktrees, primary checkouts and
+// independent/cloud clones all read and write their own <checkout>/<memory.directory>.
+// Worktree memory reaches other checkouts when its branch merges; no primary path is consulted.
 function resolveProjectMemory({ repoRoot = process.cwd(), config, ...options } = {}) {
   try {
     const settings = config || loadProjectContextConfig({ repoRoot, ...options, validateIntent: false })
     if (!settings.enabled || !settings.memory) throw new Error('project memory is not opted in')
     const checkout = checkoutRoot(repoRoot, options)
-    const common = fs.realpathSync(gitQuery(checkout, ['rev-parse', '--path-format=absolute', '--git-common-dir'], options))
-    const fields = gitQuery(checkout, ['worktree', 'list', '--porcelain', '-z'], options).split('\0\0', 1)[0].split('\0')
-    const primaryField = fields.find(field => field.startsWith('worktree '))
-    if (!primaryField || fields.includes('bare')) throw new Error('Git common directory has no primary checkout')
-    const primary = fs.realpathSync(primaryField.slice('worktree '.length))
-    if (checkoutRoot(primary, options) !== primary || fs.realpathSync(gitQuery(primary, ['rev-parse', '--path-format=absolute', '--git-common-dir'], options)) !== common) throw new Error('primary checkout does not match Git common directory')
-    const primaryConfig = primary === checkout ? settings : loadProjectContextConfig({ repoRoot: primary, ...options, validateIntent: false })
-    if (!primaryConfig.enabled || !primaryConfig.memory) throw new Error('primary checkout must opt in to shared memory')
-    const mismatch = primaryConfig.memory.directory !== settings.memory.directory || primaryConfig.memory.index !== settings.memory.index
-    const directory = confined(primary, primaryConfig.memory.directory, 'memory.directory')
-    const indexPath = confined(primary, `${primaryConfig.memory.directory}/${primaryConfig.memory.index}`, 'memory.index')
-    return Object.freeze({ contract_version: 1, checkout_root: checkout, primary_checkout: primary, git_common_dir: common, directory, index_path: indexPath, ...(mismatch ? { configuration_warning: 'linked memory config differs from primary; primary memory config is authoritative' } : {}) })
-  } catch (error) { throw new Error(`PROJECT_MEMORY_ROOT_FAILED: ${error.message}; inspect git worktree list --porcelain and the primary checkout`, { cause: error }) }
+    const directory = confined(checkout, settings.memory.directory, 'memory.directory')
+    const indexPath = confined(checkout, `${settings.memory.directory}/${settings.memory.index}`, 'memory.index')
+    return Object.freeze({ contract_version: 1, checkout_root: checkout, directory, index_path: indexPath })
+  } catch (error) { throw new Error(`PROJECT_MEMORY_ROOT_FAILED: ${error.message}; inspect .project-context.json and the memory directory in this checkout`, { cause: error }) }
 }
 function inspectMemoryIndex({ repoRoot = process.cwd(), resolveMemory = resolveProjectMemory, ...options } = {}) {
   const { directory, index_path: indexPath } = resolveMemory({ repoRoot, ...options })
@@ -244,14 +238,12 @@ function buildSessionStartContext({ repoRoot = process.cwd(), host = 'codex', ev
   if (config.memory) {
     try {
       const memory = resolveMemory({ repoRoot: config.repoRoot, config, ...options })
-      assertHostMemorySupport(memory, host)
       const index = readFile(memory.index_path, 'utf8')
-      // Claude's native autoMemoryDirectory already loads this same index.
-      lines.push(`PROJECT_MEMORY ${JSON.stringify({ directory: memory.directory, index_path: memory.index_path, index_sha256: createHash('sha256').update(index).digest('hex'), native_index: host === 'claude' })}`)
-      if (host !== 'claude') lines.push('Before relevant work, read this shared memory index, then only matching detail files.')
-      if (memory.configuration_warning) lines.push(`PROJECT_MEMORY_CONFIG_MISMATCH: ${memory.configuration_warning}`)
-      lines.push('Read and write the same shared directory; never substitute a worktree copy. Re-read immediately before editing and preserve other writers. Follow the host permission boundary when the primary path is outside this checkout.')
-    } catch (error) { lines.push(`PROJECT_CONTEXT_FAILED: ${error.message}\nRecovery: inspect .project-context.json, git worktree list --porcelain, and the primary memory index. Do not substitute a checkout-local copy.`) }
+      lines.push(`PROJECT_MEMORY ${JSON.stringify({ directory: memory.directory, index_path: memory.index_path, index_sha256: createHash('sha256').update(index).digest('hex') })}`)
+      lines.push('Before relevant work, read this memory index, then only matching detail files.')
+      lines.push("Memory is this checkout's directory: read and write it here, and commit memory edits with this branch so they merge with its PR. Memory other worktrees have not merged yet is not visible. Re-read immediately before editing and preserve other writers.")
+      if (host === 'claude') { const stale = staleClaudeMemorySetting(config.repoRoot); if (stale) lines.push(stale) }
+    } catch (error) { lines.push(`PROJECT_CONTEXT_FAILED: ${error.message}\nRecovery: inspect .project-context.json and the memory index in PROJECT_CHECKOUT.`) }
   }
   if (config.intent) {
     try { lines.push(boundedContext(intentContext({ repoRoot: config.repoRoot, config }), 7000)) } catch (error) { lines.push(`INTENT_CONTEXT_FAILED: ${error.message}; inspect ${config.intent.directory} in PROJECT_CHECKOUT`) }
@@ -260,18 +252,24 @@ function buildSessionStartContext({ repoRoot = process.cwd(), host = 'codex', ev
   if (typeof diagnostics === 'function') {
     try { const detail = diagnostics({ repoRoot: config.repoRoot }); if (detail) lines.push(`PROJECT_CONTEXT_DIAGNOSTIC ${String(detail).slice(0, 500)}`) } catch (error) { lines.push(`PROJECT_CONTEXT_DIAGNOSTIC_FAILED: ${error.message}`) }
   }
-  lines.push(`Session event: ${event}. On resume/clear/compact recover the active project plan and current work before acting; read relevant shared memory evidence lazily. Intent and code belong to PROJECT_CHECKOUT.`)
+  lines.push(`Session event: ${event}. On resume/clear/compact recover the active project plan and current work before acting; read relevant checkout memory evidence lazily. Intent and code belong to PROJECT_CHECKOUT.`)
   return hookOutput(boundedContext(lines.join('\n')))
 }
-function assertHostMemorySupport(memory, host) {
-  if ((host === 'claude' || host === 'all') && memory.index_path !== path.join(memory.directory, 'MEMORY.md')) throw new Error('CLAUDE_NATIVE_MEMORY_UNSUPPORTED: initial v1 Claude native memory requires index MEMORY.md directly inside the configured memory directory; choose --host codex for generic custom-index inspection')
+// Earlier versions pinned Claude native memory to the primary checkout via autoMemoryDirectory.
+// Native memory is now off for opted-in projects; a leftover pin means setup was not rerun.
+function staleClaudeMemorySetting(root) {
+  try {
+    const settings = JSON.parse(fs.readFileSync(confined(root, '.claude/settings.json', 'claude settings'), 'utf8'))
+    if (settings && (settings.autoMemoryDirectory !== undefined || settings.autoMemoryEnabled !== false)) return 'PROJECT_MEMORY_NATIVE_SETTING_STALE: .claude/settings.json still enables or redirects Claude native auto memory; rerun project-context setup so autoMemoryDirectory is removed and autoMemoryEnabled is false. Use the PROJECT_MEMORY directory above, not the native memory directory.'
+  } catch {}
+  return null
 }
 function inspectProjectContext({ repoRoot = process.cwd(), host = 'all', ...options } = {}) {
   const errors = []
   let config, memory, intent
   try { config = loadProjectContextConfig({ repoRoot, ...options, validateIntent: false }) } catch (error) { return { ok: false, enabled: true, errors: [error.message] } }
   if (!config.enabled) return { ok: true, enabled: false, config, errors }
-  if (config.memory) try { memory = inspectMemoryIndex({ repoRoot: config.repoRoot, ...options }); if (!memory.ok) errors.push('memory index has dangling, unindexed or duplicated entries'); assertHostMemorySupport(memory, host) } catch (error) { errors.push(error.message) }
+  if (config.memory) try { memory = inspectMemoryIndex({ repoRoot: config.repoRoot, ...options }); if (!memory.ok) errors.push('memory index has dangling, unindexed or duplicated entries') } catch (error) { errors.push(error.message) }
   if (config.intent) try { intent = loadIntentLedger({ repoRoot: config.repoRoot, config }); errors.push(...intent.errors) } catch (error) { errors.push(error.message) }
   return { ok: errors.length === 0, enabled: true, config, memory, intent, errors }
 }
