@@ -73,7 +73,11 @@ function resolveProjectMemory({ repoRoot = process.cwd(), config, ...options } =
     const checkout = checkoutRoot(repoRoot, options)
     const directory = confined(checkout, settings.memory.directory, 'memory.directory')
     const indexPath = confined(checkout, `${settings.memory.directory}/${settings.memory.index}`, 'memory.index')
-    return Object.freeze({ contract_version: 1, checkout_root: checkout, directory, index_path: indexPath })
+    const result = { contract_version: 2, memory_scope: 'checkout', checkout_root: checkout, directory, index_path: indexPath }
+    // v1 consumers that read the removed primary fields fail loudly instead of getting undefined.
+    // Non-enumerable, so JSON output and spreads stay clean.
+    for (const field of ['primary_checkout', 'git_common_dir', 'configuration_warning']) Object.defineProperty(result, field, { enumerable: false, get() { throw new Error(`PROJECT_MEMORY_FIELD_REMOVED: ${field} was removed in project-context 0.4.0; memory now resolves from checkout_root (memory_scope "checkout")`) } })
+    return Object.freeze(result)
   } catch (error) { throw new Error(`PROJECT_MEMORY_ROOT_FAILED: ${error.message}; inspect .project-context.json and the memory directory in this checkout`, { cause: error }) }
 }
 function inspectMemoryIndex({ repoRoot = process.cwd(), resolveMemory = resolveProjectMemory, ...options } = {}) {

@@ -37,7 +37,10 @@ test('linked worktree reads current-checkout memory and intent across subdir and
   assert.equal(memory.directory, path.join(fs.realpathSync(linked), 'docs/memory'))
   assert.equal(memory.index_path, path.join(fs.realpathSync(linked), 'docs/memory/MEMORY.md'))
   assert.equal(memory.checkout_root, fs.realpathSync(linked))
-  assert.equal(memory.primary_checkout, undefined)
+  assert.equal(memory.contract_version, 2); assert.equal(memory.memory_scope, 'checkout')
+  assert.throws(() => memory.primary_checkout, /PROJECT_MEMORY_FIELD_REMOVED/)
+  assert.throws(() => { const { git_common_dir } = memory; return git_common_dir }, /PROJECT_MEMORY_FIELD_REMOVED/)
+  assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(memory))).sort(), ['checkout_root', 'contract_version', 'directory', 'index_path', 'memory_scope'])
   for (const host of ['codex', 'claude']) {
     const text = context({ repoRoot: linked, host, env })
     const pointer = JSON.parse(/^PROJECT_MEMORY (.+)$/m.exec(text)[1])
