@@ -127,5 +127,5 @@ rg -n '\{\{[A-Z0-9_]+\}\}|\bUNDECIDED\b' .
 전역 `project-context` native plugin 설치 후 저장소의
 `scripts/setup-project.sh <project> --plugin project-context --tools codex,claude --preview`로
 대상 변경을 확인하고 동일 명령에서 `--preview`를 빼 적용한다. `--check`로 멱등 상태를 확인한다.
-Claude memory는 primary checkout, intent와 프로젝트 운영 규칙은 현재 checkout이 소유한다.
+메모리·intent·프로젝트 운영 규칙은 모두 현재 checkout이 소유하고, worktree 메모리는 브랜치 PR로 병합된다.
 `state-ledger`는 별도 plugin이며 프로젝트 context를 대신 초기화하지 않는다.

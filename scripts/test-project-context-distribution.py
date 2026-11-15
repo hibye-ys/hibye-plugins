@@ -158,7 +158,9 @@ class SetupTests(unittest.TestCase):
             setup.apply_changes(changes)
             self.assertFalse(setup.plan_setup(root, ['codex', 'claude']))
             settings = json.loads((root / '.claude/settings.json').read_text())
-            self.assertEqual(settings['autoMemoryDirectory'], str(root / 'docs/memory'))
+            # The legacy owned autoMemoryDirectory is removed and native memory is turned off.
+            self.assertNotIn('autoMemoryDirectory', settings)
+            self.assertIs(settings['autoMemoryEnabled'], False)
             self.assertEqual(settings['enabledMcpjsonServers'], ['my-server'])
             self.assertFalse(settings['enabledPlugins']['other'])
             self.assertEqual(settings['hooks']['SessionStart'][0]['hooks'][0]['command'], 'user')
@@ -202,9 +204,9 @@ class SetupTests(unittest.TestCase):
             changes = setup.plan_setup(root, ['codex', 'claude'])
             self.assertEqual(set(changes), {settings})
             setup.apply_changes(changes)
-            # A real path-value change still receives one normalization apply.
+            # A reintroduced native memory pin still receives one normalization apply.
             data = json.loads(settings.read_text())
-            data['autoMemoryDirectory'] += '/'
+            data['autoMemoryDirectory'] = '/primary/docs/memory'
             settings.write_text(json.dumps(data))
             changes = setup.plan_setup(root, ['codex', 'claude'])
             self.assertEqual(set(changes), {settings})
@@ -212,48 +214,53 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(setup.plan_setup(root, ['codex', 'claude']), {})
             self.assertEqual(settings.stat().st_mode & 0o777, 0o640)
 
-    def test_linked_worktree_uses_primary_memory_current_intent(self):
+    def commit(self, root):
+        for args in (['add', '.'], ['commit', '-qm', 'fixture']):
+            subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=test@example.test', *args], check=True)
+
+    def test_migration_from_primary_pinned_settings_removes_absolute_path(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
             root = base / 'main'
             self.fixture(root)
-            setup.apply_changes(setup.plan_setup(root, ['claude']))
-            subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=test@example.test', 'add', '.'], check=True)
-            subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=test@example.test', 'commit', '-qm', 'fixture'], check=True)
-            linked = base / 'linked'
-            subprocess.run(['git', '-C', str(root), 'worktree', 'add', '-q', '--detach', str(linked)], check=True)
-            (linked / 'intent').mkdir(exist_ok=True)
-            (linked / 'docs/memory/MEMORY.md').write_text('stale linked index')
-            setup.apply_changes(setup.plan_setup(linked, ['claude']))
-            self.assertEqual(json.loads((linked / '.claude/settings.json').read_text())['autoMemoryDirectory'], str(root / 'docs/memory'))
+            settings = root / '.claude/settings.json'
+            data = json.loads(settings.read_text())
+            data['autoMemoryDirectory'] = str(root / 'docs/memory')
+            settings.write_text(json.dumps(data))
+            self.assertEqual(subprocess.run([sys.executable, str(HERE / 'setup-project-context.py'), str(root), '--check'], capture_output=True).returncode, 1)
+            setup.apply_changes(setup.plan_setup(root, ['codex', 'claude']))
+            text = settings.read_text()
+            self.assertNotIn(str(base), text)
+            self.assertIs(json.loads(text)['autoMemoryEnabled'], False)
+            self.assertEqual(setup.plan_setup(root, ['codex', 'claude']), {})
 
-    def test_linked_memory_drift_and_missing_primary_optin_fail_before_write(self):
+    def test_linked_worktree_setup_uses_its_own_checkout_without_primary_optin(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
             root = base / 'main'
             self.fixture(root)
-            setup.apply_changes(setup.plan_setup(root, ['claude']))
-            subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=test@example.test', 'add', '.'], check=True)
-            subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=test@example.test', 'commit', '-qm', 'fixture'], check=True)
+            self.commit(root)
             linked = base / 'linked'
             subprocess.run(['git', '-C', str(root), 'worktree', 'add', '-q', '--detach', str(linked)], check=True)
             (linked / 'intent').mkdir(exist_ok=True)
-            (root / 'other-memory').mkdir()
-            (root / 'other-memory/MEMORY.md').write_text('must not become authority')
-            optin = linked / '.project-context.json'
-            current = json.loads(optin.read_text())
-            current['memory']['directory'] = 'other-memory'
-            optin.write_text(json.dumps(current))
-            before = {str(path.relative_to(linked)): path.read_bytes() for path in linked.rglob('*') if path.is_file()}
-            with self.assertRaisesRegex(ValueError, 'PRIMARY_MEMORY_CONFIG_MISMATCH'):
-                setup.plan_setup(linked, ['codex', 'claude'])
-            self.assertEqual(before, {str(path.relative_to(linked)): path.read_bytes() for path in linked.rglob('*') if path.is_file()})
-            (root / '.project-context.json').unlink()
-            with self.assertRaisesRegex(ValueError, 'PRIMARY_MEMORY_CONFIG_REQUIRED'):
-                setup.plan_setup(linked, ['codex', 'claude'])
-            self.assertEqual(before, {str(path.relative_to(linked)): path.read_bytes() for path in linked.rglob('*') if path.is_file()})
+            # Primary has no opt-in and the linked checkout picks its own memory directory.
+            (linked / 'other-memory').mkdir()
+            (linked / 'other-memory/MEMORY.md').write_text('linked index')
+            config = {'schema_version': 1, 'memory': {'directory': 'other-memory', 'index': 'MEMORY.md'}, 'intent': {'directory': 'intent'}}
+            primary_before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob('*') if path.is_file() and '.git' not in path.parts}
+            changes = setup.plan_setup(linked, ['codex', 'claude'], config)
+            self.assertTrue(all(path.is_relative_to(linked) for path in changes))
+            setup.apply_changes(changes)
+            settings = json.loads((linked / '.claude/settings.json').read_text())
+            self.assertNotIn('autoMemoryDirectory', settings)
+            self.assertIs(settings['autoMemoryEnabled'], False)
+            self.assertEqual(primary_before, {str(path.relative_to(root)): path.read_bytes() for path in root.rglob('*') if path.is_file() and '.git' not in path.parts})
+            # Missing memory in the linked checkout fails before any write, even when primary has it.
+            (linked / 'other-memory/MEMORY.md').unlink()
+            with self.assertRaisesRegex(ValueError, 'Memory index missing'):
+                setup.plan_setup(linked, ['claude'], config)
 
-    def test_separate_git_directory_still_uses_primary_checkout(self):
+    def test_separate_git_directory_is_supported(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
             repo = base / 'repo'
@@ -262,9 +269,9 @@ class SetupTests(unittest.TestCase):
             (repo / 'docs/memory').mkdir(parents=True)
             (repo / 'docs/memory/MEMORY.md').write_text('index')
             (repo / 'intent').mkdir()
-            with self.assertRaisesRegex(ValueError, 'separate-git-dir'):
-                setup.plan_setup(repo, ['claude'])
-            self.assertFalse((repo / '.project-context.json').exists())
+            setup.apply_changes(setup.plan_setup(repo, ['claude']))
+            self.assertTrue((repo / '.project-context.json').exists())
+            self.assertNotIn(str(base), (repo / '.claude/settings.json').read_text())
 
     def test_intent_only_does_not_disable_native_memory(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -304,24 +311,18 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertEqual((root / '.project-context.json').read_bytes(), before)
 
-    def test_custom_index_rejected_before_write_for_claude_and_default_but_codex_supported(self):
+    def test_custom_index_supported_for_all_tools(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve() / 'repo'
             self.fixture(root)
             (root / 'docs/memory/INDEX.md').write_text('custom index')
             config = {'schema_version': 1, 'memory': {'directory': 'docs/memory', 'index': 'INDEX.md'}, 'intent': {'directory': 'intent'}}
             (root / '.project-context.json').write_text(json.dumps(config))
-            before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob('*') if path.is_file()}
-            for options in ([], ['--tools', 'claude'], ['--tools', 'codex,claude'], ['--preview'], ['--check']):
-                result = subprocess.run([sys.executable, str(HERE / 'setup-project-context.py'), str(root), *options], capture_output=True, text=True)
-                self.assertEqual(result.returncode, 1, result.stdout)
-                self.assertIn('CLAUDE_NATIVE_MEMORY_UNSUPPORTED', result.stderr)
-                self.assertEqual(before, {str(path.relative_to(root)): path.read_bytes() for path in root.rglob('*') if path.is_file()})
-            result = subprocess.run([sys.executable, str(HERE / 'setup-project-context.py'), str(root), '--tools', 'codex'], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(HERE / 'setup-project-context.py'), str(root)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads((root / '.project-context.json').read_text()), config)
             self.assertEqual((root / 'docs/memory/INDEX.md').read_text(), 'custom index')
-            self.assertEqual((root / '.claude/settings.json').read_bytes(), before['.claude/settings.json'])
+            self.assertIs(json.loads((root / '.claude/settings.json').read_text())['autoMemoryEnabled'], False)
 
     def test_partial_write_failure_rolls_back(self):
         with tempfile.TemporaryDirectory() as temporary:
