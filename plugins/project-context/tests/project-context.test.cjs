@@ -226,6 +226,32 @@ test('intent directory and malformed intent never erase valid current or linked 
   assert.match(context({ repoRoot: linked }), /PROJECT_MEMORY/)
   assert.match(context({ repoRoot: root }), /INTENT_CONTEXT_FAILED/)
 })
+test('Claude warns when only the main checkout still pins native memory; skipped without a primary', t => {
+  const { root, base } = fixture(t); const linked = path.join(base, 'linked')
+  fs.mkdirSync(path.join(root, '.claude')); fs.writeFileSync(path.join(root, '.claude/settings.json'), JSON.stringify({ autoMemoryDirectory: path.join(root, 'docs/memory') }))
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'old pin')
+  git(root, 'worktree', 'add', '-qb', 'migrated', linked)
+  fs.writeFileSync(path.join(linked, '.claude/settings.json'), JSON.stringify({ autoMemoryEnabled: false }))
+  const text = context({ repoRoot: linked, host: 'claude' })
+  assert.match(text, /PROJECT_MEMORY_NATIVE_SETTING_STALE/); assert.ok(text.includes(path.join(fs.realpathSync(root), '.claude/settings.json')))
+  assert.ok(!text.includes(path.join(fs.realpathSync(linked), '.claude/settings.json')))
+  // Memory still resolves from the worktree, never the primary.
+  assert.equal(JSON.parse(/^PROJECT_MEMORY (.+)$/m.exec(text)[1]).directory, path.join(fs.realpathSync(linked), 'docs/memory'))
+  fs.writeFileSync(path.join(root, '.claude/settings.json'), JSON.stringify({ autoMemoryEnabled: false }))
+  assert.doesNotMatch(context({ repoRoot: linked, host: 'claude' }), /NATIVE_SETTING_STALE/)
+  // Separate git-dir: the only worktree record is this checkout, so the extra check is skipped.
+  const repo = path.join(base, 'sep'); fs.mkdirSync(repo); git(base, 'init', '-q', '--separate-git-dir', path.join(base, 'sep-storage'), repo)
+  fs.mkdirSync(path.join(repo, 'docs/memory'), { recursive: true }); fs.writeFileSync(path.join(repo, 'docs/memory/MEMORY.md'), '')
+  fs.mkdirSync(path.join(repo, '.claude')); fs.writeFileSync(path.join(repo, '.claude/settings.json'), JSON.stringify({ autoMemoryEnabled: false }))
+  fs.writeFileSync(path.join(repo, '.project-context.json'), JSON.stringify({ schema_version: 1, memory: { directory: 'docs/memory', index: 'MEMORY.md' } }))
+  const separate = context({ repoRoot: repo, host: 'claude' })
+  assert.match(separate, /PROJECT_MEMORY /); assert.doesNotMatch(separate, /NATIVE_SETTING_STALE|PROJECT_CONTEXT_FAILED/)
+})
+test('bare repository memory error names the real cause', t => {
+  const { base } = fixture(t, null)
+  const bare = path.join(base, 'bare.git'); git(base, 'init', '--bare', '-q', bare)
+  assert.throws(() => runtime.resolveProjectMemory({ repoRoot: bare }), /Git working tree is required \(bare repository/)
+})
 test('custom memory index is supported for every host', t => {
   const { root } = fixture(t)
   fs.renameSync(path.join(root, 'docs/memory/MEMORY.md'), path.join(root, 'docs/memory/INDEX.md'))

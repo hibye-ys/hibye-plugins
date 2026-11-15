@@ -69,6 +69,7 @@ function loadProjectContextConfig({ repoRoot = process.cwd(), validateIntent = t
 function resolveProjectMemory({ repoRoot = process.cwd(), config, ...options } = {}) {
   try {
     const settings = config || loadProjectContextConfig({ repoRoot, ...options, validateIntent: false })
+    if (!settings.enabled && settings.configPath === null) throw new Error('a Git working tree is required (bare repository or non-Git directory)')
     if (!settings.enabled || !settings.memory) throw new Error('project memory is not opted in')
     const checkout = checkoutRoot(repoRoot, options)
     const directory = confined(checkout, settings.memory.directory, 'memory.directory')
@@ -246,7 +247,7 @@ function buildSessionStartContext({ repoRoot = process.cwd(), host = 'codex', ev
       lines.push(`PROJECT_MEMORY ${JSON.stringify({ directory: memory.directory, index_path: memory.index_path, index_sha256: createHash('sha256').update(index).digest('hex') })}`)
       lines.push('Before relevant work, read this memory index, then only matching detail files.')
       lines.push("Memory is this checkout's directory: read and write it here, and commit memory edits with this branch so they merge with its PR. Memory other worktrees have not merged yet is not visible. Re-read immediately before editing and preserve other writers.")
-      if (host === 'claude') { const stale = staleClaudeMemorySetting(config.repoRoot); if (stale) lines.push(stale) }
+      if (host === 'claude') { const stale = staleClaudeMemorySetting(config.repoRoot, options); if (stale) lines.push(stale) }
     } catch (error) { lines.push(`PROJECT_CONTEXT_FAILED: ${error.message}\nRecovery: inspect .project-context.json and the memory index in PROJECT_CHECKOUT.`) }
   }
   if (config.intent) {
@@ -261,12 +262,23 @@ function buildSessionStartContext({ repoRoot = process.cwd(), host = 'codex', ev
 }
 // Earlier versions pinned Claude native memory to the primary checkout via autoMemoryDirectory.
 // Native memory is now off for opted-in projects; a leftover pin means setup was not rerun.
-function staleClaudeMemorySetting(root) {
+// Desktop-app worktree sessions load project settings from the main checkout root, so that
+// file is inspected too. This is a read-only diagnostic: memory paths never use the primary.
+function staleClaudeMemorySetting(root, options = {}) {
+  const roots = [root]
   try {
-    const settings = JSON.parse(fs.readFileSync(confined(root, '.claude/settings.json', 'claude settings'), 'utf8'))
-    if (settings && (settings.autoMemoryDirectory !== undefined || settings.autoMemoryEnabled !== false)) return 'PROJECT_MEMORY_NATIVE_SETTING_STALE: .claude/settings.json still enables or redirects Claude native auto memory; rerun project-context setup so autoMemoryDirectory is removed and autoMemoryEnabled is false. Use the PROJECT_MEMORY directory above, not the native memory directory.'
+    const first = gitQuery(root, ['worktree', 'list', '--porcelain', '-z'], options).split('\0').find(field => field.startsWith('worktree '))
+    const main = first && fs.realpathSync(first.slice('worktree '.length))
+    if (main && main !== root && fs.existsSync(path.join(main, '.git'))) roots.push(main)
   } catch {}
-  return null
+  const stale = []
+  for (const checkout of roots) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(confined(checkout, '.claude/settings.json', 'claude settings'), 'utf8'))
+      if (settings && (settings.autoMemoryDirectory !== undefined || settings.autoMemoryEnabled !== false)) stale.push(path.join(checkout, '.claude/settings.json'))
+    } catch {}
+  }
+  return stale.length ? `PROJECT_MEMORY_NATIVE_SETTING_STALE: ${stale.join(', ')} still enables or redirects Claude native auto memory (desktop worktree sessions read the main checkout's settings); rerun project-context setup there and merge it so autoMemoryDirectory is removed and autoMemoryEnabled is false. Use the PROJECT_MEMORY directory above, not the native memory directory.` : null
 }
 function inspectProjectContext({ repoRoot = process.cwd(), host = 'all', ...options } = {}) {
   const errors = []
