@@ -1,6 +1,6 @@
 # {{plan-id}} — Current work
 
-Plan: {{path + revision}}
+Plan: {{path + revision}} · Spec: {{path + revision}}
 Coordinator: {{role owner / route / actual session reference if known}}
 Next coordination action: {{one action}}
 
@@ -8,5 +8,7 @@ Next coordination action: {{one action}}
 | --- | --- | --- | --- | --- |
 | T01 | {{state}} | {{owner and runtime reference}} | {{links}} | {{short}} |
 
-{{Coordinator-owned index, not an execution log. Read the task card and live state
-before resuming. Remove template guidance in the actual output.}}
+{{Coordinator-owned index, not an execution log: this header and one table, with
+rows updated in place. Do not add dated sections, narratives, or evidence here.
+Read the task card and live state before resuming.
+Remove template guidance in the actual output.}}

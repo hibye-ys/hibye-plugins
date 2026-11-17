@@ -9,7 +9,7 @@ Claude Code·Codex·Muse Code용 개인 에이전트 플러그인 원본 저장�
 | `backend-ts` | EUNHA TypeScript API의 agent, context, provider, tool, MCP, HTTP, SSE 런타임 스킬 10개와 검증 하네스 |
 | `state-ledger` | 전역 STATE 원장 lifecycle; 프로젝트 context와 독립된 native snapshot. 스킬 `setup-state`(설치); 사용 규칙 `state-ledger-rules`는 프로젝트에 복사하는 템플릿 |
 | `project-context` | 프로젝트 opt-in에 따라 현재 checkout의 메모리와 intent를 host별로 연결. 스킬 `setup-project-context`; `docs-boundary`(문서는 실행 입력이 아님, 문서 위치 규칙)는 프로젝트에 복사하는 템플릿 |
-| `spec-plan` | 간결한 스펙·구현 계획, 모델 배정, 순차·병렬 실행과 작업 인계 (Claude·Codex·Muse 전역 설치) |
+| `spec-plan` | 짧은 스펙(`spec.md`)과 구현 계획(`plan.md`)을 나눠 쓰기, 모델 배정, 순차·병렬 실행과 작업 인계 (Claude·Codex·Muse 전역 설치) |
 | `agent-results` | 실제 실행 결과·하네스 버전 보존, 근거 있는 개선 권고와 사용자 지시 후 개선 (Codex·Claude 공통) |
 | `muse-delegate` | muse를 언급할 때만 Orca 또는 Orca 없는 headless `muse exec`(`muse-exec.sh`)로 muse 워커에 구현을 위임하고 검증 (Claude·Codex 전역 설치) |
 | `orch` | Claude 모델·effort 배정 원칙 `claude-models`와 역할 기반 최상위 관리 세션 `lead`(구현·검증 하위 세션 배분). 수동 호출 `/orch:lead`·`/orch:claude-models` (Claude 전용) |
