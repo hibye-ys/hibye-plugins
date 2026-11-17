@@ -6,7 +6,8 @@ prepare the handoff and report the limitation without claiming a worker started.
 
 ## Artifacts and ownership
 
-Keep the compact plan as the intent/task source. At first execution create:
+The spec is the intent source and the plan is the task source; neither holds
+progress. At first execution create:
 
 - A short progress index using [status-template.md](../assets/status-template.md),
   normally `status.md` beside the plan. Reuse an existing project state ledger
@@ -17,8 +18,9 @@ Keep the compact plan as the intent/task source. At first execution create:
   checkpoint; the coordinator performs ownership transfers. One card persists
   across replacements. Do not overwrite another active worker's checkpoint.
 
-The index is a summary; task checkpoints, Git, and runtime state must be reconciled
-on resume. Preserve local/uncommitted work. Keep logs and large evidence outside
+The index is a summary: one header and one table whose rows are updated in place,
+never dated sections or narratives. Task checkpoints, Git, and runtime state must
+be reconciled on resume. Preserve local/uncommitted work. Keep logs and large evidence outside
 the cards and link them. No credentials or raw private transcripts in artifacts.
 These notes guide agents, not machine execution or new approval authority. Keep
 machine state in the existing runtime and honor project document boundaries.
@@ -39,9 +41,12 @@ otherwise serialize with a short reason. Include shared files, generators, and
 external mutable resources when checking conflicts. Re-evaluate after each result
 or block; do not wait for unrelated tasks just to finish an artificial wave.
 
-Fill only the selected task's card: plan path/revision, objective, owned paths,
-dependencies/interfaces, applicable constraints, acceptance and validation scope,
-and assignment. Carry the required checks and evidence environment into the brief.
+Fill only the selected task's card: spec and plan path/revision, objective, owned
+paths, dependencies/interfaces, applicable constraints, "done when" and validation,
+and assignment. The plan table carries one line per task; the card is where owned
+paths and validation detail are written out. Carry the required checks and
+evidence environment into the brief, and say which checks are left to the plan's
+closing task.
 Record the starting checkpoint before work begins. Capture returned session/agent
 IDs and runtime route; never invent them. Relevant contract changes invalidate
 the old card until reconciled; unrelated plan edits do not restart completed work.
@@ -65,8 +70,9 @@ prerequisites; a short verbal brief alone is not a resumable handoff.
 ## While working
 
 Persist a short checkpoint after a meaningful change, validation result, or block,
-and before yielding/transferring ownership. Replace stale current-state prose;
-preserve decisions/evidence still needed to avoid repeated work. Do not maintain a
+and before yielding/transferring ownership. Replace the previous checkpoint rather
+than append to it; preserve only decisions/evidence still needed to avoid repeated
+work, and link anything long. Do not maintain a
 tool-call diary. At risky external effects, record the operation reference and
 intended effect before starting, then the observed result; unknown is not failure.
 
@@ -85,12 +91,18 @@ When target-tree integration is part of acceptance, keep the task in
 needs-verification until its changes are integrated and required affected checks
 pass there. A worker-tree pass alone does not complete that acceptance.
 
+While a task is being edited, run only its narrow check. The full run of the
+affected scope, the independent review when one is warranted, and edits to shared
+bookkeeping files belong to the plan's closing task and happen once, after the
+other tasks are accepted and before the work is uploaded.
+
 ## Resume or replace, including the coordinator
 
 1. Read the small progress index and select relevant unfinished work, including
    pending and needs-verification as well as active/blocked. Read only its existing
    cards; for pending work without a card, use the relevant plan row at dispatch.
-   Read other plan sections only to resolve missing intent, dependencies, or drift.
+   Read the spec or other plan sections only to resolve missing intent,
+   dependencies, or drift.
 2. Reconcile workspace/base/dirty diff, latest checkpoint, process/session state,
    and any pending effects. A checkpoint can lag behind an abrupt termination.
 3. For an existing session, use that runtime's read/resume operation and the same

@@ -29,10 +29,10 @@
     },
     {
       "name": "spec-plan",
-      "description": "간결한 스펙·구현 계획, 비용을 고려한 에이전트 배정, 순차·병렬 실행과 중단 복구.",
+      "description": "짧은 스펙(무엇을·왜)과 구현 계획(어떻게·누가·순서)을 나눠 쓰고, 비용을 고려한 에이전트 배정, 순차·병렬 실행과 중단 복구.",
       "category": "development",
       "source": "./plugins/spec-plan",
-      "version": "1.1.2+build.20261020113212015909"
+      "version": "2.0.0+build.20261117000000000000"
     },
     {
       "name": "muse-delegate",

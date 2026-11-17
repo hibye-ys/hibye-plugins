@@ -1,7 +1,7 @@
 {
   "name": "spec-plan",
-  "version": "1.1.2+build.20261020113212015909",
-  "description": "Concise specs and implementation plans with cost-aware parallel work and resumable handoffs.",
+  "version": "2.0.0+build.20261117000000000000",
+  "description": "A short spec for the person who decides and a separate implementation plan for the agents who execute, with cost-aware parallel work and resumable handoffs.",
   "author": {
     "name": "hibye-ys"
   }
