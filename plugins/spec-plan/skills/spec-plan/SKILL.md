@@ -2,7 +2,7 @@
 name: spec-plan
 description: Create and maintain a short spec (what will be true and why, for the person who decides) and a separate implementation plan (how the work is divided, who does it, in what order, for the agents who execute), with cost-aware agent assignments and resumable task handoffs. Use for planning multi-step work, assigning models/providers, or updating/resuming an existing spec or plan. Planning alone does not dispatch workers or implement changes.
 metadata:
-  version: "2.0.0"
+  version: "2.0.1"
 ---
 
 # Spec Plan
@@ -83,18 +83,27 @@ earlier), otherwise `draft`. Then include only what applies:
    reader nothing; the rule's full text is too much.
 6. **Decisions:** choices the reader owns — product behavior, cost, risk, what is
    dropped. Three lines at most each: the choice, the reason, and a rejected
-   alternative only if someone is likely to raise it again.
+   alternative only if someone is likely to raise it again. Mark each `settled`
+   or `proposed`; a proposed one states the recommendation and the one
+   alternative worth asking about.
 7. **Limits and stop conditions:** the time or cost ceiling, and what makes the
    work stop and report instead of continuing.
-8. **Open questions:** anything unresolved that changes scope or acceptance. A
-   spec with one stays `draft`.
+8. **Open questions:** only what changes scope or acceptance and cannot yet be
+   given even a recommendation. A spec with one, or with a proposed decision,
+   stays `draft`.
+
+Two optional additions: a short glossary when the spec needs several terms the
+reader does not know, and a section of your own when something the reader must
+decide fits none of the above (for example a table of which check runs when).
 
 Write for the reader: plain words, behavior rather than mechanism. Use the
 product's own words for what the reader sees, and give a technical term they
-cannot avoid a few words of explanation the first time. File paths, table names,
-and function names belong in the plan or the design note unless the reader has to
-decide on them. The spec holds no tasks, assignments, model names, ordering, or
-progress.
+cannot avoid a few words of explanation the first time. Name a file, table,
+function, or command only when the reader must recognize it or approve a change
+to it (a rule file, a gate, a command); otherwise say what kind of thing it is
+and leave the name to the plan or the design note. The spec may list phases and
+their order as scope — what is delivered when. It holds no tasks, task order,
+assignments, model names, or progress.
 
 ## Write the plan
 
@@ -154,7 +163,8 @@ thing. Control those:
 - **Say it once.** What the spec says, the plan links.
 - **Count items, not lines, to see that the work is too big.** More than about
   ten acceptance lines or eight tasks means the work should be phased (below),
-  not that the sentences should be squeezed.
+  not that the sentences should be squeezed. Count per phase: once the work is
+  phased, the numbers apply to one phase's acceptance lines and tasks.
 
 Content that does not fit has a place:
 
@@ -216,8 +226,16 @@ it wins.
 
 - **Spec — Planned tests:** list the entry points this work touches, in the
   rule's own vocabulary (its grades or classes), and each planned test as one
-  sentence, within the rule's budget. These lines are acceptance. Write no test
-  beyond the budget and no test code.
+  sentence, within the rule's budget. These lines are completion criteria the
+  plan must cover, not a step where the user signs off; what the user checks in
+  person is set by the project's test rule or a decision in the spec, and where
+  neither says so, add no approval step. Write no test beyond the budget and no
+  test code.
+  When the entry points cannot be listed up front (the first tests for an area,
+  a restructuring of the whole suite), give the rule's budget and a count per
+  module instead, marking each count as estimated or measured; write the list
+  when each phase starts and link it. Acceptance is then what the rule itself
+  reports: the map matches the tests and the budget holds.
 - **Plan — tasks:** a behavior's test and its implementation are one task, test
   first; never split them into parallel tasks. Split tasks along the project's
   isolation boundaries (such as separately deployed units). A test that needs two
@@ -280,3 +298,7 @@ a change to scope or acceptance, then revise the plan and refresh affected activ
 cards before further dependent work. When only the method changes, revise the
 plan alone. The skill is guidance, not an automatic checkpoint hook, quota
 monitor, or background failover service.
+
+## When the skill itself is the problem
+
+If this skill blocks you, is wrong, is ambiguous, misses something, or asks for too much while you work, do not edit the skill. Record it the way the project's `skill-feedback` skill says and continue the work. If the project has no such skill, tell the user in one line.

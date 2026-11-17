@@ -8,9 +8,15 @@ Created: {{actual ISO 8601 timestamp with timezone offset; preserve on revision}
 
 {{One or two sentences: the observable result and who it is for.}}
 
+## Terms
+
+{{Optional. Only terms the reader does not know and cannot avoid, one line each.}}
+
+- {{term}} — {{a few plain words}}
+
 ## Scope
 
-- In: {{what this work delivers}}
+- In: {{what this work delivers; for phased work, the phases in order and what each delivers}}
 - Out: {{exclusions someone would otherwise assume; omit if none}}
 
 ## Behavior and acceptance
@@ -24,13 +30,22 @@ in that rule's vocabulary, and each test as one sentence within its budget.}}
 
 - {{entry point}} · {{grade or class}} — {{the test as one sentence}}
 
+{{When entry points cannot be listed up front: the rule's budget and a count per
+module (estimated or measured) instead, with a link to each phase's list once
+written.}}
+
 ## Constraints
 
 - {{short phrase}} ({{pointer to the rule}})
 
 ## Decisions
 
-- D1: {{choice}} — {{reason}}
+- D1 · {{settled | proposed}}: {{choice, or recommendation}} — {{reason}}{{; if proposed, the one alternative worth asking about}}
+
+## {{Optional section of your own}}
+
+{{Only when something the reader must decide fits no section here, e.g. a table of
+which check runs when.}}
 
 ## Limits and stop conditions
 
@@ -38,7 +53,8 @@ in that rule's vocabulary, and each test as one sentence within its budget.}}
 
 ## Open questions
 
-- {{anything unresolved that changes scope or acceptance; omit if none}}
+- {{only what changes scope or acceptance and cannot yet be given a recommendation; omit if none}}
 
-{{Plain words for a reader who may not read code. No tasks, assignments, order, or
-progress. Remove template guidance and unused sections in the actual output.}}
+{{Plain words for a reader who may not read code. No tasks, task order,
+assignments, or progress. Remove template guidance and unused sections in the
+actual output.}}
