@@ -298,3 +298,7 @@ a change to scope or acceptance, then revise the plan and refresh affected activ
 cards before further dependent work. When only the method changes, revise the
 plan alone. The skill is guidance, not an automatic checkpoint hook, quota
 monitor, or background failover service.
+
+## When the skill itself is the problem
+
+If this skill blocks you, is wrong, is ambiguous, misses something, or asks for too much while you work, do not edit the skill. Record it the way the project's `skill-feedback` skill says and continue the work. If the project has no such skill, tell the user in one line.
