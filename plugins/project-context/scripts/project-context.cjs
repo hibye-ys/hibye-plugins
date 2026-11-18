@@ -55,9 +55,10 @@ function loadProjectContextConfig({ repoRoot = process.cwd(), validateIntent = t
   for (const name of ['memory', 'intent']) {
     if (config[name] === undefined || config[name] === false) { config[name] = false; continue }
     if (name === 'intent' && !validateIntent) continue
-    keys(config[name], name === 'memory' ? ['directory', 'index'] : ['directory'], name)
+    keys(config[name], name === 'memory' ? ['directory', 'index', 'subindexes'] : ['directory'], name)
     relative(config[name].directory, `${name}.directory`)
     if (name === 'memory') relative(config[name].index, 'memory.index')
+    if (name === 'memory' && config[name].subindexes !== undefined) relative(config[name].subindexes, 'memory.subindexes')
     // Intent's filesystem boundary is checked only when loading intent, never while resolving memory.
   }
   if (!config.memory && !config.intent) throw new Error('config must enable memory or intent')
@@ -75,6 +76,14 @@ function resolveProjectMemory({ repoRoot = process.cwd(), config, ...options } =
     const directory = confined(checkout, settings.memory.directory, 'memory.directory')
     const indexPath = confined(checkout, `${settings.memory.directory}/${settings.memory.index}`, 'memory.index')
     const result = { contract_version: 2, memory_scope: 'checkout', checkout_root: checkout, directory, index_path: indexPath }
+    // Optional: a folder of sub-indexes inside the memory directory. The root index links each
+    // sub-index; details linked from a sub-index count as indexed without being listed in the root.
+    if (settings.memory.subindexes !== undefined) {
+      const subindexPath = confined(checkout, `${settings.memory.directory}/${settings.memory.subindexes}`, 'memory.subindexes')
+      const subindexDirectory = path.relative(directory, subindexPath).split(path.sep).join('/')
+      if (!subindexDirectory || subindexDirectory.startsWith('..')) throw new Error('memory.subindexes must be a folder inside memory.directory')
+      result.subindex_directory = subindexDirectory
+    }
     // v1 consumers that read the removed primary fields fail loudly instead of getting undefined.
     // Non-enumerable, so JSON output and spreads stay clean.
     for (const field of ['primary_checkout', 'git_common_dir', 'configuration_warning']) Object.defineProperty(result, field, { enumerable: false, get() { throw new Error(`PROJECT_MEMORY_FIELD_REMOVED: ${field} was removed in project-context 0.4.0; memory now resolves from checkout_root (memory_scope "checkout")`) } })
@@ -82,35 +91,46 @@ function resolveProjectMemory({ repoRoot = process.cwd(), config, ...options } =
   } catch (error) { throw new Error(`PROJECT_MEMORY_ROOT_FAILED: ${error.message}; inspect .project-context.json and the memory directory in this checkout`, { cause: error }) }
 }
 function inspectMemoryIndex({ repoRoot = process.cwd(), resolveMemory = resolveProjectMemory, ...options } = {}) {
-  const { directory, index_path: indexPath } = resolveMemory({ repoRoot, ...options })
-  const index = fs.readFileSync(indexPath, 'utf8')
+  const { directory, index_path: indexPath, subindex_directory: subindexDirectory = null } = resolveMemory({ repoRoot, ...options })
   const counts = new Map()
+  const subindexCounts = new Map()
   const invalid = []
-  for (const match of index.matchAll(/\[[^\]]*\]\(([^)]+)\)/gu)) {
-    const link = match[1].split('#', 1)[0].replace(/^\.\//, '')
-    const target = path.posix.join(path.relative(directory, path.dirname(indexPath)).split(path.sep).join('/'), link)
-    if (!link || /^[a-z][a-z0-9+.-]*:/i.test(link) || !link.endsWith('.md')) continue
-    if (path.resolve(directory, target) === indexPath) continue
-    try { if (path.posix.isAbsolute(link)) throw new Error('absolute link'); confined(directory, target, 'memory link') } catch { invalid.push(target); continue }
-    counts.set(target, (counts.get(target) || 0) + 1)
+  const isSubindex = name => subindexDirectory !== null && name.startsWith(`${subindexDirectory}/`)
+  const bump = (map, name) => map.set(name, (map.get(name) || 0) + 1)
+  function scan(file, fromSubindex) {
+    const base = path.relative(directory, path.dirname(file)).split(path.sep).join('/')
+    for (const match of fs.readFileSync(file, 'utf8').matchAll(/\[[^\]]*\]\(([^)]+)\)/gu)) {
+      const link = match[1].split('#', 1)[0].replace(/^\.\//, '')
+      const target = path.posix.join(base, link)
+      if (!link || /^[a-z][a-z0-9+.-]*:/i.test(link) || !link.endsWith('.md')) continue
+      if (path.resolve(directory, target) === indexPath) continue
+      try { if (path.posix.isAbsolute(link)) throw new Error('absolute link'); confined(directory, target, 'memory link') } catch { invalid.push(target); continue }
+      // Sub-indexes are one level deep: only the root index may link one.
+      if (isSubindex(target)) { if (fromSubindex) invalid.push(target); else bump(subindexCounts, target); continue }
+      bump(counts, target)
+    }
   }
   const files = []
+  const subindexFiles = []
   function walk(dir, prefix = '') {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const rel = `${prefix}${entry.name}`
       if (entry.isDirectory()) walk(path.join(dir, entry.name), `${rel}/`)
       else if ((entry.isFile() || entry.isSymbolicLink()) && entry.name.endsWith('.md') && path.join(directory, rel) !== indexPath) {
-        try { confined(directory, rel, 'memory detail'); if (!fs.statSync(path.join(directory, rel)).isFile()) throw new Error('not file'); files.push(rel) } catch { invalid.push(rel) }
+        try { confined(directory, rel, 'memory detail'); if (!fs.statSync(path.join(directory, rel)).isFile()) throw new Error('not file'); (isSubindex(rel) ? subindexFiles : files).push(rel) } catch { invalid.push(rel) }
       }
     }
   }
+  scan(indexPath, false)
   walk(directory)
   files.sort()
+  subindexFiles.sort()
+  for (const name of subindexFiles) if (subindexCounts.has(name)) scan(path.join(directory, name), true)
   const stable = values => [...new Set(values)].sort()
-  const dangling = stable([...invalid, ...[...counts.keys()].filter(name => !files.includes(name))])
-  const unindexed = files.filter(name => !counts.has(name))
-  const duplicated = stable([...counts].filter(([,count]) => count !== 1).map(([name]) => name))
-  return Object.freeze({ schema_version: 1, kind: 'ProjectMemoryIndexContractV1', memory_directory: directory, directory, index_path: indexPath, ok: !dangling.length && !unindexed.length && !duplicated.length, indexed_file_count: counts.size, detail_file_count: files.length, dangling, unindexed, duplicated })
+  const dangling = stable([...invalid, ...[...counts.keys()].filter(name => !files.includes(name)), ...[...subindexCounts.keys()].filter(name => !subindexFiles.includes(name))])
+  const unindexed = [...files.filter(name => !counts.has(name)), ...subindexFiles.filter(name => !subindexCounts.has(name))].sort()
+  const duplicated = stable([...counts, ...subindexCounts].filter(([,count]) => count !== 1).map(([name]) => name))
+  return Object.freeze({ schema_version: 1, kind: 'ProjectMemoryIndexContractV1', memory_directory: directory, directory, index_path: indexPath, ok: !dangling.length && !unindexed.length && !duplicated.length, indexed_file_count: counts.size, detail_file_count: files.length, subindexes: subindexFiles.filter(name => subindexCounts.has(name)), dangling, unindexed, duplicated })
 }
 const ENTRY_HEADING = /^## ([A-Z]+\d+) · (.+)$/
 const FIELD_LINE = /^- (규칙|갱신):\s*(.*)$/
@@ -246,6 +266,7 @@ function buildSessionStartContext({ repoRoot = process.cwd(), host = 'codex', ev
       const index = readFile(memory.index_path, 'utf8')
       lines.push(`PROJECT_MEMORY ${JSON.stringify({ directory: memory.directory, index_path: memory.index_path, index_sha256: createHash('sha256').update(index).digest('hex') })}`)
       lines.push('Before relevant work, read this memory index, then only matching detail files.')
+      if (memory.subindex_directory) lines.push(`The index links task sub-indexes under ${memory.subindex_directory}/: before a task, read the sub-index that matches it.`)
       lines.push("Memory is this checkout's directory: read and write it here, and commit memory edits with this branch so they merge with its PR. Memory other worktrees have not merged yet is not visible. Re-read immediately before editing and preserve other writers.")
       if (host === 'claude') { const stale = staleClaudeMemorySetting(config.repoRoot, options); if (stale) lines.push(stale) }
     } catch (error) { lines.push(`PROJECT_CONTEXT_FAILED: ${error.message}\nRecovery: inspect .project-context.json and the memory index in PROJECT_CHECKOUT.`) }

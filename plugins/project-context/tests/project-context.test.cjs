@@ -137,6 +137,43 @@ test('config, intent and memory symlink escapes rejected without leaking content
   fs.rmSync(path.join(root, 'intent'), { recursive: true }); fs.symlinkSync(path.join(base, 'outside'), path.join(root, 'intent'))
   assert.throws(() => runtime.loadIntentLedger({ repoRoot: root }), /escapes/)
 })
+test('sub-indexes linked from the root index carry details the root does not list', t => {
+  const config = { schema_version: 1, memory: { directory: 'docs/memory', index: 'MEMORY.md', subindexes: 'index' }, intent: { directory: 'intent' } }
+  const { root } = fixture(t, config)
+  const memory = path.join(root, 'docs/memory')
+  fs.mkdirSync(path.join(memory, 'index'))
+  for (const name of ['task.md', 'nested/deep.md', 'old.md']) { fs.mkdirSync(path.dirname(path.join(memory, name)), { recursive: true }); fs.writeFileSync(path.join(memory, name), 'lazy') }
+  fs.writeFileSync(path.join(memory, 'MEMORY.md'), '[always](detail.md)\n[testing](index/testing.md)\n[archive](index/archive.md)\n')
+  fs.writeFileSync(path.join(memory, 'index/testing.md'), '[task](../task.md) [deep](../nested/deep.md)\n')
+  fs.writeFileSync(path.join(memory, 'index/archive.md'), '[old](../old.md)\n')
+  const report = runtime.inspectMemoryIndex({ repoRoot: root })
+  assert.equal(report.ok, true)
+  assert.deepEqual(report.subindexes, ['index/archive.md', 'index/testing.md'])
+  assert.equal(report.indexed_file_count, 4); assert.equal(report.detail_file_count, 4)
+  assert.equal(runtime.resolveProjectMemory({ repoRoot: root }).subindex_directory, 'index')
+  assert.match(context({ repoRoot: root }), /sub-indexes under index\//)
+
+  // A detail listed in both the root and a sub-index, or in two sub-indexes, is a duplicate.
+  fs.writeFileSync(path.join(memory, 'index/archive.md'), '[old](../old.md) [again](../detail.md) [task](../task.md)\n')
+  assert.deepEqual(runtime.inspectMemoryIndex({ repoRoot: root }).duplicated, ['detail.md', 'task.md'])
+
+  // An unlinked sub-index is reported and its entries do not count; sub-indexes do not nest.
+  fs.writeFileSync(path.join(memory, 'index/archive.md'), '[old](../old.md)\n')
+  fs.writeFileSync(path.join(memory, 'index/orphan.md'), '[extra](../extra.md)\n'); fs.writeFileSync(path.join(memory, 'extra.md'), 'lazy')
+  fs.writeFileSync(path.join(memory, 'index/testing.md'), '[task](../task.md) [deep](../nested/deep.md) [nest](orphan.md) [gone](../gone.md)\n')
+  const broken = runtime.inspectMemoryIndex({ repoRoot: root })
+  assert.equal(broken.ok, false)
+  assert.deepEqual(broken.unindexed, ['extra.md', 'index/orphan.md'])
+  assert.deepEqual(broken.dangling, ['gone.md', 'index/orphan.md'])
+
+  // Without the opt-in key, a file under index/ is an ordinary detail and its links are not followed.
+  fs.writeFileSync(path.join(root, '.project-context.json'), JSON.stringify({ schema_version: 1, memory: { directory: 'docs/memory', index: 'MEMORY.md' } }))
+  assert.deepEqual(runtime.inspectMemoryIndex({ repoRoot: root }).unindexed, ['extra.md', 'index/orphan.md', 'nested/deep.md', 'old.md', 'task.md'])
+  for (const bad of ['../outside', '/abs', '.']) {
+    fs.writeFileSync(path.join(root, '.project-context.json'), JSON.stringify({ schema_version: 1, memory: { directory: 'docs/memory', index: 'MEMORY.md', subindexes: bad } }))
+    assert.throws(() => runtime.resolveProjectMemory({ repoRoot: root }), /PROJECT_MEMORY_ROOT_FAILED/)
+  }
+})
 test('memory index counts duplicate, missing, nested unindexed and escaping details', t => {
   const { root } = fixture(t)
   fs.mkdirSync(path.join(root, 'docs/memory/nested')); fs.writeFileSync(path.join(root, 'docs/memory/nested/new.md'), 'lazy')
