@@ -53,7 +53,7 @@
       "description": "Claude 모델·effort 배정 원칙(claude-models)과 역할 기반 최상위 관리 세션 커맨드(lead). 수동 호출 전용 (Claude 전용).",
       "category": "development",
       "source": "./plugins/orch",
-      "version": "0.1.1"
+      "version": "0.1.2"
     }
   ]
 }
