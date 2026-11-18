@@ -46,7 +46,7 @@
       "description": "프로젝트 opt-in 기반 현재 checkout 메모리와 intent의 host별 lazy context.",
       "category": "development",
       "source": "./plugins/project-context",
-      "version": "0.6.0"
+      "version": "0.6.1"
     },
     {
       "name": "orch",
