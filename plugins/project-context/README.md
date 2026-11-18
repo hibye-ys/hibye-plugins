@@ -7,6 +7,8 @@ A Node standard-library plugin for opt-in memory pointers and lazy operating-dec
 - `setup-project-context`: opt-in setup and inspection.
 - `docs-boundary` (template, not a global skill): docs are human records, not execution input; control-plane authority wording, contracts/ledger/generated folder split, where documents go, pinned Git reads. The project names its folders in an AGENTS.md `## docs 경계` section.
 
+The `memory-upkeep` skill (`skills/memory-upkeep/`) is the periodic memory pass: it checks each note against current code and rules, fixes or retires stale, duplicated and already-promoted notes, and sorts the index into always-loaded, per-task and look-up-only entries. It is plain instructions with no bundled code; it uses `check-memory` only to confirm the index at the end.
+
 Rule skill templates live in `templates/skills/<skill>/`. `scripts/skill-template.cjs install <skill> --project <path>` copies one into the project's `.agents/skills/<skill>/` (plus `.template-base.md` as the merge base and a `.claude/skills/<skill>` link); the project edits its copy. Shared improvements raise `metadata.template_version`; SessionStart then emits `SKILL_TEMPLATE_UPDATE <skill>` for opted-in projects, and `diff`/`update <skill>` shows and three-way merges the change (on conflict the new template waits in `.template-pending.json` until the copy is resolved). See `setup-project-context`.
 
 ## Project opt-in
