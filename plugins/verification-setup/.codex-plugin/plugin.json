@@ -1,0 +1,22 @@
+{
+  "name": "verification-setup",
+  "version": "0.1.0",
+  "description": "Write only the tests a project needs, judged from its entry points, with a test map and package-based test selection.",
+  "author": {
+    "name": "hibye-ys"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Verification Setup",
+    "shortDescription": "진입점 기준으로 꼭 필요한 테스트만 쓰고 지도로 잇기",
+    "longDescription": "진입점마다 등급과 예산을 정해 꼭 필요한 테스트만 쓰고, 테스트 지도와 대조로 빠지거나 넘치는 것을 보이며, 빌드 도구의 패키지 그래프로 관련 테스트만 다시 돌리게 하는 문장 스킬입니다.",
+    "developerName": "hibye-ys",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "이 영역의 테스트를 진입점 기준으로 점검하고 지도를 만들어줘."
+  }
+}
