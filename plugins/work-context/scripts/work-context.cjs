@@ -261,11 +261,59 @@ function loadMemoryIndex({ config }) {
   const indexRel = `${config.memory.directory}/${config.memory.index}`
   const indexAbs = confined(root, indexRel, 'memory.index')
   const text = fs.readFileSync(indexAbs, 'utf8')
-  return { indexRel, indexAbs, listLines: text.split('\n').filter((line) => line.startsWith('- [')) }
+  const listLines = []
+  for (const line of text.split('\n')) {
+    if (line.startsWith('## ')) listLines.push(`### ${line.slice(3)}`)
+    else if (line.startsWith('- [')) listLines.push(line)
+  }
+  return { indexRel, indexAbs, listLines }
 }
 
 // --- active plan ----------------------------------------------------------------
 const NO_PLAN = Object.freeze({ planRel: null, planAbs: null, statusRel: null, injectRel: null, via: 'none', others: Object.freeze([]) })
+
+function scanPlanHeads(root, plansDirRel) {
+  const plansDirAbs = confined(root, plansDirRel, 'plans.directory')
+  let entries
+  try {
+    entries = fs.readdirSync(plansDirAbs, { withFileTypes: true })
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return []
+    throw error
+  }
+  const found = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+    const rel = `${plansDirRel}/${entry.name}`
+    const statusRel = `${rel}/${STATUS_FILE}`
+    let statusAbs
+    try {
+      statusAbs = confined(root, statusRel, 'plan status')
+    } catch { continue }
+    let text
+    try {
+      if (!fs.statSync(statusAbs).isFile()) continue
+      text = fs.readFileSync(statusAbs, 'utf8')
+    } catch { continue }
+    const parsed = parseStatusHead(text, statusRel)
+    if (parsed.errors.length > 0) continue
+    found.push({ rel, abs: path.dirname(statusAbs), head: parsed.head, mtimeMs: fs.statSync(statusAbs).mtimeMs })
+  }
+  return found
+}
+
+const RESUME_ATTACH_LINE = '사용자가 가리킨 폴더가 있으면 그 status.md 머리의 맡은 쪽·브랜치 줄을 자기 것으로 고친다(다음 턴부터 주입된다). 브랜치 줄을 고칠 수 없으면 `<git-dir>/work-context-active` 첫 줄에 폴더 경로를 적는다.'
+const MAX_RESUME_CANDIDATES = 8
+
+function resumeCandidateLines(root, plansDirRel) {
+  let found
+  try {
+    found = scanPlanHeads(root, plansDirRel)
+  } catch { return [] }
+  const candidates = found.filter((c) => c.head['상태'] !== STATUS_DONE)
+  candidates.sort((a, b) => (b.mtimeMs - a.mtimeMs) || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
+  return candidates.slice(0, MAX_RESUME_CANDIDATES).map((c) => `- ${c.head['작업 id']} · ${c.rel} · ${c.head['맡은 쪽']} · ${c.head['브랜치']}`)
+}
 
 function resolveActivePlan({ repoRoot, config, branch, ...options } = {}) {
   const settings = config || loadWorkContextConfig({ repoRoot, ...options })
@@ -284,36 +332,11 @@ function resolveActivePlan({ repoRoot, config, branch, ...options } = {}) {
     return { planRel: first, planAbs, statusRel: `${first}/${STATUS_FILE}`, injectRel: `${first}/${INJECT_FILE}`, via: 'pointer', others: [] }
   }
   // 2. scan <plans.directory>/*/status.md for this branch.
-  const plansDirRel = settings.plans.directory
-  const plansDirAbs = confined(root, plansDirRel, 'plans.directory')
-  let entries
-  try {
-    entries = fs.readdirSync(plansDirAbs, { withFileTypes: true })
-  } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { ...NO_PLAN, others: [] }
-    throw error
-  }
+  const found = scanPlanHeads(root, settings.plans.directory)
   const resolvedBranch = branch ?? currentBranch(root, options)
-  const candidates = []
-  for (const entry of entries) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
-    const rel = `${plansDirRel}/${entry.name}`
-    const statusRel = `${rel}/${STATUS_FILE}`
-    let statusAbs
-    try {
-      statusAbs = confined(root, statusRel, 'plan status')
-    } catch { continue }
-    let text
-    try {
-      if (!fs.statSync(statusAbs).isFile()) continue
-      text = fs.readFileSync(statusAbs, 'utf8')
-    } catch { continue }
-    const parsed = parseStatusHead(text, statusRel)
-    if (parsed.errors.length > 0) continue
-    if (parsed.head['브랜치'] !== resolvedBranch) continue
-    if (parsed.head['상태'] === STATUS_DONE) continue
-    candidates.push({ rel, abs: path.dirname(statusAbs), mtimeMs: fs.statSync(statusAbs).mtimeMs })
-  }
+  const candidates = found
+    .filter((c) => c.head['브랜치'] === resolvedBranch && c.head['상태'] !== STATUS_DONE)
+    .map(({ rel, abs, mtimeMs }) => ({ rel, abs, mtimeMs }))
   if (candidates.length === 0) return { ...NO_PLAN, others: [] }
   candidates.sort((a, b) => (b.mtimeMs - a.mtimeMs) || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
   const [best, ...rest] = candidates
@@ -414,7 +437,10 @@ function renderFullText(ctx, { shortenMemory = false, shortenIntent = false } = 
     blocks.push(['## 읽을 곳', ...injectSectionLines(ctx, '읽을 곳')].join('\n'))
   } else {
     blocks.push(`WORK_CONTEXT full · 계획 폴더: 없음 · checkout: ${ctx.root}`)
-    blocks.push(`이 브랜치(${ctx.branch})에 맡은 계획 폴더가 없다. 일을 시작하면 work-context 스킬대로 계획 폴더를 만든다.`)
+    const missing = [`이 브랜치(${ctx.branch})에 맡은 계획 폴더가 없다. 일을 시작하면 work-context 스킬대로 계획 폴더를 만든다.`]
+    const resume = resumeCandidateLines(ctx.root, ctx.settings.plans.directory)
+    if (resume.length > 0) missing.push(...resume, RESUME_ATTACH_LINE)
+    blocks.push(missing.join('\n'))
     blocks.push(['## 체크리스트', ...CHECKLIST].join('\n'))
   }
   if (ctx.settings.intent) blocks.push(['## 운영 결정 인덱스', ...intentLines(ctx, shortenIntent)].join('\n'))
