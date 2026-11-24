@@ -14,6 +14,7 @@ Claude Code·Codex·Muse Code용 개인 에이전트 플러그인 원본 저장�
 | `muse-delegate` | muse를 언급할 때만 Orca 또는 Orca 없는 headless `muse exec`(`muse-exec.sh`)로 muse 워커에 구현을 위임하고 검증 (Claude·Codex 전역 설치) |
 | `verification-setup` | 진입점 기준으로 꼭 필요한 테스트만 쓰고, 테스트 지도·대조로 빠짐과 넘침을 보이며, 빌드 도구의 패키지 그래프로 관련 테스트만 다시 돌리는 문장 스킬 (Claude·Codex 전역 설치) |
 | `orch` | Claude 모델·effort 배정 원칙 `claude-models`와 역할 기반 최상위 관리 세션 `lead`(구현·검증 하위 세션 배분). 수동 호출 `/orch:lead`·`/orch:claude-models` (Claude 전용) |
+| `work-context` | 계획 폴더(스펙·계획·주입 파일·진행 표)로 목표·지시·진행을 이어 가고, 세션 시작·압축 뒤·주입 파일이나 진행 표 머리가 바뀐 직후 전체를, 그 사이 턴에는 목표 한 줄과 체크리스트를 주입. spec-plan·project-context·state-ledger 를 대신한다 (Claude·Codex·Muse) |
 
 ## spec-plan 전역 설치
 
