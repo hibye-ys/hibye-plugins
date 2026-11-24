@@ -15,7 +15,7 @@ const os = require('node:os')
 const { execFileSync } = require('node:child_process')
 const { createHash } = require('node:crypto')
 
-const WORK_CONTEXT_VERSION = '0.1.0'
+const WORK_CONTEXT_VERSION = '0.1.1'
 const CONFIG_FILE = '.work-context.json'
 const ACTIVE_POINTER_FILE = 'work-context-active'
 const STATUS_FILE = 'status.md'
@@ -435,11 +435,15 @@ function buildFullText(ctx) {
 function renderShortText(ctx) {
   if (!ctx.plan.planRel) return [...CHECKLIST].join('\n')
   let goal = ''
+  let changed = []
   if (ctx.injectText !== null && !ctx.injectParsed.missing.includes('목표')) {
-    goal = (ctx.injectParsed.sections['목표'] || '').split('\n').map((line) => line.trim().replace(/^>\s*/, '').trim()).find((line) => line !== '') || ''
+    const stripped = (ctx.injectParsed.sections['목표'] || '').split('\n').map((line) => line.trim().replace(/^>\s*/, '').trim()).filter((line) => line !== '')
+    goal = stripped[0] || ''
+    changed = stripped.slice(1).filter((line) => line.startsWith('바뀜:'))
   }
   if (!goal) goal = `(${ctx.plan.injectRel}의 '## 목표' 없음)`
-  return [`WORK_CONTEXT short · 목표: ${Array.from(goal).slice(0, SHORT_GOAL_CHARS).join('')}`, ...CHECKLIST].join('\n')
+  const cut = (line) => Array.from(line).slice(0, SHORT_GOAL_CHARS).join('')
+  return [`WORK_CONTEXT short · 목표: ${cut(goal)}`, ...changed.map(cut), ...CHECKLIST].join('\n')
 }
 
 // --- fingerprint + per-session records -------------------------------------------

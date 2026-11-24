@@ -252,6 +252,16 @@ test('newest status.md wins and the others are listed', t => {
   assert.ok(out.additionalContext.includes('같은 브랜치의 다른 계획 폴더: docs/plans/2026-11-24-100000-a'))
 })
 
+test('short output lists 바뀜 lines right after the goal', t => {
+  const repo = makeRepo(t)
+  const session_id = sid('bakkwim')
+  const injectPath = path.join(repo.root, PLAN_REL, 'inject.md')
+  fs.writeFileSync(injectPath, ['# 주입 — 픽스처 작업', '', '## 목표', '> "원래 목표"', '> 바뀜: "그건 빼자"', '', '## 지시', '픽스처 지시 본문이다.', '', '## 읽을 곳', '픽스처 읽을 곳 본문이다.', ''].join('\n'))
+  hook(repo, 'session-start', { session_id, cwd: repo.root, hook_event_name: 'SessionStart', source: 'startup' })
+  const out = output(hook(repo, 'turn', { session_id, cwd: repo.root, hook_event_name: 'UserPromptSubmit' }))
+  assert.equal(out.additionalContext, ['WORK_CONTEXT short · 목표: "원래 목표"', '바뀜: "그건 빼자"', ...runtime.CHECKLIST].join('\n'))
+})
+
 test('missing session_id always yields full; invalid config fails visibly', t => {
   const repo = makeRepo(t)
   const full = output(hook(repo, 'turn', { cwd: repo.root, hook_event_name: 'UserPromptSubmit' }))
