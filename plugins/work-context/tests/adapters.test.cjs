@@ -167,5 +167,8 @@ test('d) codex and muse manifests parse with the claude plugin name and version'
     ['PostToolUse', 'post-edit', 15000],
   ])
   for (const h of muse.capabilities.hooks) assert.deepEqual(h.command, ['node', `hooks/muse-${h.id}.cjs`])
-  assert.deepEqual(muse.capabilities.skills, [])
+  assert.deepEqual(muse.capabilities.skills, [
+    { id: 'work-context', path: 'skills/work-context/SKILL.md', enabledDefault: true },
+    { id: 'memory-upkeep', path: 'skills/memory-upkeep/SKILL.md', enabledDefault: true },
+  ])
 })

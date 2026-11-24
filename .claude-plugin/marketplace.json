@@ -46,7 +46,7 @@
       "description": "계획 폴더(스펙·계획·주입 파일·진행 표)로 목표·지시·진행을 이어 가고, 세션 시작·압축 뒤·매 턴 주입한다 (Claude/Codex/Muse 공용).",
       "category": "development",
       "source": "./plugins/work-context",
-      "version": "0.1.2"
+      "version": "0.1.3"
     }
   ]
 }

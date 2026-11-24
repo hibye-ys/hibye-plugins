@@ -270,3 +270,66 @@ test('missing session_id always yields full; invalid config fails visibly', t =>
   const failed = output(hook(repo, 'session-start', { session_id: sid('bad'), cwd: repo.root, hook_event_name: 'SessionStart', source: 'startup' }))
   assert.match(failed.additionalContext, /WORK_CONTEXT_FAILED/)
 })
+
+test('memory index demotes ## headings to ### in place; heading-less index unchanged', t => {
+  const plain = makeRepo(t, { plan: false })
+  const plainText = output(hook(plain, 'session-start', { session_id: sid('mem-plain'), cwd: plain.root, hook_event_name: 'SessionStart', source: 'startup' })).additionalContext
+  assert.ok(!plainText.includes('### '), 'no demoted heading without ## lines')
+  assert.ok(plainText.includes('- [픽스처 교훈](detail.md)'))
+  assert.ok(plainText.includes('- [다른 교훈](other.md)'))
+
+  const repo = makeRepo(t, { plan: false })
+  fs.writeFileSync(path.join(repo.root, 'docs/memory/MEMORY.md'), [
+    '# 메모리 인덱스',
+    '',
+    '> 머리말 인용 줄은 싣지 않는다.',
+    '',
+    '## 매번 적용',
+    '',
+    '- [항상 교훈](detail.md)',
+    '',
+    '## 작업별 인덱스',
+    '',
+    '- [작업 교훈](other.md)',
+    '',
+  ].join('\n'))
+  const text = output(hook(repo, 'session-start', { session_id: sid('mem-head'), cwd: repo.root, hook_event_name: 'SessionStart', source: 'startup' })).additionalContext
+  const order = ['## 메모리 인덱스', 'docs/memory/MEMORY.md', '### 매번 적용', '- [항상 교훈](detail.md)', '### 작업별 인덱스', '- [작업 교훈](other.md)', '해당 줄의 상세 파일은 그 작업 전에 연다.']
+  const idx = order.map((needle) => text.indexOf(needle))
+  assert.ok(idx.every((i) => i >= 0), 'headings and items all present in place')
+  assert.deepEqual([...idx].sort((a, b) => a - b), idx, 'headings stay in place, demoted one level')
+  assert.ok(!text.includes('\n## 매번 적용'), 'original ## level is gone')
+  assert.ok(!text.includes('머리말 인용 줄은 싣지 않는다.'), 'preamble quote lines stay out')
+})
+
+test('missing plan lists resume candidates (newest first, max 8, done/legacy skipped) or nothing', t => {
+  const ATTACH = '사용자가 가리킨 폴더가 있으면 그 status.md 머리의 맡은 쪽·브랜치 줄을 자기 것으로 고친다(다음 턴부터 주입된다). 브랜치 줄을 고칠 수 없으면 `<git-dir>/work-context-active` 첫 줄에 폴더 경로를 적는다.'
+  const repo = makeRepo(t, { branch: 'fresh-branch', plan: false })
+  for (let i = 0; i < 9; i++) {
+    const slug = `2026-11-${10 + i}-100000-cand-${i}`
+    writePlan(repo.root, slug, { branch: `other-${i}`, id: `CAND-${i}` })
+    const when = new Date(Date.UTC(2026, 10, 10 + i))
+    fs.utimesSync(path.join(repo.root, 'docs/plans', slug, 'status.md'), when, when)
+  }
+  writePlan(repo.root, '2026-11-24-120000-done', { branch: 'other-done', id: 'CAND-DONE', status: '끝남' })
+  const legacy = path.join(repo.root, 'docs/plans/2026-10-01-legacy')
+  fs.mkdirSync(legacy, { recursive: true })
+  fs.writeFileSync(path.join(legacy, 'status.md'), '# 옛 진행\n\n- 자유 형식이라 머리 여섯 줄이 없다.\n')
+  const session_id = sid('resume')
+  const text = output(hook(repo, 'session-start', { session_id, cwd: repo.root, hook_event_name: 'SessionStart', source: 'startup' })).additionalContext
+  assert.ok(text.includes('이 브랜치(fresh-branch)에 맡은 계획 폴더가 없다'))
+  assert.ok(!text.includes('CAND-0'), 'oldest of nine is cut off at eight')
+  for (let i = 1; i <= 8; i++) assert.ok(text.includes(`- CAND-${i} · docs/plans/2026-11-${10 + i}-100000-cand-${i} · claude · other-${i}`), `candidate CAND-${i}`)
+  assert.ok(text.indexOf('CAND-8') < text.indexOf('CAND-7'), 'newest first')
+  assert.ok(!text.includes('CAND-DONE'), '끝남 skipped')
+  assert.ok(!text.includes('2026-10-01-legacy'), 'legacy head skipped')
+  assert.ok(text.includes(ATTACH))
+  assert.ok(text.indexOf(ATTACH) > text.indexOf('CAND-1'), 'attach line follows the list')
+  const short = output(hook(repo, 'turn', { session_id, cwd: repo.root, hook_event_name: 'UserPromptSubmit' })).additionalContext
+  assert.equal(short, runtime.CHECKLIST.join('\n'), 'short injection unchanged')
+
+  const empty = makeRepo(t, { plan: false })
+  const emptyText = output(hook(empty, 'session-start', { session_id: sid('resume-empty'), cwd: empty.root, hook_event_name: 'SessionStart', source: 'startup' })).additionalContext
+  assert.ok(!emptyText.includes(ATTACH), 'no candidates, no attach line')
+  assert.ok(emptyText.includes('이 브랜치(fixture-branch)에 맡은 계획 폴더가 없다. 일을 시작하면 work-context 스킬대로 계획 폴더를 만든다.\n\n## 체크리스트'), 'no candidates, output unchanged')
+})
