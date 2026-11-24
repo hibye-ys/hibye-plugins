@@ -32,10 +32,6 @@ core:
     mode: singleton
     activation: before_first_change_acceptance
     target: ops/gate-registry.yaml
-  - source: core/STATE_DETAIL.template.md
-    mode: per_item
-    activation: state_item_needs_detail
-    target_pattern: "docs/state/{{ID}}.md"
   - source: core/DECISION_RECORD.template.md
     mode: per_item
     activation: material_decision
@@ -84,8 +80,8 @@ conditional:
     index_target: docs/lessons/README.md
 
 optional_integrations:
-  - trigger: shared_project_context
-    source: conditional/PROJECT_CONTEXT.template.json
+  - trigger: shared_work_context
+    source: conditional/WORK_CONTEXT.template.json
     mode: singleton
     activation: existing_memory_or_intent_and_native_plugin
-    target: .project-context.json
+    target: .work-context.json

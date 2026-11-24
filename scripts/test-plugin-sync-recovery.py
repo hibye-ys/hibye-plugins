@@ -11,6 +11,7 @@ from pathlib import Path
 import select
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,11 +19,174 @@ from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location('distribution_fixture', HERE / 'test-project-context-distribution.py')
-fixture = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(fixture)
-sync = fixture.sync
+
+
+def load(name, filename):
+    spec = importlib.util.spec_from_file_location(name, HERE / filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+sync = load('sync_plugins', 'sync-plugins.py')
 transaction = sync.transaction
+
+
+class FakeNativeHosts:
+    """In-memory CLI behavior plus isolated registry/cache files; no native CLI runs."""
+    def __init__(self, root):
+        self.root = root
+        self.home = root / 'claude-config'
+        self.codex_home = root / 'codex-config'
+        self.project = root / 'project'
+        self.project.mkdir()
+        self.project2 = root / 'project-two'
+        self.project2.mkdir()
+        self.calls = []
+        self.fail = None
+        self.skip_scope = None
+        self.tamper_activation = False
+        self.registry = {'version': 2, 'plugins': {}}
+        self.codex = {}
+        self.active = {}
+        portable = {'name': 'hibye-plugins', 'owner': {'name': 'fixture'}, 'plugins': []}
+        codex_catalog = {'name': 'hibye-plugins', 'plugins': []}
+        for name in (*sync.HARNESS, 'backend-ts'):
+            source = root / 'plugins' / name
+            for host in ('codex', 'claude'):
+                folder = source / f'.{host}-plugin'
+                folder.mkdir(parents=True)
+                (folder / 'plugin.json').write_text(json.dumps({'name': name, 'version': '1.0.0'}))
+            (source / 'runtime.cjs').write_text('fixed original ' + name)
+            portable['plugins'].append({'name': name, 'source': './plugins/' + name,
+                'version': '1.0.0', 'custom': {'preserve': [name, 3]}})
+            codex_catalog['plugins'].append({'name': name,
+                'source': {'source': 'local', 'path': './plugins/' + name}})
+            if name == 'backend-ts':
+                continue
+            cache = self.codex_home / 'plugins/cache/hibye-plugins' / name / '1.0.0'
+            shutil.copytree(source, cache)
+            self.codex[name] = {'pluginId': name + '@hibye-plugins', 'version': '1.0.0', 'enabled': True}
+            targets = [('user', None)]
+            if name == 'work-context':
+                targets += [('project', str(self.project)), ('project', str(self.project2)), ('local', str(self.project))]
+            records = []
+            for scope, project in targets:
+                cache = self.home / 'plugins/cache/hibye-plugins' / name / '1.0.0'
+                if not cache.exists():
+                    shutil.copytree(source, cache)
+                record = {'scope': scope, 'version': '1.0.0', 'installPath': str(cache), 'gitCommitSha': 'old-development-head'}
+                if project:
+                    record['projectPath'] = project
+                records.append(record)
+                key = (name, scope, project)
+                self.active[key] = not (scope == 'local' or name == 'agent-results')
+                normalized = {'scope': scope, 'projectPath': project}
+                settings = self.settings_path(normalized)
+                settings.parent.mkdir(parents=True, exist_ok=True)
+                value = json.loads(settings.read_text()) if settings.exists() else {'unrelated': {'keep': True}}
+                value.setdefault('enabledPlugins', {})[name + '@hibye-plugins'] = self.active[key]
+                settings.write_text(json.dumps(value))
+            self.registry['plugins'][name + '@hibye-plugins'] = records
+        for folder, content in (('.claude-plugin', portable), ('.agents/plugins', codex_catalog)):
+            path = root / folder / 'marketplace.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(content))
+        self.write_registry()
+        self.write_known(root)
+        self.listing = portable
+
+    def settings_path(self, record):
+        if record['scope'] == 'user':
+            return self.home / 'settings.json'
+        return Path(record['projectPath']) / '.claude' / ('settings.local.json' if record['scope'] == 'local' else 'settings.json')
+
+    def write_registry(self):
+        path = self.home / 'plugins/installed_plugins.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.registry))
+
+    def write_known(self, location):
+        self.catalog_root = Path(location)
+        path = self.home / 'plugins/known_marketplaces.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({'hibye-plugins': {'source': {'source': 'directory', 'path': str(location)}, 'installLocation': str(location)}}))
+
+    def command(self, *args, cwd=None):
+        self.calls.append((args, str(cwd) if cwd else None))
+        # Like the native CLI, read the registry file each time; the sync may edit it.
+        self.registry = json.loads((self.home / 'plugins/installed_plugins.json').read_text())
+        if self.fail and self.fail(args, cwd):
+            raise RuntimeError('fixture native partial failure')
+        if args[:3] == ('codex', 'plugin', 'list'):
+            return json.dumps({'installed': list(self.codex.values())})
+        if args[:3] == ('codex', 'plugin', 'add'):
+            name = args[3].split('@')[0]
+            source = self.root / 'plugins' / name
+            version = json.loads((source / '.codex-plugin/plugin.json').read_text())['version']
+            cache = self.codex_home / 'plugins/cache/hibye-plugins' / name / version
+            if not cache.exists():
+                shutil.copytree(source, cache)
+            self.codex[name] = {'pluginId': name + '@hibye-plugins', 'version': version, 'enabled': True}
+            return '{}'
+        if args[:3] == ('claude', 'plugin', 'list'):
+            result = []
+            for plugin_id, records in self.registry['plugins'].items():
+                name = plugin_id.split('@')[0]
+                for record in records:
+                    item = {'id': plugin_id, **record, 'enabled': self.active[(name, record['scope'], record.get('projectPath'))]}
+                    source = next(entry for entry in self.listing['plugins'] if entry['name'] == name)['source']
+                    if isinstance(source, str):
+                        item['readFromFolder'] = str(self.root / source[2:])
+                    result.append(item)
+            return json.dumps(result)
+        if args[:4] == ('claude', 'plugin', 'marketplace', 'add'):
+            if '--json' in args:
+                raise RuntimeError('native marketplace add does not support --json')
+            self.write_known(Path(args[4]))
+            # Deliberately keep the old native listing until explicit refresh.
+            return '{}'
+        if args[:4] == ('claude', 'plugin', 'marketplace', 'update'):
+            if '--json' in args:
+                raise RuntimeError('native marketplace update does not support --json')
+            self.listing = json.loads((self.catalog_root / '.claude-plugin/marketplace.json').read_text())
+            return '{}'
+        if args[:3] in (('claude', 'plugin', 'update'), ('claude', 'plugin', 'install')):
+            if '--json' in args or '-y' in args:
+                raise RuntimeError('native plugin mutation received unsupported flags')
+            name = args[3].split('@')[0]
+            scope = args[args.index('--scope') + 1]
+            project = str(cwd) if scope != 'user' else None
+            if (scope, project) == self.skip_scope:
+                return '{}'
+            entry = next(item for item in self.listing['plugins'] if item['name'] == name)
+            if not isinstance(entry['source'], dict) or entry['source'].get('source') != 'url':
+                raise RuntimeError('fixture refuses in-place selected source')
+            from urllib.parse import urlparse, unquote
+            publication_root = Path(unquote(urlparse(entry['source']['url']).path))
+            version = entry['version']
+            cache = self.home / 'plugins/cache/hibye-plugins' / name / version
+            # Like a native cache, an existing same-version snapshot is reused.
+            if not cache.exists():
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                subprocess.run(['git', 'clone', '--quiet', '--depth=1', publication_root.as_uri(), str(cache)], check=True, capture_output=True)
+            records = self.registry['plugins'].setdefault(name + '@hibye-plugins', [])
+            item = next((record for record in records if record['scope'] == scope and record.get('projectPath') == project), None)
+            if item is None:
+                item = {'scope': scope}
+                if project:
+                    item['projectPath'] = project
+                records.append(item)
+                self.active[(name, scope, project)] = True
+            item.update(version=version, installPath=str(cache), gitCommitSha=sync.publication.git(publication_root, 'rev-parse', 'HEAD'))
+            if self.tamper_activation:
+                path = self.settings_path({'scope': scope, 'projectPath': project})
+                data = json.loads(path.read_text())
+                data['enabledPlugins'][name + '@hibye-plugins'] = True
+                path.write_text(json.dumps(data))
+            self.write_registry()
+            return '{}'
+        raise AssertionError('Unexpected fake CLI operation: ' + repr(args))
 
 
 class RecoveryTests(unittest.TestCase):
@@ -30,17 +194,20 @@ class RecoveryTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
-        self.fake = fixture.FakeNativeHosts(self.root)
+        self.fake = FakeNativeHosts(self.root)
         self.addCleanup(patch.stopall)
         patch.multiple(sync, ROOT=self.root, command=self.fake.command).start()
         patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(self.fake.home),
                                'CODEX_HOME': str(self.fake.codex_home)}).start()
 
     def run_cli(self, *args):
-        return fixture.HarnessUpdateTests().run_cli(*args)
+        with patch.object(sys, 'argv', ['sync-plugins.py', *args]), patch.object(sync.shutil, 'which', return_value='/fixture/cli'), redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors:
+            status = sync.main()
+        return status, output.getvalue(), errors.getvalue()
 
     def state(self, root=None):
-        return fixture.HarnessUpdateTests().file_state(root or self.root)
+        target = root or self.root
+        return {str(path.relative_to(target)): ('link', os.readlink(path)) if path.is_symlink() else ('file', path.read_bytes(), path.stat().st_mode & 0o777) for path in target.rglob('*') if path.is_file() or path.is_symlink()}
 
     def mutation_count(self):
         return sum(args[:3] in (('codex', 'plugin', 'add'), ('claude', 'plugin', 'update'),
@@ -69,7 +236,7 @@ class RecoveryTests(unittest.TestCase):
         hit = []
 
         def fail(path, *args, **kwargs):
-            if not hit and path == self.root / 'plugins/state-ledger/.codex-plugin/plugin.json':
+            if not hit and path == self.root / 'plugins/agent-results/.codex-plugin/plugin.json':
                 hit.append(path)
                 raise OSError(errno.ENOSPC, 'fixture source staging failure')
             return original(path, *args, **kwargs)
@@ -121,12 +288,12 @@ class RecoveryTests(unittest.TestCase):
         marketplace = json.loads((self.root / '.claude-plugin/marketplace.json').read_bytes())
         self.assertNotEqual(marketplace['plugins'][0]['version'], '1.0.0')
         with self.assertRaisesRegex(RuntimeError, 'Marketplace path/version mismatch'):
-            sync.manifests('state-ledger')
+            sync.manifests('agent-results')
         self.success_and_repeat()
 
     def test_pending_recovery_rejects_external_source_edit_without_replaying_other_files(self):
         self.fail_source_once()
-        target = self.root / 'plugins/spec-plan/.codex-plugin/plugin.json'
+        target = self.root / 'plugins/work-context/.codex-plugin/plugin.json'
         data = json.loads(target.read_bytes())
         data['description'] = 'external edit after interruption'
         target.write_text(json.dumps(data))
@@ -139,12 +306,12 @@ class RecoveryTests(unittest.TestCase):
 
     def test_parsed_bytes_are_the_cas_baseline_and_edit_survives_retry(self):
         original = sync.manifests
-        target = self.root / 'plugins/state-ledger/.codex-plugin/plugin.json'
+        target = self.root / 'plugins/agent-results/.codex-plugin/plugin.json'
         edited = []
 
         def manifests(name, snapshots=None):
             result = original(name, snapshots)
-            if snapshots is not None and name == 'state-ledger' and not edited:
+            if snapshots is not None and name == 'agent-results' and not edited:
                 data = json.loads(target.read_bytes())
                 data['description'] = 'concurrent metadata must survive'
                 target.write_text(json.dumps(data))
@@ -214,7 +381,7 @@ class RecoveryTests(unittest.TestCase):
         self.fake.calls.clear()
         # No Claude base is even consulted when only Codex is selected.
         with patch.object(sync.publication, 'default_base', side_effect=AssertionError('Codex-only selected Claude storage')):
-            status, _, error = self.run_cli('--plugin', 'project-context', '--host', 'codex')
+            status, _, error = self.run_cli('--plugin', 'work-context', '--host', 'codex')
         self.assertEqual(status, 0, error)
         self.assertEqual(before, self.state(base))
         self.assertTrue(sync.alias_journal().exists())
@@ -262,7 +429,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(os.WTERMSIG(status), signal.SIGKILL)
         self.assertTrue(sync.manifest_journal().exists())
         with self.assertRaisesRegex(RuntimeError, 'Marketplace path/version mismatch'):
-            sync.manifests('state-ledger')
+            sync.manifests('agent-results')
         self.success_and_repeat()
 
     def test_updaters_serialize_source_and_shared_catalog_without_lost_journal(self):
@@ -272,8 +439,8 @@ class RecoveryTests(unittest.TestCase):
         second_root = self.moved_source()
         self.fake.root = baseline_root
         sync.ROOT = baseline_root
-        (baseline_root / 'plugins/project-context/runtime.cjs').write_text('first updater source edit')
-        (second_root / 'plugins/state-ledger/runtime.cjs').write_text('second updater source edit')
+        (baseline_root / 'plugins/work-context/runtime.cjs').write_text('first updater source edit')
+        (second_root / 'plugins/agent-results/runtime.cjs').write_text('second updater source edit')
         state_path = baseline_root / 'fake-native-state.json'
 
         def save_state():

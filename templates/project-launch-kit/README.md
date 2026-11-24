@@ -26,7 +26,7 @@
 
 1. 첫 실제 진입점이 생기면 `SYSTEM_MAP.md`를 만든다.
 2. 첫 변경을 수용·공유하기 전에 `ops/gate-registry.yaml`을 만든다.
-3. 중요한 결정이 생기면 `DECISION_RECORD`, STATE 한 줄이 길어지면 `STATE_DETAIL`을 생성한다.
+3. 중요한 결정이 생기면 `DECISION_RECORD`을 생성한다.
 4. 모든 `BUILD_SLICE` 시작 시 조건부 트리거 8개를 다시 평가하고 `YES`·`UNKNOWN`인 문서를 연결한다.
 5. `PROJECT_BRIEF.md`는 현재 가설로 갱신하되, 중요한 판단 시점에는 변경 전 사본을 `snapshots/`에 고정한다.
 6. 결정되지 않은 값은 추측하지 말고 `UNDECIDED`로 남긴다.
@@ -51,7 +51,6 @@
 | `BUILD_SLICE` | 사용자 결과마다 | 다음에 끝까지 연결해 검증할 가장 작은 사용자 결과는 무엇인가? |
 | `SYSTEM_MAP` | 첫 실제 진입점이 생길 때 | 모듈·데이터·외부 시스템의 경계와 정본은 어디인가? |
 | `GATE_REGISTRY` | 첫 변경 수용 전 | 어떤 변경이 언제 어떤 검사를 통과해야 하는가? |
-| `STATE_DETAIL` | STATE 한 줄로 부족할 때 | 병렬 작업·의존성·handoff에 필요한 긴 맥락은 무엇인가? |
 | `DECISION_RECORD` | 중요한 결정마다 | 중요한 선택을 왜 했고 언제 다시 볼 것인가? |
 
 ## 조건부 확장
@@ -120,12 +119,12 @@ rg -n '\{\{[A-Z0-9_]+\}\}|\bUNDECIDED\b' .
 ## 공유 프로젝트 context (선택)
 
 메모리·운영 결정을 main/linked checkout과 여러 호스트에서 함께 읽을 때만
-`conditional/PROJECT_CONTEXT.template.json`을 `.project-context.json`으로 복사한다.
+`conditional/WORK_CONTEXT.template.json`을 `.work-context.json`으로 복사한다.
 기존 `docs/memory/MEMORY.md`와 `intent/`가 있어야 하며 필요 없는 채널은 `false`로 둔다.
 내용 없는 메모리나 결정을 setup이 자동 생성하지 않는다.
 
-전역 `project-context` native plugin 설치 후 저장소의
-`scripts/setup-project.sh <project> --plugin project-context --tools codex,claude --preview`로
-대상 변경을 확인하고 동일 명령에서 `--preview`를 빼 적용한다. `--check`로 멱등 상태를 확인한다.
+`work-context`는 전역 설치 스냅샷으로만 쓴다: hibye-plugins 저장소에서
+`python3 scripts/sync-plugins.py --plugin work-context --host codex --host claude --host muse`로 설치하고,
+같은 명령에 `--check`를 붙여 설치 상태를 확인한다. 프로젝트 쪽 opt-in은 위 `.work-context.json` 복사뿐이다.
+`scripts/setup-project.sh`는 쓰지 않는다(프로젝트에 스킬·훅을 복사하면 전역 훅과 겹쳐 두 번 돈다).
 메모리·intent·프로젝트 운영 규칙은 모두 현재 checkout이 소유하고, worktree 메모리는 브랜치 PR로 병합된다.
-`state-ledger`는 별도 plugin이며 프로젝트 context를 대신 초기화하지 않는다.

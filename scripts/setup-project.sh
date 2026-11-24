@@ -19,26 +19,6 @@ set -euo pipefail
 MARKET="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGINS_DIR="$MARKET/plugins"
 
-# Native project-context owns its runtime hooks. Only opt-in/native project
-# settings are written here; no global hooks or cache payloads are copied.
-context_selected=0
-other_selected=0
-previous=""
-for arg in "$@"; do
-  if [ "$previous" = "--plugin" ]; then
-    if [ "$arg" = "project-context" ]; then context_selected=1; else other_selected=1; fi
-  fi
-  previous="$arg"
-done
-if [ "$context_selected" = 1 ]; then
-  [ "$other_selected" = 0 ] || { echo "ERROR: run project-context setup separately from asset plugins" >&2; exit 2; }
-  context_args=()
-  while [ "$#" -gt 0 ]; do
-    if [ "$1" = "--plugin" ]; then shift 2; else context_args+=("$1"); shift; fi
-  done
-  exec python3 "$MARKET/scripts/setup-project-context.py" "${context_args[@]}"
-fi
-
 # ---- args ----
 PROJECT=""
 declare -a SEL_PLUGINS=()
@@ -50,7 +30,9 @@ LIST=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) LIST=1; shift;;
-    --plugin) SEL_PLUGINS+=("$2"); shift 2;;
+    --plugin)
+      case "$2" in work-context|agent-results) echo "ERROR: $2 is a global native snapshot; install with scripts/sync-plugins.py --plugin $2, not setup-project.sh" >&2; exit 2;; esac
+      SEL_PLUGINS+=("$2"); shift 2;;
     --skills) SKILLS_CSV="$2"; shift 2;;
     --tools) TOOLS_CSV="$2"; shift 2;;
     --no-hooks) DO_HOOKS=0; shift;;

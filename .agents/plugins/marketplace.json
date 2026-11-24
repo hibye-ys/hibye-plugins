@@ -23,46 +23,10 @@
       "category": "Developer Tools"
     },
     {
-      "name": "state-ledger",
-      "source": {
-        "source": "local",
-        "path": "./plugins/state-ledger"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Developer Tools"
-    },
-    {
-      "name": "spec-plan",
-      "source": {
-        "source": "local",
-        "path": "./plugins/spec-plan"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Developer Tools"
-    },
-    {
       "name": "muse-delegate",
       "source": {
         "source": "local",
         "path": "./plugins/muse-delegate"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Developer Tools"
-    },
-    {
-      "name": "project-context",
-      "source": {
-        "source": "local",
-        "path": "./plugins/project-context"
       },
       "policy": {
         "installation": "AVAILABLE",

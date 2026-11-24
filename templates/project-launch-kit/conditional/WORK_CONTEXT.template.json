@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "plans": { "directory": "docs/plans" },
+  "memory": { "directory": "docs/memory", "index": "MEMORY.md" },
+  "intent": { "directory": "intent" }
+}
