@@ -1,6 +1,6 @@
 {
   "name": "work-context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "계획 폴더(스펙·계획·주입 파일·진행 표)와 세션 시작·압축 뒤·매 턴 주입",
   "author": {
     "name": "hibye-ys"
