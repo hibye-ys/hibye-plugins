@@ -119,6 +119,6 @@ node plugins/backend-ts/skills/backend-audit/scripts/audit.mjs --project /path/t
 ## Scripts
 
 - `scripts/link-cache.sh`: 기존 플러그인의 개발용 Claude cache 연결 (native snapshot 두 플러그인은 제외).
-- `scripts/setup-project.sh`: 기존 asset 배선.
+- `scripts/setup-project.sh`: 기존 asset 배선. native snapshot 두 플러그인(`work-context`·`agent-results`)은 `--plugin` 으로 받지 않고 거부한다.
 - `scripts/sync-plugins.py`: 명시한 plugin/host만 native 설치하고 전체 payload·version·activation을 검증.
 - `scripts/merge-project-hooks.py`: 기존 asset setup의 같은 이벤트 배열을 보존하며 hook 등록을 합친다.

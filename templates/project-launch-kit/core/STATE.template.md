@@ -9,7 +9,6 @@
 - 모든 실제 작업과 결정은 짧고 안정적인 ID를 가진다.
 - 한 작업에는 한 명의 accountable owner만 둔다.
 - 항목은 한 줄로 현재 상태와 다음 증거를 전달할 수 있어야 한다.
-- detail이 있으면 owner·workspace·lifecycle metadata는 detail이 정본이고, 이 파일은 routing index다.
 - 외부 issue tracker가 있으면 백로그와 수용 이력은 그곳이 소유하고 여기에는 현재 항목과 issue ID만 연결한다.
 
 ## 1. 활성

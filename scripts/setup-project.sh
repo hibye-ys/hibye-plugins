@@ -30,7 +30,9 @@ LIST=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) LIST=1; shift;;
-    --plugin) SEL_PLUGINS+=("$2"); shift 2;;
+    --plugin)
+      case "$2" in work-context|agent-results) echo "ERROR: $2 is a global native snapshot; install with scripts/sync-plugins.py --plugin $2, not setup-project.sh" >&2; exit 2;; esac
+      SEL_PLUGINS+=("$2"); shift 2;;
     --skills) SKILLS_CSV="$2"; shift 2;;
     --tools) TOOLS_CSV="$2"; shift 2;;
     --no-hooks) DO_HOOKS=0; shift;;

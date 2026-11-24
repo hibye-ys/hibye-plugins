@@ -123,7 +123,8 @@ rg -n '\{\{[A-Z0-9_]+\}\}|\bUNDECIDED\b' .
 기존 `docs/memory/MEMORY.md`와 `intent/`가 있어야 하며 필요 없는 채널은 `false`로 둔다.
 내용 없는 메모리나 결정을 setup이 자동 생성하지 않는다.
 
-전역 `work-context` native plugin 설치 후 저장소의
-`scripts/setup-project.sh <project> --plugin work-context --tools codex,claude --preview`로
-대상 변경을 확인하고 동일 명령에서 `--preview`를 빼 적용한다. `--check`로 멱등 상태를 확인한다.
+`work-context`는 전역 설치 스냅샷으로만 쓴다: hibye-plugins 저장소에서
+`python3 scripts/sync-plugins.py --plugin work-context --host codex --host claude --host muse`로 설치하고,
+같은 명령에 `--check`를 붙여 설치 상태를 확인한다. 프로젝트 쪽 opt-in은 위 `.work-context.json` 복사뿐이다.
+`scripts/setup-project.sh`는 쓰지 않는다(프로젝트에 스킬·훅을 복사하면 전역 훅과 겹쳐 두 번 돈다).
 메모리·intent·프로젝트 운영 규칙은 모두 현재 checkout이 소유하고, worktree 메모리는 브랜치 PR로 병합된다.
