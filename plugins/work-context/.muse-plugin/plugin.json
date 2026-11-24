@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "work-context",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "displayName": "Work Context",
   "description": "계획 폴더의 목표·지시·진행을 세션 시작과 매 턴, 계획 파일 편집 뒤에 주입한다.",
   "compat": {
