@@ -7,47 +7,15 @@ Claude Code·Codex·Muse Code용 개인 에이전트 플러그인 원본 저장�
 | 이름 | 목적 |
 |---|---|
 | `backend-ts` | EUNHA TypeScript API의 agent, context, provider, tool, MCP, HTTP, SSE 런타임 스킬 10개와 검증 하네스 |
-| `state-ledger` | 전역 STATE 원장 lifecycle; 프로젝트 context와 독립된 native snapshot. 스킬 `setup-state`(설치); 사용 규칙 `state-ledger-rules`는 프로젝트에 복사하는 템플릿 |
-| `project-context` | 프로젝트 opt-in에 따라 현재 checkout의 메모리와 intent를 host별로 연결. 스킬 `setup-project-context`; `docs-boundary`(문서는 실행 입력이 아님, 문서 위치 규칙)는 프로젝트에 복사하는 템플릿 |
-| `spec-plan` | 짧은 스펙(`spec.md`)과 구현 계획(`plan.md`)을 나눠 쓰기, 모델 배정, 순차·병렬 실행과 작업 인계 (Claude·Codex·Muse 전역 설치) |
 | `agent-results` | 실제 실행 결과·하네스 버전 보존, 근거 있는 개선 권고와 사용자 지시 후 개선 (Codex·Claude 공통) |
 | `muse-delegate` | muse를 언급할 때만 Orca 또는 Orca 없는 headless `muse exec`(`muse-exec.sh`)로 muse 워커에 구현을 위임하고 검증 (Claude·Codex 전역 설치) |
 | `verification-setup` | 진입점 기준으로 꼭 필요한 테스트만 쓰고, 테스트 지도·대조로 빠짐과 넘침을 보이며, 빌드 도구의 패키지 그래프로 관련 테스트만 다시 돌리는 문장 스킬 (Claude·Codex 전역 설치) |
 | `orch` | Claude 모델·effort 배정 원칙 `claude-models`와 역할 기반 최상위 관리 세션 `lead`(구현·검증 하위 세션 배분). 수동 호출 `/orch:lead`·`/orch:claude-models` (Claude 전용) |
-| `work-context` | 계획 폴더(스펙·계획·주입 파일·진행 표)로 목표·지시·진행을 이어 가고, 세션 시작·압축 뒤·주입 파일이나 진행 표 머리가 바뀐 직후 전체를, 그 사이 턴에는 목표 한 줄과 체크리스트를 주입. spec-plan·project-context·state-ledger 를 대신한다 (Claude·Codex·Muse) |
-
-## spec-plan 전역 설치
-
-원본은 `plugins/spec-plan/skills/spec-plan/`이다. Claude·Codex에 이 로컬
-`hibye-plugins` marketplace가 등록된 환경에서 저장소 루트 기준으로 실행한다.
-
-```bash
-codex plugin add spec-plan@hibye-plugins
-claude plugin install spec-plan@hibye-plugins --scope user
-muse plugins install "$PWD/plugins/spec-plan" --scope user
-```
-
-Muse는 Claude 호환 manifest를 읽으며 별도 Muse용 스킬 복사본을 관리하지 않는다.
-세 도구 모두 원본에서 생성된 전역 설치 캐시를 사용한다. 기존 standalone
-`~/.codex/skills/spec-plan`·`~/.claude/skills/spec-plan`과 중복 설치하지 않는다.
-`spec-plan`은 SessionStart의 자동 source link 대상에서 제외한다. 원본 변경 후
-아래 명령 하나로 공통 설치 버전을 갱신하고 세 도구를 업데이트한다.
-
-```bash
-python3 scripts/sync-spec-plan.py
-python3 scripts/sync-spec-plan.py --check  # 수정 없이 현재 설치 상태만 확인
-```
-
-Python 3와 세 CLI가 설치된 환경에서 사용한다. 공통 build 버전은 이 저장소의
-스크립트가 직접 생성하므로 Codex 번들 helper에 의존하지 않는다.
-버전·활성화·전체 배포 payload(manifest·hook·runtime·skills·참조 설정) 내용·source link 부재가 모두 확인돼야 성공한다.
-도구별 설치는 순차 실행이므로 중간 실패 시 일부만 갱신될 수 있으며, 이 경우
-실패를 알리고 중단한다. 원인을 해결한 뒤 같은 명령을 다시 실행한다.
-설치·갱신 뒤 새 세션에서 사용한다.
+| `work-context` | 계획 폴더(스펙·계획·주입 파일·진행 표)로 목표·지시·진행을 이어 가고, 세션 시작·압축 뒤·주입 파일이나 진행 표 머리가 바뀐 직후 전체를, 그 사이 턴에는 목표 한 줄과 체크리스트를 주입. 옛 하네스 셋을 대신한다 (Claude·Codex·Muse) |
 
 ## 공통 하네스 설치·업데이트
 
-공통 하네스 `state-ledger`·`project-context`·`spec-plan`·`agent-results`는 Codex와 Claude 모두 설치 스냅샷을
+공통 하네스 `work-context`·`agent-results`는 Codex와 Claude 모두 설치 스냅샷을
 실행한다. macOS/Linux의 Python **3.11 이상**과 두 native CLI가 필요하며, Codex에는 로컬 `hibye-plugins`
 marketplace를 먼저 등록한다. 이 저장소에서 다음 명령 하나로 두 호스트를 함께 갱신한다.
 
@@ -80,7 +48,7 @@ Claude native CLI가 만드는 shallow clone의 `.git`은 설치 메타데이터
 promisor·실행형 Git 설정·활성 Git hook·symlink는 거부한다. 소스와 배포 payload의 `.git` 금지는 유지한다.
 Claude의 목록 조회에는 `--json`을 사용하고 marketplace·plugin 설치/갱신에는 해당 CLI의 native 옵션만 쓴다.
 선택하지 않은 catalog entry는 원래 필드를 보존하고, 기존 상대경로는 개발 원본으로 연결해
-그 plugin의 기존 개발 흐름을 유지한다. 공통 하네스 세 plugin에는 이 연결을 만들지 않는다.
+그 plugin의 기존 개발 흐름을 유지한다. 공통 하네스 두 plugin에는 이 연결을 만들지 않는다.
 
 `--check`는 실제 marketplace 배포 source, 선택 entry의 고정 Git 경로·revision, 유효한 기존
 설치 scope, 전체 설치 파일과 원본의 동일성을 함께 확인한다. 개발 원본을 실행하는 등록이나
@@ -99,64 +67,19 @@ catalog·버전을 쓰거나 설치하지 않는다. 두 호스트는 순서대�
 선택 범위를 직접 지정하는 기존 명령도 유지한다.
 
 ```bash
-python3 scripts/sync-plugins.py --plugin project-context --host codex --host claude --check
+python3 scripts/sync-plugins.py --plugin work-context --host codex --host claude --check
 ```
 
 명시 선택 모드에서는 필요할 때 `--build-marker`로 선택 plugin의 양 manifest·Muse manifest·
 Claude 원본 catalog version을 함께 갱신한다. `--harness`에는 별도 plugin/host 선택을 섞지 않는다.
 
-`link-cache.sh`와 `--codex-dev-links`는 위 세 하네스를 개발 원본 링크로 바꾸지 않는다.
+`link-cache.sh`와 `--codex-dev-links`는 위 두 하네스를 개발 원본 링크로 바꾸지 않는다.
 다른 plugin의 기존 개발 링크 흐름은 별도이며, 배포 경계 회귀는 다음으로 확인한다.
 
 ```bash
-python3 scripts/test-project-context-distribution.py
-python3 scripts/test-spec-plan-sync.py
 python3 scripts/test-plugin-sync-recovery.py
 python3 scripts/test-plugin-publication.py
 ```
-
-## 프로젝트 opt-in
-
-먼저 프로젝트의 실제 메모리 index와 intent 디렉터리를 준비한다. setup은 문서 내용을 만들거나
-덮어쓰지 않는다. 대상 프로젝트만 선택하며 전역 설정·전역 hooks·설치 캐시를 변경하지 않는다.
-
-```bash
-bash scripts/setup-project.sh /path/to/project --plugin project-context --tools codex,claude --preview
-bash scripts/setup-project.sh /path/to/project --plugin project-context --tools codex,claude
-bash scripts/setup-project.sh /path/to/project --plugin project-context --tools codex,claude --check
-```
-
-기본 opt-in은 `.project-context.json`의 memory=`docs/memory/MEMORY.md`, intent=`intent/`다.
-`--memory-directory`, `--memory-index`, `--intent-directory`, `--no-memory`, `--no-intent`로
-선택한다. 기존 opt-in이 있고 새 선택을 주지 않으면 그대로 재사용한다. 하나 이상 활성화해야 한다.
-custom index 이름은 모든 host에서 지원한다. 자동 index 복사본은 만들지 않는다.
-memory를 켠 프로젝트에서만 Codex `use_memories`·`generate_memories`를 false로 두고,
-Claude는 `autoMemoryEnabled`를 false로 두며 예전 setup이 넣은 `autoMemoryDirectory`를 제거한다.
-메모리와 intent는 모두 현재 checkout(linked worktree·primary·독립/클라우드 clone 각각)의
-디렉터리를 읽고 쓴다. worktree에서 쓴 메모리는 그 브랜치의 PR이 병합될 때 합쳐지고, 다른
-worktree가 아직 병합하지 않은 메모리는 보이지 않는다. primary checkout 경로에는 의존하지 않는다.
-`autoMemoryDirectory`는 절대 경로나 `~/`만 받고, 추적되는 `.claude/settings.json`은 데스크톱 앱
-worktree 세션에서도 main checkout 것이 읽히므로 checkout마다 다른 경로를 넣을 수 없다. 그래서
-Claude도 Codex처럼 SessionStart 훅이 현재 checkout의 index 경로·해시를 안내한다.
-기존 프로젝트는 setup을 다시 실행하면 절대 경로가 빠지고(`--check`는 exit 1로 알린다), 그 전까지
-Claude 세션에는 `PROJECT_MEMORY_NATIVE_SETTING_STALE`이 표시된다.
-native plugin hooks가 runtime을 제공하며 project에 이를 복제하지 않는다.
-
-기존 은하 소유 context 등록은 코드에 고정한 완전한 canonical command 문자열만 제거한다.
-여기에는 원본 EUNHA의 정확한 Git 환경 정리 wrapper와 단일 Node context/intent 명령만 포함한다.
-사용자 prefix/suffix·조건·파이프·새 명령 치환을 가진 변형은 자동으로 추출하거나 재작성하지 않고
-예약 진입점 참조 실패로 남긴다.
-같은 이벤트의 사용자 hooks, knip, MCP, 다른 JSON/TOML 값과 비소유 TOML 주석은 보존한다.
-예전 경로를 출력하거나 다른 스크립트에 인수로 넘기는 hook은 임의로 제거하지 않는다.
-project SessionStart에서 `session-start-context.mjs`, `intent-ledger.mjs`, `project-context.cjs`,
-`project-context.mjs`, `project-context-runner.mjs`는 native context용 예약 진입점이다.
-자동 이관 대상 이외의 참조가 남으면 실행·echo·인수·check 여부와 무관하게
-`PROJECT_CONTEXT_RESERVED_REGISTRATION`으로 쓰기 전에 실패한다. 사용자 hook은 그대로 보존하므로
-해당 등록을 검토한 뒤 명시적으로 정리해야 한다. 다른 일반 사용자 hook은 허용한다.
-JSON/TOML 오류·미지원 레이아웃·경로 탈출·symlink는 쓰기 전에 실패하며, 쓰기 실패는
-이미 쓴 파일을 되돌리고 완료로 보고하지 않는다. 일반/linked Git checkout을 지원하며
-bare·non-Git 및 inline/dotted `memories` TOML 레이아웃은 안전 실패한다.
-필요하면 먼저 명시적인 `[memories]` table로 정리한다. `--check`는 변경이 필요하면 exit 1이다.
 
 ## muse-delegate 전역 설치
 
@@ -195,9 +118,7 @@ node plugins/backend-ts/skills/backend-audit/scripts/audit.mjs --project /path/t
 
 ## Scripts
 
-- `scripts/link-cache.sh`: 기존 플러그인의 개발용 Claude cache 연결 (native snapshot 세 플러그인은 제외).
-- `scripts/sync-spec-plan.py`: spec-plan의 세 전역 설치본을 함께 갱신하고 내용 일치 검증.
-- `scripts/setup-project.sh`: 기존 asset 배선 및 `--plugin project-context`의 target-only opt-in setup.
+- `scripts/link-cache.sh`: 기존 플러그인의 개발용 Claude cache 연결 (native snapshot 두 플러그인은 제외).
+- `scripts/setup-project.sh`: 기존 asset 배선.
 - `scripts/sync-plugins.py`: 명시한 plugin/host만 native 설치하고 전체 payload·version·activation을 검증.
-- `scripts/setup-project-context.py`: preview/check와 JSON/TOML 비소유 설정 보존이 있는 프로젝트 setup.
 - `scripts/merge-project-hooks.py`: 기존 asset setup의 같은 이벤트 배열을 보존하며 hook 등록을 합친다.

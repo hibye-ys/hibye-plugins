@@ -1,4 +1,0 @@
-interface:
-  display_name: "Spec Plan"
-  short_description: "짧은 스펙과 구현 계획을 나눠 쓰고 모델별 작업 배정, 중단 후 인계"
-  default_prompt: "$spec-plan으로 짧은 스펙을 먼저 쓰고, 확정되면 구현 계획을 만들어 사용 가능한 에이전트에 작업을 배정해줘."
