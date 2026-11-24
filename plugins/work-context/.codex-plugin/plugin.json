@@ -1,0 +1,23 @@
+{
+  "name": "work-context",
+  "version": "0.1.0",
+  "description": "계획 폴더(스펙·계획·주입 파일·진행 표)와 세션 시작·압축 뒤·매 턴 주입",
+  "author": {
+    "name": "hibye-ys"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Work Context",
+    "shortDescription": "계획 폴더로 목표·지시·진행을 이어 가고 세션 시작·압축 뒤·매 턴 주입",
+    "longDescription": "계획 폴더의 목표·지시·진행 표를 세션 시작과 압축 뒤, 매 턴마다 주입합니다. 운영 결정과 메모리 인덱스도 함께 넣어 이전 작업을 끊김 없이 이어 갑니다.",
+    "developerName": "hibye-ys",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "계획 폴더를 확인하고 목표·지시·진행을 이어서 이번 작업을 정리해줘."
+  }
+}

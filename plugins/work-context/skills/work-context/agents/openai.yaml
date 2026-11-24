@@ -1,0 +1,4 @@
+interface:
+  display_name: "Work Context"
+  short_description: "계획 폴더에 목표·지시·진행을 적어 두고 일을 맡기고 멈춘 일을 이어받기"
+  default_prompt: "$work-context로 계획 폴더를 만들어 목표·지시·진행을 적고 일을 맡기거나 멈춘 일을 이어받아줘."
