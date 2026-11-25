@@ -1,6 +1,6 @@
 {
   "name": "verification-setup",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "description": "Write only the tests a project needs, judged from its entry points, with a test map and package-based test selection.",
   "author": {
     "name": "hibye-ys"
