@@ -39,7 +39,7 @@
       "description": "진입점 기준으로 꼭 필요한 테스트만 쓰고, 테스트 지도·대조로 빠짐과 넘침을 보이며, 패키지 그래프로 관련 테스트만 다시 돌리는 문장 스킬 (Claude/Codex 공용).",
       "category": "development",
       "source": "./plugins/verification-setup",
-      "version": "0.4.3"
+      "version": "0.4.4"
     },
     {
       "name": "work-context",
